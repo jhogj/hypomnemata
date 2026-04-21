@@ -23,6 +23,8 @@ log = logging.getLogger("hypomnemata.ytdlp")
 _VIDEO_EXTS = frozenset({".mp4", ".mkv", ".webm", ".mov", ".m4v", ".avi"})
 _IMAGE_EXTS = frozenset({".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp"})
 _MEDIA_EXTS = _VIDEO_EXTS | _IMAGE_EXTS
+_SUBTITLE_EXTS = frozenset({".vtt", ".srt"})
+_SUBTITLE_LANGS = ["pt", "pt-BR", "pt_BR", "en"]  # preference order
 _DESC_MAX = 5000
 _UA = "Mozilla/5.0 (compatible; Hypomnemata/1.0)"
 _THUMB_NAME = "thumb.jpg"
@@ -35,6 +37,50 @@ def _find_media_files(item_subdir: Path) -> list[Path]:
         f for f in item_subdir.iterdir()
         if f.is_file() and f.suffix.lower() in _MEDIA_EXTS
     )
+
+
+def _find_subtitle_file(item_subdir: Path) -> Path | None:
+    """Return the best available subtitle file, preferring pt then en."""
+    if not item_subdir.is_dir():
+        return None
+    candidates = [
+        f for f in item_subdir.iterdir()
+        if f.is_file() and f.suffix.lower() in _SUBTITLE_EXTS
+    ]
+    if not candidates:
+        return None
+    for lang in _SUBTITLE_LANGS:
+        for f in sorted(candidates):
+            # yt-dlp names subtitles as {video_stem}.{lang}.{ext}
+            if f.stem.endswith(f".{lang}"):
+                return f
+    return sorted(candidates)[0]
+
+
+def _parse_subtitle(path: Path) -> str:
+    """Extract clean plain text from a .vtt or .srt subtitle file."""
+    raw = path.read_text(encoding="utf-8", errors="replace")
+    # Remove WEBVTT header and NOTE blocks
+    raw = re.sub(r"^WEBVTT[^\n]*\n?", "", raw, flags=re.MULTILINE)
+    raw = re.sub(r"^NOTE\b[^\n]*\n?", "", raw, flags=re.MULTILINE)
+    # Remove timestamp lines: 00:00:00.000 --> 00:00:04.000 ... (VTT and SRT)
+    raw = re.sub(
+        r"\d{1,2}:\d{2}:\d{2}[.,]\d{3}\s*-->\s*\d{1,2}:\d{2}:\d{2}[.,]\d{3}[^\n]*\n?",
+        "",
+        raw,
+    )
+    # Remove cue sequence numbers (SRT) and VTT cue identifiers
+    raw = re.sub(r"^\d+\s*\n", "", raw, flags=re.MULTILINE)
+    # Remove VTT/HTML inline tags: <c>, <i>, <b>, <00:00:01.000>, etc.
+    raw = re.sub(r"<[^>]+>", "", raw)
+    # Strip lines and drop empties
+    lines = [line.strip() for line in raw.splitlines() if line.strip()]
+    # Deduplicate adjacent identical lines (auto-generated captions repeat)
+    deduped: list[str] = []
+    for line in lines:
+        if not deduped or line != deduped[-1]:
+            deduped.append(line)
+    return " ".join(deduped)
 
 
 def _generate_thumbnail(
@@ -273,6 +319,25 @@ def _run_ytdlp_sync(item_id: str) -> None:
                     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                         info = ydl.extract_info(item.source_url, download=True)
                     media_files = _find_media_files(item_subdir)
+                    # Subtitle download is a separate, non-fatal step so a 429 or
+                    # missing subtitle never aborts the video that's already saved.
+                    if item.kind != "tweet":
+                        sub_opts = {
+                            "skip_download": True,
+                            "writesubtitles": True,
+                            "writeautomaticsub": True,
+                            "subtitleslangs": ["pt", "pt-BR"],
+                            "subtitlesformat": "vtt",
+                            "outtmpl": outtmpl,
+                            "quiet": True,
+                            "no_warnings": True,
+                            "noplaylist": True,
+                        }
+                        try:
+                            with yt_dlp.YoutubeDL(sub_opts) as ydl_sub:
+                                ydl_sub.extract_info(item.source_url, download=True)
+                        except Exception as sub_err:
+                            log.debug("subtitle download skipped for item=%s: %s", item_id, sub_err)
                 except yt_dlp.utils.DownloadError as dl_err:
                     if item.kind != "tweet":
                         raise
@@ -345,9 +410,6 @@ def _run_ytdlp_sync(item_id: str) -> None:
                 if thumb_rel:
                     existing_meta["thumbnail_path"] = thumb_rel
 
-                if existing_meta:
-                    vals["meta_json"] = json.dumps(existing_meta)
-
                 # Metadata: prefer yt-dlp info (video tweets); fall back to oEmbed text.
                 if info:
                     actual = info
@@ -357,9 +419,37 @@ def _run_ytdlp_sync(item_id: str) -> None:
                         vals["title"] = actual["title"]
                     desc = actual.get("description") or ""
                     if desc:
-                        vals["body_text"] = desc[:_DESC_MAX]
+                        existing_meta["description"] = desc[:_DESC_MAX]
                 elif tweet_body:
                     vals["body_text"] = tweet_body[:_DESC_MAX]
+
+                # Subtitle: use as body_text (more useful than description for search).
+                # Only for non-tweet videos; description saved to meta_json["description"].
+                if item.kind != "tweet":
+                    sub_file = _find_subtitle_file(item_subdir)
+                    if sub_file:
+                        try:
+                            sub_text = _parse_subtitle(sub_file)
+                            if sub_text:
+                                vals["body_text"] = sub_text
+                                # Detect language from filename stem: 001.pt.vtt → "pt"
+                                stem_parts = sub_file.stem.rsplit(".", 1)
+                                if len(stem_parts) == 2:
+                                    existing_meta["subtitle_lang"] = stem_parts[1]
+                                log.info(
+                                    "subtitle extracted: %d chars item=%s file=%s",
+                                    len(sub_text),
+                                    item_id,
+                                    sub_file.name,
+                                )
+                        except Exception as e:
+                            log.debug("subtitle parse failed: %s", e)
+                    elif desc:
+                        # No subtitle available — fall back to description
+                        vals["body_text"] = desc[:_DESC_MAX]
+
+                if existing_meta:
+                    vals["meta_json"] = json.dumps(existing_meta)
 
                 db.execute(update(Item).where(Item.id == item_id).values(**vals))
                 db.commit()

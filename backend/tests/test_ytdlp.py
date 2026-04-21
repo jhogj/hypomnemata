@@ -39,6 +39,80 @@ def test_find_media_files_missing(tmp_path: Path):
     assert _find_media_files(nonexistent) == []
 
 
+def test_find_subtitle_file_prefers_pt(tmp_path: Path):
+    from hypomnemata.ytdlp import _find_subtitle_file
+
+    (tmp_path / "001.en.vtt").touch()
+    (tmp_path / "001.pt.vtt").touch()
+
+    result = _find_subtitle_file(tmp_path)
+    assert result is not None
+    assert "pt" in result.name
+
+
+def test_find_subtitle_file_fallback_en(tmp_path: Path):
+    from hypomnemata.ytdlp import _find_subtitle_file
+
+    (tmp_path / "001.en.vtt").touch()
+    (tmp_path / "001.info.json").touch()
+
+    result = _find_subtitle_file(tmp_path)
+    assert result is not None
+    assert result.suffix == ".vtt"
+
+
+def test_find_subtitle_file_missing(tmp_path: Path):
+    from hypomnemata.ytdlp import _find_subtitle_file
+
+    (tmp_path / "001.mp4").touch()
+    assert _find_subtitle_file(tmp_path) is None
+
+
+def test_parse_subtitle_vtt(tmp_path: Path):
+    from hypomnemata.ytdlp import _parse_subtitle
+
+    vtt = tmp_path / "001.pt.vtt"
+    vtt.write_text(
+        "WEBVTT\n\n"
+        "00:00:00.000 --> 00:00:04.000\n"
+        "Olá, bem-vindo ao canal.\n\n"
+        "00:00:04.000 --> 00:00:08.000\n"
+        "<c>Hoje vamos falar</c> sobre Python.\n\n"
+        "00:00:08.000 --> 00:00:12.000\n"
+        "Hoje vamos falar sobre Python.\n",  # duplicate of prev (auto-caption)
+        encoding="utf-8",
+    )
+
+    result = _parse_subtitle(vtt)
+    assert "Olá, bem-vindo ao canal." in result
+    assert "Hoje vamos falar sobre Python." in result
+    # Duplicate adjacent line should be removed
+    assert result.count("Hoje vamos falar sobre Python.") == 1
+    # No tags or timestamps
+    assert "-->" not in result
+    assert "<c>" not in result
+
+
+def test_parse_subtitle_srt(tmp_path: Path):
+    from hypomnemata.ytdlp import _parse_subtitle
+
+    srt = tmp_path / "001.en.srt"
+    srt.write_text(
+        "1\n"
+        "00:00:00,000 --> 00:00:04,000\n"
+        "Hello world.\n\n"
+        "2\n"
+        "00:00:04,000 --> 00:00:08,000\n"
+        "This is a test.\n",
+        encoding="utf-8",
+    )
+
+    result = _parse_subtitle(srt)
+    assert "Hello world." in result
+    assert "This is a test." in result
+    assert "-->" not in result
+
+
 def test_download_tweet_images_no_gallerydl_no_network(tmp_path: Path):
     """When gallery-dl is absent and oEmbed fails, returns ([], None) without raising."""
     from hypomnemata.ytdlp import _download_tweet_images
