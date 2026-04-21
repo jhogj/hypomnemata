@@ -128,6 +128,8 @@ export function DetailModal({ itemId, initialVideoTime, onClose, onChanged, onDe
     item.asset_path && /\.(png|jpe?g|gif|webp|bmp)$/i.test(item.asset_path);
   const isVideo =
     item.asset_path && /\.(mp4|webm|mkv|mov|m4v)$/i.test(item.asset_path);
+  const isPdf =
+    item.asset_path && /\.pdf$/i.test(item.asset_path);
 
   // Multiple images from a tweet gallery are stored as meta_json.media_paths.
   const mediaPaths: string[] | null = (() => {
@@ -243,6 +245,24 @@ export function DetailModal({ itemId, initialVideoTime, onClose, onChanged, onDe
               }}
               className="mx-auto max-h-full w-full"
             />
+          ) : isPdf ? (
+            <object
+              data={api.assetUrl(item.asset_path!)}
+              type="application/pdf"
+              className="h-full w-full rounded"
+            >
+              <div className="flex h-full items-center justify-center text-sm text-paper-mid">
+                Seu navegador não suporta visualização de PDFs.
+                <a
+                  href={api.assetUrl(item.asset_path!)}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="ml-1 text-paper-accent underline"
+                >
+                  Baixar arquivo
+                </a>
+              </div>
+            </object>
           ) : item.download_status === "pending" ? (
             <div className="flex h-full items-center justify-center text-sm text-paper-mid">
               Baixando mídia...

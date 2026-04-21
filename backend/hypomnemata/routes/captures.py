@@ -11,9 +11,12 @@ from ..db import get_session
 from ..models import Item
 from ..ocr import is_ocr_candidate, ocr_item
 from ..article import scrape_article
+from ..thumbgen import generate_upload_thumbnail
 from ..ytdlp import download_video
 from ..schemas import ItemOut, validate_kind
 from ..storage import AssetTooLargeError, save_upload
+
+_THUMB_EXTS = {".pdf", ".mp4", ".webm", ".mkv", ".mov", ".m4v", ".avi"}
 
 router = APIRouter(prefix="/captures", tags=["captures"])
 
@@ -67,10 +70,17 @@ async def create_capture(
     # Tweets/videos sem arquivo (URL colada no webapp) passam pelo yt-dlp;
     # Articles passam pelo scraper de artigos.
     # Tweets com screenshot da extensão já têm asset_path — não substituímos.
+    needs_thumbgen = False
     if item.source_url and kind in ("video", "tweet") and not item.asset_path:
         item.download_status = "pending"
     elif item.source_url and kind == "article" and not item.asset_path:
         item.download_status = "pending"
+    elif item.asset_path and not item.download_status:
+        from pathlib import PurePosixPath
+        ext = PurePosixPath(item.asset_path).suffix.lower()
+        if ext in _THUMB_EXTS:
+            item.download_status = "pending"
+            needs_thumbgen = True
 
     tag_list = [t.strip() for t in (tags or "").split(",") if t.strip()]
     if tag_list:
@@ -81,7 +91,9 @@ async def create_capture(
     if item.ocr_status == "pending":
         background_tasks.add_task(ocr_item, item.id)
     if item.download_status == "pending":
-        if kind == "article":
+        if needs_thumbgen:
+            background_tasks.add_task(generate_upload_thumbnail, item.id)
+        elif kind == "article":
             background_tasks.add_task(scrape_article, item.id)
         else:
             background_tasks.add_task(download_video, item.id)

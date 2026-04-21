@@ -118,7 +118,7 @@ export function Card({ item, onClick, onDelete }: Props) {
                 </svg>
               </div>
             </div>
-          ) : (!showThumb && thumbnailPath) ? (
+          ) : (!showThumb && thumbnailPath && isVideoKind) ? (
             <div className="absolute inset-0 flex items-center justify-center">
               <div className="flex h-12 w-12 items-center justify-center rounded-full bg-black/60 text-white shadow-lg backdrop-blur-sm transition-transform group-hover:scale-110">
                 <svg
