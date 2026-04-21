@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useRef, useState, useEffect } from "react";
 import { api, type Item } from "../lib/api";
 
 interface Props {
@@ -59,8 +59,34 @@ export function Card({ item, onClick, onDelete }: Props) {
       ? api.assetUrl(thumbnailPath)
       : null;
 
-  // Can this card play inline?
-  const canPlay = isVideoKind && videoUrl != null;
+  const canPlay = isVideoKind && videoUrl;
+
+  const cardRef = useRef<HTMLButtonElement>(null);
+
+  useEffect(() => {
+    if (!playing) return;
+
+    function handleClickOutside(e: MouseEvent) {
+      if (cardRef.current && !cardRef.current.contains(e.target as Node)) {
+        setPlaying(false);
+      }
+    }
+
+    function handleGlobalPlay(e: Event) {
+      if (e.target !== videoRef.current) {
+        setPlaying(false);
+      }
+    }
+
+    document.addEventListener("click", handleClickOutside);
+    // Capture phase for 'play' events because they don't bubble
+    document.addEventListener("play", handleGlobalPlay, true);
+
+    return () => {
+      document.removeEventListener("click", handleClickOutside);
+      document.removeEventListener("play", handleGlobalPlay, true);
+    };
+  }, [playing]);
 
   function handlePlayClick(e: React.MouseEvent) {
     e.stopPropagation();
@@ -80,6 +106,7 @@ export function Card({ item, onClick, onDelete }: Props) {
 
   return (
     <button
+      ref={cardRef}
       type="button"
       onClick={handleCardClick}
       className="group mb-4 w-full break-inside-avoid overflow-hidden rounded border border-paper-border bg-paper-card text-left shadow-sm transition-shadow hover:shadow-md"
@@ -138,7 +165,7 @@ export function Card({ item, onClick, onDelete }: Props) {
             <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
             <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
           </svg>
-          Baixando...
+          {item.source_url ? "Baixando..." : "Processando upload..."}
         </div>
       ) : (
         <div className="flex h-32 items-center justify-center border-b border-paper-border bg-paper-tag text-sm text-paper-mid">

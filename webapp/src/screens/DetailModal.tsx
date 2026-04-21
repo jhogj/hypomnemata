@@ -156,7 +156,10 @@ export function DetailModal({ itemId, initialVideoTime, onClose, onChanged, onDe
 
   function downloadLabel(status: string | null, _kind: string): string | null {
     if (!status || status === "done") return null;
-    if (status === "pending") return _kind === "article" ? "Extraindo artigo..." : "Baixando...";
+    if (status === "pending") {
+      if (!item?.source_url) return "Processando upload...";
+      return _kind === "article" ? "Extraindo artigo..." : "Baixando...";
+    }
     if (status === "error:missing_dep") return _kind === "article" ? "trafilatura não instalado" : "yt-dlp não instalado";
     if (status === "error:too_large") return "Mídia acima do limite de tamanho";
     return status.replace("error:", "Erro: ");
@@ -265,7 +268,7 @@ export function DetailModal({ itemId, initialVideoTime, onClose, onChanged, onDe
             </object>
           ) : item.download_status === "pending" ? (
             <div className="flex h-full items-center justify-center text-sm text-paper-mid">
-              Baixando mídia...
+              {item.source_url ? "Baixando mídia..." : "Processando upload..."}
             </div>
           ) : item.asset_path ? (
             <a

@@ -223,6 +223,7 @@ cd extension && npm install && npm run build        # carregar dist/ em chrome:/
 - **Backend** (`thumbgen.py`): Novo background worker. Usa `PyMuPDF` (`fitz`) para PDFs e `ffmpeg` para vídeos. A imagem é salva como `thumb.jpg` na pasta do asset e registrada no `meta_json.thumbnail_path`. O item fica como `download_status = "pending"` até terminar para usar o auto-refresh já implementado no webapp.
 - **Backend** (`captures.py`): Arquivos uploadados do tipo PDF/Video agora passam pelo `download_status = "pending"` e disparam o `generate_upload_thumbnail()`.
 - **Frontend** (`Card.tsx`): Removido o bug onde PDFs mostravam botão de "play" sobreposto. O ícone de play só renderiza se `isVideoKind` for verdadeiro, independentemente de ter thumbnail.
+- **Frontend** (`Card.tsx`): Aprimorada a UX dos vídeos na visão de cards. Se um vídeo estiver tocando no grid e o usuário clicar fora do card ou der play em outro vídeo, o player do primeiro é desativado e ele volta a mostrar apenas a miniatura, evitando múltiplos vídeos tocando simultaneamente e mantendo o grid limpo.
 - **Frontend** (`DetailModal.tsx`): Adicionado `<object type="application/pdf">` para renderizar o leitor nativo de PDFs do navegador no painel esquerdo do modal.
 - **Testes** (`test_ytdlp.py`): O teste `test_capture_video_file_only_no_download` foi atualizado para esperar o `download_status = "pending"` em uploads diretos de vídeo, refletindo a nova regra para acionar o `thumbgen`.
 
