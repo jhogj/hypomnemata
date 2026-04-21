@@ -75,7 +75,11 @@ def _run_scrape_sync(item_id: str) -> None:
                 # Fetch page
                 downloaded = trafilatura.fetch_url(item.source_url)
                 if not downloaded:
-                    raise RuntimeError("trafilatura.fetch_url returned None")
+                    log.info("trafilatura fetch returned None for %s, trying playwright", item.source_url)
+                    from .playwright_scraper import fetch_with_playwright
+                    downloaded = fetch_with_playwright(item.source_url)
+                    if not downloaded:
+                        raise RuntimeError("trafilatura.fetch_url returned None")
 
                 # Extract text + metadata
                 text = trafilatura.extract(
@@ -86,6 +90,29 @@ def _run_scrape_sync(item_id: str) -> None:
                     favor_recall=True,
                 )
                 metadata = trafilatura.extract_metadata(downloaded)
+
+                # Playwright fallback when static fetch gives insufficient text (SPA)
+                if not text or len(text) < _MIN_TEXT_LEN:
+                    from .playwright_scraper import fetch_with_playwright
+                    pw_html = fetch_with_playwright(item.source_url)
+                    if pw_html:
+                        pw_text = trafilatura.extract(
+                            pw_html,
+                            include_comments=False,
+                            include_tables=True,
+                            favor_precision=False,
+                            favor_recall=True,
+                        )
+                        if pw_text and (not text or len(pw_text) > len(text)):
+                            pw_meta = trafilatura.extract_metadata(pw_html)
+                            text = pw_text
+                            if pw_meta:
+                                metadata = pw_meta
+                            log.info(
+                                "playwright fallback extracted %d chars for item=%s",
+                                len(text),
+                                item_id,
+                            )
 
                 if not text or len(text) < _MIN_TEXT_LEN:
                     # Not enough content — mark as done but don't promote.
