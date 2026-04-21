@@ -50,7 +50,7 @@ export function CaptureModal({ onClose, onSaved }: Props) {
         /vimeo\.com\/\d/.test(url)
       )
         return "video";
-      return "bookmark";
+      return "article";
     }
     return "note";
   }

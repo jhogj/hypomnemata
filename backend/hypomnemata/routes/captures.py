@@ -10,6 +10,7 @@ from ..crud import load_tag_names, set_item_tags, to_out
 from ..db import get_session
 from ..models import Item
 from ..ocr import is_ocr_candidate, ocr_item
+from ..article import scrape_article
 from ..ytdlp import download_video
 from ..schemas import ItemOut, validate_kind
 from ..storage import AssetTooLargeError, save_upload
@@ -63,10 +64,12 @@ async def create_capture(
     if item.asset_path and is_ocr_candidate(item.asset_path):
         item.ocr_status = "pending"
 
-    # Tweets sem arquivo (URL colada no webapp) também passam pelo yt-dlp;
-    # yt-dlp extrai vídeo + texto do tweet. Tweets com screenshot da extensão
-    # já têm asset_path — não substituímos a imagem por tentativa de download.
+    # Tweets/videos sem arquivo (URL colada no webapp) passam pelo yt-dlp;
+    # Articles passam pelo scraper de artigos.
+    # Tweets com screenshot da extensão já têm asset_path — não substituímos.
     if item.source_url and kind in ("video", "tweet") and not item.asset_path:
+        item.download_status = "pending"
+    elif item.source_url and kind == "article" and not item.asset_path:
         item.download_status = "pending"
 
     tag_list = [t.strip() for t in (tags or "").split(",") if t.strip()]
@@ -78,7 +81,10 @@ async def create_capture(
     if item.ocr_status == "pending":
         background_tasks.add_task(ocr_item, item.id)
     if item.download_status == "pending":
-        background_tasks.add_task(download_video, item.id)
+        if kind == "article":
+            background_tasks.add_task(scrape_article, item.id)
+        else:
+            background_tasks.add_task(download_video, item.id)
 
     tag_names = await load_tag_names(db, item.id)
     return to_out(item, tag_names=tag_names)

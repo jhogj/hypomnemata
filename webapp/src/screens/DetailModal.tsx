@@ -140,10 +140,22 @@ export function DetailModal({ itemId, initialVideoTime, onClose, onChanged, onDe
     }
   })();
 
+  // Article metadata from meta_json.
+  const articleMeta: { author?: string; pub_date?: string; sitename?: string; description?: string } | null = (() => {
+    if (item.kind !== "article" || !item.meta_json) return null;
+    try {
+      return JSON.parse(item.meta_json) as { author?: string; pub_date?: string; sitename?: string; description?: string };
+    } catch {
+      return null;
+    }
+  })();
+
+  const isArticleReady = item.kind === "article" && item.body_text && item.download_status === "done";
+
   function downloadLabel(status: string | null, _kind: string): string | null {
     if (!status || status === "done") return null;
-    if (status === "pending") return "Baixando...";
-    if (status === "error:missing_dep") return "yt-dlp não instalado";
+    if (status === "pending") return _kind === "article" ? "Extraindo artigo..." : "Baixando...";
+    if (status === "error:missing_dep") return _kind === "article" ? "trafilatura não instalado" : "yt-dlp não instalado";
     if (status === "error:too_large") return "Mídia acima do limite de tamanho";
     return status.replace("error:", "Erro: ");
   }
@@ -158,7 +170,38 @@ export function DetailModal({ itemId, initialVideoTime, onClose, onChanged, onDe
         onClick={(e) => e.stopPropagation()}
       >
         <div className="overflow-auto border-r border-paper-border bg-paper-bg p-4">
-          {mediaPaths ? (
+          {isArticleReady ? (
+            /* ── Article reader view ─────────────────────────────── */
+            <article className="mx-auto max-w-prose space-y-4">
+              {isImage && (
+                <img
+                  src={api.assetUrl(item.asset_path!)}
+                  alt={item.title || ""}
+                  className="w-full rounded-lg object-cover"
+                />
+              )}
+              {item.title && (
+                <h1 className="text-xl font-bold leading-snug text-paper-ink">
+                  {item.title}
+                </h1>
+              )}
+              {articleMeta && (articleMeta.author || articleMeta.pub_date || articleMeta.sitename) && (
+                <div className="flex flex-wrap gap-2 text-xs text-paper-mid">
+                  {articleMeta.sitename && <span className="font-medium">{articleMeta.sitename}</span>}
+                  {articleMeta.author && <span>· {articleMeta.author}</span>}
+                  {articleMeta.pub_date && <span>· {articleMeta.pub_date}</span>}
+                </div>
+              )}
+              <div className="border-t border-paper-border" />
+              <div className="prose-sm text-sm leading-relaxed text-paper-ink">
+                {item.body_text!.split("\n").filter(l => l.trim()).map((para, i) => (
+                  <p key={i} className="mb-4">
+                    {para}
+                  </p>
+                ))}
+              </div>
+            </article>
+          ) : mediaPaths ? (
             <div
               className={`grid gap-1 ${
                 mediaPaths.length === 3 ? "grid-cols-2 grid-rows-2" : "grid-cols-2"

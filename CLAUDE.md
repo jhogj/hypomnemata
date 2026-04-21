@@ -17,22 +17,24 @@
 
 ## Status atual
 
-- **Onda**: 1 (MVP) — **entregue** + Onda 2 itens 6 e 7 (OCR + yt-dlp) + melhorias de tweet + thumbnails de vídeo + inline playback + storage indicator + auto-refresh.
-- **Última sessão**: 2026-04-21 — play inline de vídeos nos cards, continuação de tempo card→modal, indicador de armazenamento na sidebar, auto-refresh quando downloads terminam. 32/32 testes passando.
+- **Onda**: 1 (MVP) — **entregue** + Onda 2 itens 6 e 7 (OCR + yt-dlp) + melhorias de tweet + thumbnails + inline playback + storage + auto-refresh + delete from card + scraping de artigos.
+- **Última sessão**: 2026-04-21 — scraping de artigos de portais de notícias (trafilatura: título, texto, hero image, metadados). Reader view no DetailModal. 32/32 testes passando.
 - **Próxima tarefa**: nenhuma pendente crítica. Possíveis próximos: busca semântica, exportação.
 
 ### Deps externas necessárias (além do `uv sync`)
 | Ferramenta | Uso | Instalação |
 |---|---|---|
 | `yt-dlp` | download vídeos YouTube/Vimeo/tweet | já em `pyproject.toml` via `uv sync` |
-| `ffmpeg` | merge streams separadas do YouTube | `brew install ffmpeg` |
+| `ffmpeg` | merge streams separadas do YouTube + thumbnails | `brew install ffmpeg` |
 | `tesseract` | OCR de imagens | `brew install tesseract tesseract-lang` |
-| `gallery-dl` | download fotos de tweets (galeria) | `uv add gallery-dl` ou `pip install gallery-dl` |
+| `gallery-dl` | download fotos de tweets (galeria) | já em `pyproject.toml` via `uv sync` |
+| `trafilatura` | scraping de artigos (título, texto, metadados) | já em `pyproject.toml` via `uv sync` |
 
 ### O que existe em código
 - `backend/` — FastAPI + SQLAlchemy async + FTS5. Rotas: POST /captures, GET /items (filtros kind/tag/order), GET /items/{id}, PATCH /items/{id}, DELETE /items/{id}, GET /search, GET /tags, GET /assets/{path}, GET /storage, /health. Testes em `backend/tests/` (32 testes).
   - `backend/hypomnemata/ocr.py` — worker OCR: pytesseract (imagens), pypdf (PDFs), roda em thread via `asyncio.to_thread`. Coluna `ocr_status` no Item.
   - `backend/hypomnemata/ytdlp.py` — worker de download: yt-dlp para vídeos e tweets com vídeo; gallery-dl + oEmbed fallback para tweets com foto. Geração de thumbnails (yt-dlp info thumb + ffmpeg fallback). Coluna `download_status` no Item. Cada item usa subdiretório próprio em `assets/{ano}/{mês}/{item_id}/`.
+  - `backend/hypomnemata/article.py` — worker de scraping de artigos: trafilatura para extração de título, texto, metadados (autor, data, site) e hero image (og:image). Mesma arquitetura de background task.
   - `backend/hypomnemata/routes/storage_info.py` — GET /storage: retorna total de bytes usados pelo diretório de assets.
 - `webapp/` — React + Vite + Tailwind. Telas: Library (masonry flex + sidebar + busca), CaptureModal (⌘K, tabs URL/Arquivo/Texto), DetailModal (preview + nota/tags editáveis, texto extraído collapsible, galeria de fotos de tweet, excluir). Proxy `/api/*` → backend.
 - `extension/` — Chrome MV3 via @crxjs/vite-plugin. Popup React (tags/nota/botão), service worker com atalho ⌘⇧Y, `chrome.tabs.captureVisibleTab` + injeção de script pra pegar meta/selection.
@@ -173,6 +175,43 @@ cd extension && npm install && npm run build        # carregar dist/ em chrome:/
 - `useEffect` com `setInterval(refresh, 5000)` ativo apenas enquanto `hasPending === true`.
 - Quando o backend termina o download/OCR, o próximo poll traz o item atualizado e o card renderiza a thumbnail/imagem/vídeo automaticamente.
 - O polling para assim que não há mais itens pendentes (cleanup via `clearInterval`).
+### 2026-04-21 — Delete direto do card (lixeira hover)
+
+**Funcionalidade**: ícone de lixeira 🗑️ no canto inferior direito de cada card, visível apenas ao passar o mouse (`opacity-0 group-hover:opacity-100`).
+
+**Implementação** (`Card.tsx` + `Library.tsx`):
+- **Card.tsx**: novo prop `onDelete`. Botão com `stopPropagation` (não abre o modal). Confirmação via `confirm()` nativo. SVG de lixeira (Heroicons outline). Hover: fundo vermelho claro + texto vermelho.
+- **Library.tsx**: cada `<Card>` recebe `onDelete` que chama `api.deleteItem(it.id)` e depois `refresh()`. Erros são capturados e exibidos no banner de erro existente.
+### 2026-04-21 — Scraping de artigos de portais de notícias
+
+**Funcionalidade**: ao capturar uma URL de portal de notícias, o sistema extrai automaticamente título, texto, hero image e metadados do artigo. O usuário pode ler o artigo inteiro dentro do Hypomnemata.
+
+**Implementação**:
+
+- **Backend** (`article.py`): novo worker `scrape_article()`, mesma arquitetura do `ytdlp.py`:
+  - `trafilatura.fetch_url()` + `trafilatura.extract()` para texto.
+  - `trafilatura.extract_metadata()` para título, autor, data de publicação, nome do site, descrição.
+  - Hero image: download da URL `og:image` (campo `metadata.image`) para `assets/{ano}/{mês}/{item_id}/hero.{ext}`.
+  - Threshold: texto < 200 chars → scrape considerado insuficiente (item mantido, mas sem promoção visual).
+  - Metadados salvos em `meta_json`: `author`, `pub_date`, `sitename`, `description`, `thumbnail_path`.
+  - `download_status`: `pending` → `done` / `error:*`.
+
+- **Backend** (`captures.py`): `kind == "article"` + `source_url` + sem `asset_path` → `download_status = "pending"` → enfileira `scrape_article()`. Dispatch separado do `download_video()` via check de kind.
+
+- **Frontend** (`CaptureModal.tsx`): `inferKind()` retorna `"article"` para URLs genéricas (antes retornava `"bookmark"`). Toda URL que não é tweet/vídeo agora tenta scraping.
+
+- **Frontend** (`Card.tsx`): `"article"` adicionado ao array `hasImage` → hero images aparecem nos cards.
+
+- **Frontend** (`DetailModal.tsx`): **reader view** para artigos:
+  - Condição: `kind === "article" && body_text && download_status === "done"`.
+  - Hero image no topo (se houver `asset_path`).
+  - Título em `<h1>` bold.
+  - Metadados (sitename, author, pub_date) em linha discreta.
+  - Separador horizontal.
+  - Texto do artigo formatado como parágrafos (`\n\n` → `<p>`) com scroll nativo.
+  - `downloadLabel()` atualizado: `"Extraindo artigo..."` para pending, `"trafilatura não instalado"` para missing_dep.
+
+**Dep nova**: `trafilatura>=2.0` em `pyproject.toml`.
 
 ### 2026-04-21 — .gitignore criado
 - Arquivo na raiz do projeto. Ignora: `__pycache__/`, `*.py[cod]`, `*.egg-info/`, `.venv/`, `.ruff_cache/`, `.pytest_cache/`, `node_modules/`, `webapp/dist/`, `extension/dist/`, `.DS_Store`, `.env*` (exceto `.env.example`), `.vscode/`, `.idea/`.

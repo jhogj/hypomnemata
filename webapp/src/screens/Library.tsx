@@ -144,7 +144,19 @@ export function Library({ onOpenDetail, onOpenCapture, reloadKey }: Props) {
                   {items
                     .filter((_, i) => i % cols === colIdx)
                     .map((it) => (
-                      <Card key={it.id} item={it} onClick={(vt) => onOpenDetail(it.id, vt)} />
+                      <Card
+                        key={it.id}
+                        item={it}
+                        onClick={(vt) => onOpenDetail(it.id, vt)}
+                        onDelete={async () => {
+                          try {
+                            await api.deleteItem(it.id);
+                            void refresh();
+                          } catch (e) {
+                            setErr(String(e));
+                          }
+                        }}
+                      />
                     ))}
                 </div>
               ))}
