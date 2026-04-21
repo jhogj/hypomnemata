@@ -1,0 +1,57 @@
+Este relatório técnico descreve a arquitetura e as especificações para o desenvolvimento de um repositório centralizado de mídia e ideias, focado em preservação local e processamento inteligente de dados.
+
+Relatório Técnico: Projeto Nexus-Media
+Assunto: Sistema de Captura, Arquivamento e Indexação de Mídia Independente (Local-First)
+
+1. Objetivo do Sistema
+Centralizar a captura de conteúdo fragmentado (tweets, vídeos, artigos e prints) em um repositório único, eliminando a dependência de APIs externas (como a API do X) e prevenindo a perda de dados por deleção de posts ou links quebrados (link rot).
+
+2. Arquitetura Proposta
+O sistema seguirá um modelo cliente-servidor operando em ambiente de infraestrutura local (Homelab), otimizado para hardware Apple Silicon.
+
+2.1. Camada de Ingestão (Captura)
+
+Extensão Browser (React/Vite): Atuará como o principal "ponto de entrada". Capturará o HTML renderizado, metadados da página e realizará o screenshot do elemento selecionado ou da área visível.
+
+Vantagem Técnica: Utiliza a sessão ativa do usuário no navegador para contornar paywalls e telas de login que bloqueiam bots de captura tradicionais.
+
+2.2. Camada de Processamento (Backend - Python/Flask)
+
+Worker de OCR: Processamento de prints para extração de texto via Tesseract ou EasyOCR.
+
+Downloader de Mídia: Integração com yt-dlp para download automático de vídeos e arquivos de mídia em alta qualidade.
+
+LLM Local (Ollama): Integração via API local para análise do texto extraído e geração de metadados automáticos (tags, categorias e resumos).
+
+2.3. Camada de Persistência (Armazenamento)
+
+Banco de Dados: SQLite para metadados e indexação de busca textual.
+
+File Storage: Armazenamento local estruturado no sistema de arquivos para assets de mídia (PNG, MP4, PDF).
+
+3. Funcionalidades Principais
+Preservação de Conteúdo do X: Captura do tweet como imagem e texto, sem necessidade de chaves de API pagas.
+
+Busca Semântica: Pesquisa por palavras-chave dentro de imagens capturadas (via OCR).
+
+Auto-Tagging: Classificação automática de ideias baseada no contexto do conteúdo capturado.
+
+Offline Access: Disponibilidade total do repositório sem dependência de conexão externa para consulta.
+
+4. Stack Tecnológica Recomendada
+Componente	Tecnologia	Justificativa
+Frontend	React + Tailwind CSS	Interface reativa e rápida para visualização estilo Masonry (cards).
+Backend	Python (Flask)	Facilidade de integração com bibliotecas de IA e scripts de scraping.
+IA/LLM	Ollama (Llama 3 / Gemma)	Processamento de linguagem natural 100% local e privado.
+Banco de Dados	SQLite	Portabilidade e performance para uso individual ou em pequenos times.
+Automação	Playwright / Puppeteer	Renderização de páginas complexas quando a captura manual não for usada.
+5. Roadmap de Implementação
+Fase 1 (MVP): Desenvolvimento da extensão de browser para captura de prints e envio para endpoint Flask.
+
+Fase 2 (Processamento): Implementação da fila de OCR e integração com yt-dlp.
+
+Fase 3 (Inteligência): Conexão com Ollama para etiquetagem automática e organização por contexto.
+
+Fase 4 (Busca): Implementação de busca full-text no SQLite integrando texto extraído e metadados.
+
+Este projeto visa a soberania de dados e a eficiência no fluxo de trabalho criativo, utilizando a capacidade de processamento local para criar um ativo de conhecimento perene.

@@ -1,0 +1,470 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Hypomnemata — Wireframe</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: #ede8df; font-family: 'Space Grotesk', sans-serif; overflow: hidden; }
+
+  /* Sketchy border mixin via SVG filter */
+  .sketchy {
+    filter: url(#sketchy);
+  }
+  svg.defs { position: absolute; width: 0; height: 0; }
+
+  /* Tweaks panel */
+  #tweaks-panel {
+    position: fixed; bottom: 20px; right: 20px; z-index: 9999;
+    background: #faf6ef; border: 1.5px solid #c4ab89;
+    border-radius: 10px; padding: 16px 20px; width: 220px;
+    font-family: 'Space Grotesk', sans-serif; font-size: 16px;
+    box-shadow: 2px 3px 12px rgba(80,50,10,0.15);
+    display: none;
+  }
+  #tweaks-panel.visible { display: block; }
+  #tweaks-panel label { display: flex; flex-direction: column; gap: 4px; margin-bottom: 12px; color: #4a3520; font-size: 15px; }
+  #tweaks-panel select, #tweaks-panel input[type=range] { font-family: inherit; font-size: 14px; accent-color: #8b6940; }
+</style>
+</head>
+<body>
+
+<svg class="defs"><defs>
+  <filter id="sketchy" x="-2%" y="-2%" width="104%" height="104%">
+    <feTurbulence type="fractalNoise" baseFrequency="0.04" numOctaves="3" result="noise" seed="2"/>
+    <feDisplacementMap in="SourceGraphic" in2="noise" scale="1.4" xChannelSelector="R" yChannelSelector="G"/>
+  </filter>
+</defs></svg>
+
+<script type="text/babel">
+const { useState, useEffect, useRef } = React;
+
+// ── Color tokens (sepia / aged paper) ──────────────────────────────────────
+const TWEAK_DEFAULTS = /*EDITMODE-BEGIN*/{
+  "screen": "capture",
+  "showAnnotations": true,
+  "paperTone": "cool"
+}/*EDITMODE-END*/;
+
+const PAPER = {
+  warm:  { bg: '#f5f0e6', sidebar: '#ede6d8', card: '#faf6ef', ink: '#2a1f0f', mid: '#7a6245', light: '#b8a080', accent: '#7c5c30', border: '#c4ab89', tag: '#e8dcc8' },
+  cool:  { bg: '#f0eff0', sidebar: '#e8e7e8', card: '#fafafa', ink: '#1a1a1f', mid: '#6a6a7a', light: '#aaaabc', accent: '#4a4a6a', border: '#c0bfd0', tag: '#e4e3f0' },
+  stone: { bg: '#f2ede8', sidebar: '#e8e2da', card: '#f8f4ef', ink: '#221a12', mid: '#7a6e60', light: '#b0a090', accent: '#6a5540', border: '#c0ae98', tag: '#e4d8c8' },
+};
+
+// ── Utility components ──────────────────────────────────────────────────────
+
+const Box = ({ x=0, y=0, w, h, fill='none', stroke='#2a1f0f', sw=1.5, r=0, style={} }) => (
+  <rect x={x} y={y} width={w} height={h} fill={fill} stroke={stroke} strokeWidth={sw} rx={r} style={style}/>
+);
+
+const Line = ({ x1, y1, x2, y2, stroke='#2a1f0f', sw=1.5, dash='' }) => (
+  <line x1={x1} y1={y1} x2={x2} y2={y2} stroke={stroke} strokeWidth={sw} strokeDasharray={dash}/>
+);
+
+const T = ({ x, y, size=14, fill='#2a1f0f', weight=400, children, anchor='start', style={} }) => (
+  <text x={x} y={y} fontSize={size} fill={fill} fontFamily="'Space Grotesk', sans-serif" fontWeight={weight}
+    textAnchor={anchor} style={style}>{children}</text>
+);
+
+const Img = ({ x, y, w, h, label='', tone }) => {
+  const C = PAPER[tone];
+  return (
+    <g>
+      <Box x={x} y={y} w={w} h={h} fill={C.tag} stroke={C.border} sw={1.2}/>
+      <Line x1={x} y1={y} x2={x+w} y2={y+h} stroke={C.border} sw={1}/>
+      <Line x1={x+w} y1={y} x2={x} y2={y+h} stroke={C.border} sw={1}/>
+      {label && <T x={x+w/2} y={y+h/2+5} size={12} fill={C.mid} anchor="middle">{label}</T>}
+    </g>
+  );
+};
+
+const Tag = ({ x, y, label, tone }) => {
+  const C = PAPER[tone];
+  const w = label.length * 8.5 + 16;
+  return (
+    <g>
+      <Box x={x} y={y} w={w} h={20} fill={C.tag} stroke={C.border} sw={1} r={10}/>
+      <T x={x + w/2} y={y+14} size={12} fill={C.mid} anchor="middle">{label}</T>
+    </g>
+  );
+};
+
+// ── Annotation bubble ───────────────────────────────────────────────────────
+const Note = ({ x, y, text, tone, dir='right' }) => {
+  const C = PAPER[tone];
+  const lines = text.split('\n');
+  const maxLen = Math.max(...lines.map(l => l.length));
+  const w = maxLen * 8 + 24;
+  const h = lines.length * 20 + 16;
+  const tx = dir === 'right' ? x + 12 : x - w - 12;
+  return (
+    <g opacity="0.9">
+      <rect x={tx} y={y-8} width={w} height={h} rx={6} fill="#fff8d6" stroke="#d4b84a" strokeWidth={1.2}/>
+      <path d={dir==='right' ? `M${tx} ${y+8} L${x+2} ${y+2} L${tx} ${y+18}` : `M${tx+w} ${y+8} L${x-2} ${y+2} L${tx+w} ${y+18}`}
+        fill="#fff8d6" stroke="#d4b84a" strokeWidth={1.2}/>
+      {lines.map((l, i) => (
+        <T key={i} x={tx+12} y={y+8+i*20} size={13} fill="#5a4010">{l}</T>
+      ))}
+    </g>
+  );
+};
+
+// ── SCREEN 1: Library ───────────────────────────────────────────────────────
+const LibraryScreen = ({ tone, showAnnotations }) => {
+  const C = PAPER[tone];
+  const W = 1280, H = 800;
+  const SB = 220; // sidebar width
+  const cards = [
+    { x: SB+24, y: 148, w: 220, h: 160, label: 'imagem' },
+    { x: SB+24+236, y: 148, w: 220, h: 240, label: 'tweet print' },
+    { x: SB+24+472, y: 148, w: 220, h: 180, label: 'artigo' },
+    { x: SB+24+708, y: 148, w: 220, h: 200, label: 'vídeo' },
+    { x: SB+24, y: 148+176, w: 220, h: 200, label: 'bookmark' },
+    { x: SB+24+472, y: 148+196, w: 220, h: 160, label: 'imagem' },
+    { x: SB+24+708, y: 148+216, w: 220, h: 180, label: 'artigo' },
+    { x: SB+24, y: 148+176+216, w: 220, h: 160, label: 'pdf' },
+    { x: SB+24+236, y: 148+256, w: 220, h: 160, label: 'nota' },
+  ];
+
+  return (
+    <svg viewBox={`0 0 ${W} ${H}`} width={W} height={H} style={{display:'block'}}>
+      {/* bg */}
+      <rect width={W} height={H} fill={C.bg}/>
+
+      {/* sidebar */}
+      <rect width={SB} height={H} fill={C.sidebar}/>
+      <Line x1={SB} y1={0} x2={SB} y2={H} stroke={C.border} sw={1}/>
+
+      {/* logo */}
+      <T x={24} y={48} size={20} fill={C.ink} weight={700}>Hypomnemata</T>
+      <Line x1={16} y1={58} x2={SB-16} y2={58} stroke={C.border} sw={1} dash="4 3"/>
+
+      {/* nav items */}
+      {['Tudo', 'Imagens', 'Vídeos', 'Artigos', 'Bookmarks'].map((label, i) => (
+        <g key={label}>
+          {i === 0 && <rect x={12} y={70+i*38} width={SB-24} height={30} rx={6} fill={C.tag}/>}
+          <T x={28} y={70+i*38+20} size={15} fill={i===0 ? C.ink : C.mid}>{label}</T>
+          <T x={SB-20} y={70+i*38+20} size={13} fill={C.mid} anchor="end">{[247, 84, 31, 103, 29][i]}</T>
+        </g>
+      ))}
+
+      {/* tags */}
+      <Line x1={16} y1={274} x2={SB-16} y2={274} stroke={C.border} sw={1} dash="4 3"/>
+      <T x={24} y={294} size={13} fill={C.light} weight={500}>ETIQUETAS</T>
+      {['filosofia', 'design', 'código', 'citações', 'pesquisa', 'leitura'].map((t, i) => {
+        const col = i % 2;
+        const row = Math.floor(i / 2);
+        return <Tag key={t} x={16 + col*100} y={302+row*28} label={t} tone={tone}/>;
+      })}
+
+      {/* plugins indicator */}
+      <Line x1={16} y1={H-80} x2={SB-16} y2={H-80} stroke={C.border} sw={1} dash="4 3"/>
+      <T x={24} y={H-58} size={13} fill={C.light}>Plugins (3)</T>
+      <T x={24} y={H-36} size={13} fill={C.light}>Configurações</T>
+
+      {/* main area top bar */}
+      {/* search bar */}
+      <Box x={SB+24} y={24} w={760} h={44} fill={C.card} stroke={C.border} sw={1.5} r={22}/>
+      <T x={SB+52} y={50} size={15} fill={C.light}>Buscar em Hypomnemata...</T>
+      {/* search icon */}
+      <circle cx={SB+44} cy={46} r={8} fill="none" stroke={C.light} strokeWidth={1.5}/>
+      <Line x1={SB+50} y1={52} x2={SB+56} y2={58} stroke={C.light} sw={1.5}/>
+
+      {/* kbd shortcut hint */}
+      <Box x={SB+768} y={33} w={48} h={24} fill={C.tag} stroke={C.border} sw={1} r={5}/>
+      <T x={SB+792} y={49} size={12} fill={C.mid} anchor="middle">⌘K</T>
+
+      {/* sort / filter controls */}
+      <T x={SB+830} y={50} size={15} fill={C.mid}>filtros</T>
+      <T x={SB+900} y={50} size={15} fill={C.mid}>ordenar</T>
+      <T x={SB+980} y={50} size={15} fill={C.mid}>⊞ grid</T>
+
+      {/* section label */}
+      <T x={SB+24} y={126} size={17} fill={C.mid} weight={600}>Recentes</T>
+      <T x={SB+100} y={126} size={13} fill={C.light}>247 itens</T>
+
+      {/* masonry cards */}
+      {cards.map((c, i) => (
+        <g key={i}>
+          <Box x={c.x} y={c.y} w={c.w} h={c.h} fill={C.card} stroke={C.border} sw={1} r={4}/>
+          <Img x={c.x+8} y={c.y+8} w={c.w-16} h={c.h-40} label={c.label} tone={tone}/>
+          <T x={c.x+10} y={c.y+c.h-18} size={12} fill={C.mid}>{['11 abr', '9 abr', '8 abr', '7 abr', '6 abr', '5 abr', '4 abr', '3 abr', '2 abr'][i]}</T>
+          {i === 1 && <Tag x={c.x+10} y={c.y+c.h-14} label="filosofia" tone={tone}/>}
+        </g>
+      ))}
+
+      {/* annotations */}
+      {showAnnotations && <>
+        <Note x={SB} y={60} text={"sidebar fixa\nnavegação por tipo"} tone={tone} dir="right"/>
+        <Note x={SB+810} y={30} text={"⌘K abre\ncaptura global"} tone={tone} dir="left"/>
+        <Note x={SB+24+236+220} y={148} text={"masonry:\ncolunas fixas\naltura livre"} tone={tone} dir="right"/>
+        <Note x={SB+24} y={H-160} text={"cards com\npreview + data"} tone={tone} dir="right"/>
+      </>}
+    </svg>
+  );
+};
+
+// ── SCREEN 2: Capture Modal ─────────────────────────────────────────────────
+const CaptureScreen = ({ tone, showAnnotations }) => {
+  const C = PAPER[tone];
+  const W = 1280, H = 800;
+  const MW = 640, MH = 460;
+  const MX = (W - MW) / 2, MY = (H - MH) / 2;
+
+  return (
+    <svg viewBox={`0 0 ${W} ${H}`} width={W} height={H} style={{display:'block'}}>
+      {/* blurred bg suggestion */}
+      <rect width={W} height={H} fill={C.bg}/>
+      {/* simulate blurred content behind */}
+      {[...Array(6)].map((_,i) => (
+        <Box key={i} x={80+i*180} y={100+i*60} w={160} h={120} fill={C.tag} stroke="none" r={4} style={{opacity:0.25}}/>
+      ))}
+      {/* dark overlay */}
+      <rect width={W} height={H} fill="rgba(30,18,5,0.55)"/>
+
+      {/* modal */}
+      <Box x={MX} y={MY} w={MW} h={MH} fill={C.card} stroke={C.border} sw={1.5} r={12}/>
+
+      {/* handle / title */}
+      <T x={MX+MW/2} y={MY+38} size={18} fill={C.mid} anchor="middle" weight={600}>Nova captura</T>
+      <Line x1={MX+24} y1={MY+52} x2={MX+MW-24} y2={MY+52} stroke={C.border} sw={1} dash="4 3"/>
+
+      {/* main input */}
+      <Box x={MX+24} y={MY+66} w={MW-48} h={52} fill={C.bg} stroke={C.accent} sw={2} r={8}/>
+      <T x={MX+52} y={MY+97} size={17} fill={C.light}>Cole URL, arraste arquivo ou digite nota...</T>
+      <circle cx={MX+42} cy={MY+92} r={10} fill="none" stroke={C.light} strokeWidth={1.8}/>
+      <Line x1={MX+50} y1={MY+100} x2={MX+56} y2={MY+106} stroke={C.light} sw={1.8}/>
+
+      {/* type tabs */}
+      {['URL', 'Arquivo', 'Texto', 'Print'].map((t, i) => (
+        <g key={t}>
+          <Box x={MX+24+i*120} y={MY+132} w={108} h={32} fill={i===0?C.tag:'none'} stroke={i===0?C.accent:C.border} sw={1} r={6}/>
+          <T x={MX+24+i*120+54} y={MY+152} size={14} fill={i===0?C.ink:C.mid} anchor="middle">{t}</T>
+        </g>
+      ))}
+
+      {/* preview area */}
+      <Box x={MX+24} y={MY+178} w={MW-48} h={140} fill={C.bg} stroke={C.border} sw={1} r={6}/>
+      <T x={MX+MW/2} y={MY+260} size={15} fill={C.light} anchor="middle">pré-visualização aparece aqui</T>
+      {/* dashed drop zone */}
+      <Box x={MX+40} y={MY+192} w={MW-80} h={112} fill="none" stroke={C.light} sw={1} r={4} style={{strokeDasharray:'6 4'}}/>
+      <T x={MX+MW/2} y={MY+245} size={14} fill={C.light} anchor="middle">arraste para cá ↓</T>
+
+      {/* tags input */}
+      <Box x={MX+24} y={MY+332} w={MW-48} h={36} fill={C.bg} stroke={C.border} sw={1} r={6}/>
+      <T x={MX+40} y={MY+354} size={14} fill={C.light}>etiquetas: filosofia, ...</T>
+
+      {/* actions */}
+      <Box x={MX+MW-160} y={MY+384} w={136} h={40} fill={C.accent} stroke="none" r={8}/>
+      <T x={MX+MW-92} y={MY+408} size={16} fill={C.card} anchor="middle" weight={600}>Salvar</T>
+      <Box x={MX+24} y={MY+384} w={100} h={40} fill="none" stroke={C.border} sw={1} r={8}/>
+      <T x={MX+74} y={MY+408} size={16} fill={C.mid} anchor="middle">Cancelar</T>
+
+      {/* shortcut hint top-right */}
+      <T x={MX+MW-24} y={MY+38} size={13} fill={C.light} anchor="end">Esc para fechar</T>
+
+      {/* annotations */}
+      {showAnnotations && <>
+        <Note x={MX} y={MY+80} text={"ativado por ⌘⇧Space\nou atalho global"} tone={tone} dir="left"/>
+        <Note x={MX+MW} y={MY+178} text={"paste de URL\nautomatiza\no download"} tone={tone} dir="right"/>
+        <Note x={MX+MW} y={MY+390} text={"atalho: ⌘↵\npara salvar"} tone={tone} dir="right"/>
+      </>}
+    </svg>
+  );
+};
+
+// ── SCREEN 3: Item Detail Modal ─────────────────────────────────────────────
+const DetailScreen = ({ tone, showAnnotations }) => {
+  const C = PAPER[tone];
+  const W = 1280, H = 800;
+  const MW = 960, MH = 640;
+  const MX = (W - MW) / 2, MY = (H - MH) / 2;
+  const LP = MX + 24;
+  const LC = MW * 0.52; // left column width
+  const RC = MX + 24 + LC + 16; // right col start
+
+  return (
+    <svg viewBox={`0 0 ${W} ${H}`} width={W} height={H} style={{display:'block'}}>
+      {/* bg */}
+      <rect width={W} height={H} fill={C.bg}/>
+      {[...Array(5)].map((_,i) => (
+        <Box key={i} x={60+i*200} y={80+i*50} w={180} h={130} fill={C.tag} stroke="none" r={4} style={{opacity:0.2}}/>
+      ))}
+      <rect width={W} height={H} fill="rgba(30,18,5,0.5)"/>
+
+      {/* modal bg */}
+      <Box x={MX} y={MY} w={MW} h={MH} fill={C.card} stroke={C.border} sw={1.5} r={12}/>
+
+      {/* top bar */}
+      <T x={LP} y={MY+32} size={16} fill={C.ink} weight={600}>Tweet de @nomeusuario · 9 abr 2026</T>
+      <T x={MX+MW-24} y={MY+32} size={20} fill={C.mid} anchor="end">×</T>
+      <Line x1={MX} y1={MY+46} x2={MX+MW} y2={MY+46} stroke={C.border} sw={1}/>
+
+      {/* LEFT — image preview */}
+      <Box x={LP} y={MY+60} w={LC-8} h={MH-100} fill={C.bg} stroke={C.border} sw={1} r={6}/>
+      <Img x={LP+12} y={MY+72} w={LC-32} h={(MH-100)*0.75} label="print do tweet" tone={tone}/>
+      {/* OCR extracted text block */}
+      <Box x={LP+12} y={MY+72+(MH-100)*0.75+12} w={LC-32} h={(MH-100)*0.2} fill={C.tag} stroke={C.border} sw={1} r={4}/>
+      <T x={LP+20} y={MY+72+(MH-100)*0.75+28} size={12} fill={C.mid} weight={600}>Texto extraído (OCR)</T>
+      {['Lorem ipsum dolor sit amet, consectetur', 'adipiscing elit. Sed do eiusmod tempor...'].map((l,i) => (
+        <T key={i} x={LP+20} y={MY+72+(MH-100)*0.75+44+i*16} size={12} fill={C.ink}>{l}</T>
+      ))}
+
+      {/* RIGHT — metadata */}
+      {/* Source */}
+      <T x={RC} y={MY+76} size={13} fill={C.light} weight={500}>FONTE</T>
+      <Box x={RC} y={MY+82} w={MW-LC-56} h={28} fill={C.bg} stroke={C.border} sw={1} r={4}/>
+      <T x={RC+8} y={MY+100} size={13} fill={C.mid}>x.com / twitter.com</T>
+
+      {/* Title / Note */}
+      <T x={RC} y={MY+126} size={13} fill={C.light} weight={500}>NOTA PESSOAL</T>
+      <Box x={RC} y={MY+132} w={MW-LC-56} h={60} fill={C.bg} stroke={C.border} sw={1} r={4}/>
+      <T x={RC+8} y={MY+152} size={13} fill={C.mid}>interessante pra pesquisa de...</T>
+
+      {/* AI Summary */}
+      <T x={RC} y={MY+212} size={13} fill={C.light} weight={500}>RESUMO IA (Ollama)</T>
+      <Box x={RC} y={MY+218} w={MW-LC-56} h={80} fill={C.bg} stroke={C.border} sw={1} r={4}/>
+      {['Texto discute X conceito relacio-', 'nado a Y, mencionando implicações', 'para Z. Tom reflexivo e filosófico.'].map((l,i) => (
+        <T key={i} x={RC+8} y={MY+236+i*18} size={12} fill={C.ink}>{l}</T>
+      ))}
+
+      {/* Tags */}
+      <T x={RC} y={MY+318} size={13} fill={C.light} weight={500}>ETIQUETAS</T>
+      {['filosofia', 'citação', 'grego'].map((t, i) => (
+        <Tag key={t} x={RC + i*90} y={MY+324} label={t} tone={tone}/>
+      ))}
+
+      {/* Date / info */}
+      <T x={RC} y={MY+374} size={13} fill={C.light} weight={500}>CAPTURADO</T>
+      <T x={RC} y={MY+392} size={13} fill={C.mid}>9 abr 2026 às 14:32</T>
+
+      <T x={RC} y={MY+420} size={13} fill={C.light} weight={500}>TIPO</T>
+      <T x={RC} y={MY+438} size={13} fill={C.mid}>Imagem (Print)</T>
+
+      {/* Related */}
+      <T x={RC} y={MY+468} size={13} fill={C.light} weight={500}>RELACIONADOS</T>
+      {[0,1,2].map(i => (
+        <g key={i}>
+          <Box x={RC + i*72} y={MY+474} w={64} h={48} fill={C.tag} stroke={C.border} sw={1} r={4}/>
+          <Img x={RC+i*72+4} y={MY+478} w={56} h={34} label="" tone={tone}/>
+        </g>
+      ))}
+
+      {/* Action buttons */}
+      <Line x1={MX} y1={MY+MH-52} x2={MX+MW} y2={MY+MH-52} stroke={C.border} sw={1}/>
+      {['Copiar texto', 'Abrir original', 'Exportar'].map((label, i) => (
+        <g key={label}>
+          <Box x={RC + i*100} y={MY+MH-40} w={90} h={28} fill={C.bg} stroke={C.border} sw={1} r={6}/>
+          <T x={RC + i*100 + 45} y={MY+MH-22} size={13} fill={C.mid} anchor="middle">{label}</T>
+        </g>
+      ))}
+      <Box x={LP} y={MY+MH-40} w={90} h={28} fill="#c44" stroke="none" r={6}/>
+      <T x={LP+45} y={MY+MH-22} size={13} fill="#fff" anchor="middle">Excluir</T>
+
+      {/* annotations */}
+      {showAnnotations && <>
+        <Note x={MX} y={MY+200} text={"imagem em\ntamanho real +\ntexto OCR abaixo"} tone={tone} dir="left"/>
+        <Note x={MX+MW} y={MY+218} text={"IA gera resumo\nautomático\nvia Ollama local"} tone={tone} dir="right"/>
+        <Note x={MX+MW} y={MY+468} text={"busca por\nsimilaridade\nsemântica"} tone={tone} dir="right"/>
+      </>}
+    </svg>
+  );
+};
+
+// ── App ─────────────────────────────────────────────────────────────────────
+const SCREENS = ['library', 'capture', 'detail'];
+const SCREEN_LABELS = { library: 'Tela 1 · Biblioteca', capture: 'Tela 2 · Captura (⌘K)', detail: 'Tela 3 · Item' };
+
+function App() {
+  const saved = (() => { try { return JSON.parse(localStorage.getItem('hypo-wf-tweaks') || '{}'); } catch { return {}; } })();
+  const [tweaks, setTweaks] = useState({ ...TWEAK_DEFAULTS, ...saved });
+  const [tweaksVisible, setTweaksVisible] = useState(false);
+
+  const updateTweak = (k, v) => {
+    const next = { ...tweaks, [k]: v };
+    setTweaks(next);
+    localStorage.setItem('hypo-wf-tweaks', JSON.stringify(next));
+    window.parent.postMessage({ type: '__edit_mode_set_keys', edits: next }, '*');
+  };
+
+  useEffect(() => {
+    window.addEventListener('message', e => {
+      if (e.data?.type === '__activate_edit_mode') setTweaksVisible(true);
+      if (e.data?.type === '__deactivate_edit_mode') setTweaksVisible(false);
+    });
+    window.parent.postMessage({ type: '__edit_mode_available' }, '*');
+  }, []);
+
+  const C = PAPER[tweaks.paperTone];
+  const screenIdx = SCREENS.indexOf(tweaks.screen);
+
+  return (
+    <div style={{ width: '100vw', height: '100vh', display: 'flex', flexDirection: 'column', background: '#2a1f0f', overflow: 'hidden' }}>
+      {/* top nav bar */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 0, background: '#1e160a', padding: '0 24px', height: 44, flexShrink: 0, borderBottom: '1px solid #4a3520' }}>
+        <span style={{ fontFamily: "'Space Grotesk', sans-serif", fontSize: 20, color: '#d4ab6a', marginRight: 24, letterSpacing: 0.5 }}>Hypomnemata</span>
+        <span style={{ color: '#8a7055', fontSize: 14, marginRight: 16, fontFamily: "'Space Grotesk', sans-serif" }}>wireframe</span>
+        <div style={{ flex: 1 }}/>
+        {SCREENS.map((s, i) => (
+          <button key={s} onClick={() => updateTweak('screen', s)}
+            style={{
+              background: tweaks.screen === s ? '#4a3520' : 'transparent',
+              border: 'none', color: tweaks.screen === s ? '#f0e0c0' : '#8a7055',
+              fontFamily: "'Space Grotesk', sans-serif", fontSize: 15, padding: '6px 18px', cursor: 'pointer',
+              borderRadius: 6, transition: 'all 0.15s',
+            }}>
+            {SCREEN_LABELS[s]}
+          </button>
+        ))}
+      </div>
+
+      {/* screen viewport */}
+      <div style={{ flex: 1, overflow: 'hidden', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#2a1f0f' }}>
+        <div style={{ transform: 'scale(var(--screen-scale, 1))', transformOrigin: 'center center' }}
+          ref={el => {
+            if (!el) return;
+            const scale = Math.min((window.innerWidth) / 1280, (window.innerHeight - 44) / 800) * 0.96;
+            el.style.setProperty('--screen-scale', scale);
+          }}>
+          {tweaks.screen === 'library' && <LibraryScreen tone={tweaks.paperTone} showAnnotations={tweaks.showAnnotations}/>}
+          {tweaks.screen === 'capture' && <CaptureScreen tone={tweaks.paperTone} showAnnotations={tweaks.showAnnotations}/>}
+          {tweaks.screen === 'detail' && <DetailScreen tone={tweaks.paperTone} showAnnotations={tweaks.showAnnotations}/>}
+        </div>
+      </div>
+
+      {/* tweaks panel */}
+      <div id="tweaks-panel" className={tweaksVisible ? 'visible' : ''}>
+        <div style={{ fontFamily: "'Space Grotesk', sans-serif", fontSize: 18, fontWeight: 700, color: '#4a3520', marginBottom: 14 }}>Tweaks</div>
+        <label>
+          Tom de papel
+          <select value={tweaks.paperTone} onChange={e => updateTweak('paperTone', e.target.value)}
+            style={{ border: '1px solid #c4ab89', borderRadius: 4, padding: '2px 6px', background: '#faf6ef', color: '#4a3520', fontFamily: "'Space Grotesk', sans-serif", fontSize: 14 }}>
+            <option value="warm">Sépia quente</option>
+            <option value="cool">Mineral frio</option>
+            <option value="stone">Pedra</option>
+          </select>
+        </label>
+        <label style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+          <input type="checkbox" checked={tweaks.showAnnotations}
+            onChange={e => updateTweak('showAnnotations', e.target.checked)}/>
+          Mostrar anotações
+        </label>
+      </div>
+    </div>
+  );
+}
+
+const root = ReactDOM.createRoot(document.getElementById('root'));
+root.render(<App/>);
+</script>
+
+<div id="root"></div>
+</body>
+</html>
