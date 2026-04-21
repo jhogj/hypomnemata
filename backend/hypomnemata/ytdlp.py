@@ -25,6 +25,7 @@ _IMAGE_EXTS = frozenset({".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp"})
 _MEDIA_EXTS = _VIDEO_EXTS | _IMAGE_EXTS
 _DESC_MAX = 5000
 _UA = "Mozilla/5.0 (compatible; Hypomnemata/1.0)"
+_THUMB_NAME = "thumb.jpg"
 
 
 def _find_media_files(item_subdir: Path) -> list[Path]:
@@ -34,6 +35,66 @@ def _find_media_files(item_subdir: Path) -> list[Path]:
         f for f in item_subdir.iterdir()
         if f.is_file() and f.suffix.lower() in _MEDIA_EXTS
     )
+
+
+def _generate_thumbnail(
+    item_subdir: Path,
+    video_file: Path | None,
+    info: dict | None,
+    assets_dir: Path,
+) -> str | None:
+    """Generate a thumbnail for a video item.
+
+    Strategy:
+      1. Download thumbnail URL from yt-dlp info (YouTube/Vimeo always have one).
+      2. Fallback: extract a frame from the video file using ffmpeg.
+    Returns the relative asset path of the thumbnail, or None on failure.
+    """
+    thumb_path = item_subdir / _THUMB_NAME
+
+    # 1) Try yt-dlp thumbnail URL (YouTube, Vimeo, etc.)
+    if info:
+        thumb_url = info.get("thumbnail")
+        # For playlists / multi-entry results, dig into entries
+        if not thumb_url and info.get("_type") == "playlist" and info.get("entries"):
+            entry = next((e for e in info["entries"] if e), None)
+            if entry:
+                thumb_url = entry.get("thumbnail")
+        if thumb_url:
+            try:
+                req = urllib.request.Request(thumb_url, headers={"User-Agent": _UA})
+                with urllib.request.urlopen(req, timeout=15) as r:
+                    thumb_path.write_bytes(r.read())
+                if thumb_path.stat().st_size > 0:
+                    log.info("thumbnail downloaded from info.thumbnail → %s", thumb_path.name)
+                    return str(thumb_path.relative_to(assets_dir))
+            except Exception as e:
+                log.debug("thumbnail download failed: %s", e)
+                thumb_path.unlink(missing_ok=True)
+
+    # 2) Fallback: extract a frame from the video file using ffmpeg
+    if video_file and video_file.exists() and shutil.which("ffmpeg"):
+        try:
+            subprocess.run(
+                [
+                    "ffmpeg", "-y",
+                    "-ss", "1",
+                    "-i", str(video_file),
+                    "-frames:v", "1",
+                    "-q:v", "2",
+                    str(thumb_path),
+                ],
+                capture_output=True,
+                timeout=30,
+            )
+            if thumb_path.exists() and thumb_path.stat().st_size > 0:
+                log.info("thumbnail extracted via ffmpeg → %s", thumb_path.name)
+                return str(thumb_path.relative_to(assets_dir))
+        except Exception as e:
+            log.debug("ffmpeg thumbnail extraction failed: %s", e)
+            thumb_path.unlink(missing_ok=True)
+
+    return None
 
 
 def _parse_oembed_text(html: str) -> str | None:
@@ -262,17 +323,29 @@ def _run_ytdlp_sync(item_id: str) -> None:
                 rel_primary = str(primary.relative_to(settings.assets_dir))
                 vals: dict = {"asset_path": rel_primary, "download_status": "done"}
 
+                # Build meta dict from existing meta_json.
+                existing_meta: dict = {}
+                if item.meta_json:
+                    try:
+                        existing_meta = json.loads(item.meta_json)
+                    except Exception:
+                        pass
+
                 # Multiple images → persist all paths so the UI shows a grid.
                 if len(media_files) > 1:
-                    existing_meta: dict = {}
-                    if item.meta_json:
-                        try:
-                            existing_meta = json.loads(item.meta_json)
-                        except Exception:
-                            pass
                     existing_meta["media_paths"] = [
                         str(f.relative_to(settings.assets_dir)) for f in media_files
                     ]
+
+                # Generate thumbnail for video items (and tweets with video).
+                video_primary = primary if primary.suffix.lower() in _VIDEO_EXTS else None
+                thumb_rel = _generate_thumbnail(
+                    item_subdir, video_primary, info, settings.assets_dir
+                )
+                if thumb_rel:
+                    existing_meta["thumbnail_path"] = thumb_rel
+
+                if existing_meta:
                     vals["meta_json"] = json.dumps(existing_meta)
 
                 # Metadata: prefer yt-dlp info (video tweets); fall back to oEmbed text.

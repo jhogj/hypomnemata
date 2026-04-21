@@ -17,8 +17,8 @@
 
 ## Status atual
 
-- **Onda**: 1 (MVP) — **entregue** + Onda 2 itens 6 e 7 (OCR + yt-dlp) + melhorias de tweet (imagens, galeria, texto).
-- **Última sessão**: 2026-04-21 — fotos de tweet funcionando (gallery-dl + oEmbed fallback + extração de texto). 32/32 testes passando.
+- **Onda**: 1 (MVP) — **entregue** + Onda 2 itens 6 e 7 (OCR + yt-dlp) + melhorias de tweet (imagens, galeria, texto) + thumbnails de vídeo nos cards.
+- **Última sessão**: 2026-04-21 — thumbnails de vídeo nos cards (YouTube thumb via yt-dlp info, ffmpeg frame extraction como fallback para Twitter/outros). 32/32 testes passando.
 - **Próxima tarefa**: nenhuma pendente crítica. Possíveis próximos: busca semântica, exportação, notificações de download concluído.
 
 ### Deps externas necessárias (além do `uv sync`)
@@ -130,6 +130,19 @@ cd extension && npm install && npm run build        # carregar dist/ em chrome:/
 - Card.tsx inalterado — `asset_path` já aponta para a primeira imagem.
 
 **Testes**: `_find_video_file` → `_find_media_files` (3 unit tests) + teste de graceful fallback quando gallery-dl e rede estão ausentes. 32/32 passando.
+
+### 2026-04-21 — Thumbnails de vídeo nos cards
+
+**Problema raiz**: cards de itens do tipo `video` (YouTube, Vimeo) e tweets com vídeo mostravam apenas o placeholder "vídeo" — sem nenhuma imagem de preview, tornando a biblioteca masonry visualmente pobre.
+
+**Solução** (`ytdlp.py` + `Card.tsx`):
+- **Backend**: nova função `_generate_thumbnail()` chamada após o download do vídeo:
+  1. **YouTube/Vimeo**: baixa a thumbnail da URL contida no dict `info` retornado por `yt-dlp.extract_info()` (campo `thumbnail`). Sempre disponível.
+  2. **Fallback (Twitter/outros)**: extrai um frame do vídeo em `t=1s` via `ffmpeg -frames:v 1 -q:v 2 thumb.jpg`. Requer `ffmpeg` no PATH.
+  3. Thumbnail salva como `thumb.jpg` no subdiretório do item (`assets/{ano}/{mês}/{item_id}/thumb.jpg`). Caminho relativo armazenado em `meta_json.thumbnail_path`.
+- **Frontend**: `Card.tsx` lê `meta_json.thumbnail_path` via `getThumbnailPath()`. Se disponível, exibe a thumbnail com um overlay de ícone de play (▶ com fundo escuro semi-transparente, escala no hover). Cards com `download_status === "pending"` mostram spinner animado em vez de placeholder estático.
+
+**Nota**: thumbnails são geradas apenas para itens **novos** (download futuro). Itens existentes mantêm o placeholder até que sejam re-capturados ou um script de backfill seja rodado.
 
 ### 2026-04-21 — .gitignore criado
 - Arquivo na raiz do projeto. Ignora: `__pycache__/`, `*.py[cod]`, `*.egg-info/`, `.venv/`, `.ruff_cache/`, `.pytest_cache/`, `node_modules/`, `webapp/dist/`, `extension/dist/`, `.DS_Store`, `.env*` (exceto `.env.example`), `.vscode/`, `.idea/`.
