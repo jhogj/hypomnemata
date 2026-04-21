@@ -44,7 +44,9 @@ export function Sidebar({
   return (
     <aside className="flex h-screen w-56 flex-col border-r border-paper-border bg-paper-sidebar">
       <div className="border-b border-paper-border px-5 py-4">
-        <div className="text-lg font-bold text-paper-ink">Hypomnemata</div>
+        <div className="flex items-center justify-center h-10 overflow-hidden mb-2 -ml-3">
+          <img src="/marca.png" alt="Hypomnemata" className="w-[280px] max-w-none object-contain" />
+        </div>
         <button
           type="button"
           onClick={onOpenCapture}
