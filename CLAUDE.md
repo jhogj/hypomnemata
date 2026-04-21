@@ -17,9 +17,9 @@
 
 ## Status atual
 
-- **Onda**: 1 (MVP) — **entregue** + Onda 2 itens 6 e 7 (OCR + yt-dlp) + melhorias de tweet (imagens, galeria, texto) + thumbnails de vídeo nos cards.
-- **Última sessão**: 2026-04-21 — thumbnails de vídeo nos cards (YouTube thumb via yt-dlp info, ffmpeg frame extraction como fallback para Twitter/outros). 32/32 testes passando.
-- **Próxima tarefa**: nenhuma pendente crítica. Possíveis próximos: busca semântica, exportação, notificações de download concluído.
+- **Onda**: 1 (MVP) — **entregue** + Onda 2 itens 6 e 7 (OCR + yt-dlp) + melhorias de tweet + thumbnails de vídeo + inline playback + storage indicator + auto-refresh.
+- **Última sessão**: 2026-04-21 — play inline de vídeos nos cards, continuação de tempo card→modal, indicador de armazenamento na sidebar, auto-refresh quando downloads terminam. 32/32 testes passando.
+- **Próxima tarefa**: nenhuma pendente crítica. Possíveis próximos: busca semântica, exportação.
 
 ### Deps externas necessárias (além do `uv sync`)
 | Ferramenta | Uso | Instalação |
@@ -30,9 +30,10 @@
 | `gallery-dl` | download fotos de tweets (galeria) | `uv add gallery-dl` ou `pip install gallery-dl` |
 
 ### O que existe em código
-- `backend/` — FastAPI + SQLAlchemy async + FTS5. Rotas: POST /captures, GET /items (filtros kind/tag/order), GET /items/{id}, PATCH /items/{id}, DELETE /items/{id}, GET /search, GET /tags, GET /assets/{path}, /health. Testes em `backend/tests/` (32 testes).
+- `backend/` — FastAPI + SQLAlchemy async + FTS5. Rotas: POST /captures, GET /items (filtros kind/tag/order), GET /items/{id}, PATCH /items/{id}, DELETE /items/{id}, GET /search, GET /tags, GET /assets/{path}, GET /storage, /health. Testes em `backend/tests/` (32 testes).
   - `backend/hypomnemata/ocr.py` — worker OCR: pytesseract (imagens), pypdf (PDFs), roda em thread via `asyncio.to_thread`. Coluna `ocr_status` no Item.
-  - `backend/hypomnemata/ytdlp.py` — worker de download: yt-dlp para vídeos e tweets com vídeo; gallery-dl + oEmbed fallback para tweets com foto. Coluna `download_status` no Item. Cada item usa subdiretório próprio em `assets/{ano}/{mês}/{item_id}/`.
+  - `backend/hypomnemata/ytdlp.py` — worker de download: yt-dlp para vídeos e tweets com vídeo; gallery-dl + oEmbed fallback para tweets com foto. Geração de thumbnails (yt-dlp info thumb + ffmpeg fallback). Coluna `download_status` no Item. Cada item usa subdiretório próprio em `assets/{ano}/{mês}/{item_id}/`.
+  - `backend/hypomnemata/routes/storage_info.py` — GET /storage: retorna total de bytes usados pelo diretório de assets.
 - `webapp/` — React + Vite + Tailwind. Telas: Library (masonry flex + sidebar + busca), CaptureModal (⌘K, tabs URL/Arquivo/Texto), DetailModal (preview + nota/tags editáveis, texto extraído collapsible, galeria de fotos de tweet, excluir). Proxy `/api/*` → backend.
 - `extension/` — Chrome MV3 via @crxjs/vite-plugin. Popup React (tags/nota/botão), service worker com atalho ⌘⇧Y, `chrome.tabs.captureVisibleTab` + injeção de script pra pegar meta/selection.
 - `.gitignore` — na raiz do projeto.
@@ -131,18 +132,47 @@ cd extension && npm install && npm run build        # carregar dist/ em chrome:/
 
 **Testes**: `_find_video_file` → `_find_media_files` (3 unit tests) + teste de graceful fallback quando gallery-dl e rede estão ausentes. 32/32 passando.
 
-### 2026-04-21 — Thumbnails de vídeo nos cards
+### 2026-04-21 — Play inline de vídeos nos cards
 
-**Problema raiz**: cards de itens do tipo `video` (YouTube, Vimeo) e tweets com vídeo mostravam apenas o placeholder "vídeo" — sem nenhuma imagem de preview, tornando a biblioteca masonry visualmente pobre.
+**Funcionalidade**: clicar no ícone ▶ de um card de vídeo troca a thumbnail por um `<video controls autoPlay>` inline — o vídeo toca no próprio card, sem abrir o modal. Clicar em qualquer outra área do card (título, data) abre o DetailModal normalmente.
 
-**Solução** (`ytdlp.py` + `Card.tsx`):
-- **Backend**: nova função `_generate_thumbnail()` chamada após o download do vídeo:
-  1. **YouTube/Vimeo**: baixa a thumbnail da URL contida no dict `info` retornado por `yt-dlp.extract_info()` (campo `thumbnail`). Sempre disponível.
-  2. **Fallback (Twitter/outros)**: extrai um frame do vídeo em `t=1s` via `ffmpeg -frames:v 1 -q:v 2 thumb.jpg`. Requer `ffmpeg` no PATH.
-  3. Thumbnail salva como `thumb.jpg` no subdiretório do item (`assets/{ano}/{mês}/{item_id}/thumb.jpg`). Caminho relativo armazenado em `meta_json.thumbnail_path`.
-- **Frontend**: `Card.tsx` lê `meta_json.thumbnail_path` via `getThumbnailPath()`. Se disponível, exibe a thumbnail com um overlay de ícone de play (▶ com fundo escuro semi-transparente, escala no hover). Cards com `download_status === "pending"` mostram spinner animado em vez de placeholder estático.
+**Detalhes técnicos** (`Card.tsx`):
+- `videoRef = useRef<HTMLVideoElement>` para acessar o player.
+- `handlePlayClick` faz `e.stopPropagation()` para não abrir o modal.
+- `<div onClick={e.stopPropagation()}>` envolve o `<video>` para que os controles nativos funcionem sem propagar.
 
-**Nota**: thumbnails são geradas apenas para itens **novos** (download futuro). Itens existentes mantêm o placeholder até que sejam re-capturados ou um script de backfill seja rodado.
+### 2026-04-21 — Continuidade de tempo card → DetailModal
+
+**Bug original**: dar play no card e depois abrir o DetailModal fazia o vídeo rodar duas vezes (ambos os players ativos, ambos começando do início).
+
+**Solução** (4 arquivos):
+- **Card.tsx**: `handleCardClick()` captura `videoRef.current.currentTime`, pausa o player e reseta `playing = false` antes de chamar `onClick(videoTime)`.
+- **Library.tsx**: `onOpenDetail` agora passa `(id, videoTime?)` para cima.
+- **App.tsx**: armazena `videoTime` em state, passa como `initialVideoTime` para `DetailModal`. Limpa ao fechar o modal.
+- **DetailModal.tsx**: aceita `initialVideoTime?`. Usa `onLoadedMetadata` + `detailVideoRef` para fazer `seek` ao tempo recebido. Flag `videoTimeApplied` garante seek único. `autoPlay` ativado quando há tempo inicial > 0.
+
+**Resultado**: vídeo continua de onde parou no card. Ao fechar o modal, o card volta ao estado de thumbnail (próximo play reinicia do 0).
+
+### 2026-04-21 — Indicador de armazenamento na sidebar
+
+**Funcionalidade**: canto inferior esquerdo da sidebar mostra o total de espaço em disco usado pelos assets (ex: "142.3 MB", "1.25 GB").
+
+**Implementação**:
+- **Backend**: novo arquivo `backend/hypomnemata/routes/storage_info.py` com `GET /storage`. Percorre `assets/` recursivamente com `Path.rglob("*")` somando `stat().st_size`. Registrado em `main.py`.
+- **Frontend**: `api.storageInfo()` em `api.ts`. `Library.tsx` chama no `refresh()` e passa `storageBytes` para `Sidebar`.
+- **Sidebar.tsx**: função `formatBytes()` converte para B/KB/MB/GB. Exibido com ícone de banco de dados (SVG inline) no rodapé fixo da sidebar.
+
+### 2026-04-21 — Auto-refresh quando downloads/OCR terminam
+
+**Bug original**: ao capturar um vídeo ou foto, o card ficava preso em "Baixando..." mesmo após o download concluir no backend. Só aparecia após recarregar a página manualmente.
+
+**Causa**: `Library.tsx` só buscava itens uma vez (no mount ou ao mudar filtros). Não havia mecanismo de re-fetch quando o status de um item mudava no backend.
+
+**Solução** (`Library.tsx`):
+- `hasPending = items.some(it => it.download_status === "pending" || it.ocr_status === "pending")`.
+- `useEffect` com `setInterval(refresh, 5000)` ativo apenas enquanto `hasPending === true`.
+- Quando o backend termina o download/OCR, o próximo poll traz o item atualizado e o card renderiza a thumbnail/imagem/vídeo automaticamente.
+- O polling para assim que não há mais itens pendentes (cleanup via `clearInterval`).
 
 ### 2026-04-21 — .gitignore criado
 - Arquivo na raiz do projeto. Ignora: `__pycache__/`, `*.py[cod]`, `*.egg-info/`, `.venv/`, `.ruff_cache/`, `.pytest_cache/`, `node_modules/`, `webapp/dist/`, `extension/dist/`, `.DS_Store`, `.env*` (exceto `.env.example`), `.vscode/`, `.idea/`.

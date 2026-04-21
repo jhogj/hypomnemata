@@ -3,12 +3,13 @@ import { api, type Item } from "../lib/api";
 
 interface Props {
   itemId: string;
+  initialVideoTime?: number;
   onClose: () => void;
   onChanged: () => void;
   onDeleted: () => void;
 }
 
-export function DetailModal({ itemId, onClose, onChanged, onDeleted }: Props) {
+export function DetailModal({ itemId, initialVideoTime, onClose, onChanged, onDeleted }: Props) {
   const [item, setItem] = useState<Item | null>(null);
   const [title, setTitle] = useState("");
   const [note, setNote] = useState("");
@@ -18,6 +19,8 @@ export function DetailModal({ itemId, onClose, onChanged, onDeleted }: Props) {
   const [err, setErr] = useState<string | null>(null);
   const [ocrOpen, setOcrOpen] = useState(false);
   const ocrRef = useRef<HTMLDivElement>(null);
+  const detailVideoRef = useRef<HTMLVideoElement>(null);
+  const videoTimeApplied = useRef(false);
 
   useEffect(() => {
     let off = false;
@@ -180,8 +183,21 @@ export function DetailModal({ itemId, onClose, onChanged, onDeleted }: Props) {
             />
           ) : isVideo ? (
             <video
+              ref={detailVideoRef}
               src={api.assetUrl(item.asset_path!)}
               controls
+              autoPlay={initialVideoTime != null && initialVideoTime > 0}
+              onLoadedMetadata={() => {
+                if (
+                  !videoTimeApplied.current &&
+                  initialVideoTime != null &&
+                  initialVideoTime > 0 &&
+                  detailVideoRef.current
+                ) {
+                  detailVideoRef.current.currentTime = initialVideoTime;
+                  videoTimeApplied.current = true;
+                }
+              }}
               className="mx-auto max-h-full w-full"
             />
           ) : item.download_status === "pending" ? (

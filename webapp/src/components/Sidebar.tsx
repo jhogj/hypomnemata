@@ -5,6 +5,7 @@ interface Props {
   tagCounts: TagCount[];
   activeKind: string | null;
   activeTag: string | null;
+  storageBytes: number | null;
   onKind: (k: string | null) => void;
   onTag: (t: string | null) => void;
   onOpenCapture: () => void;
@@ -21,11 +22,19 @@ const KINDS: { key: string; label: string }[] = [
   { key: "pdf", label: "PDFs" },
 ];
 
+function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`;
+}
+
 export function Sidebar({
   totals,
   tagCounts,
   activeKind,
   activeTag,
+  storageBytes,
   onKind,
   onTag,
   onOpenCapture,
@@ -91,6 +100,18 @@ export function Sidebar({
           </>
         )}
       </nav>
+
+      {storageBytes != null && (
+        <div className="border-t border-paper-border px-5 py-3">
+          <div className="flex items-center gap-2 text-xs text-paper-mid">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="h-4 w-4 shrink-0">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M20.25 6.375c0 2.278-3.694 4.125-8.25 4.125S3.75 8.653 3.75 6.375m16.5 0c0-2.278-3.694-4.125-8.25-4.125S3.75 4.097 3.75 6.375m16.5 0v11.25c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125V6.375m16.5 0v3.75c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125v-3.75" />
+            </svg>
+            <span>{formatBytes(storageBytes)}</span>
+          </div>
+        </div>
+      )}
     </aside>
   );
 }
+

@@ -5,7 +5,7 @@ import { Sidebar } from "../components/Sidebar";
 import { Searchbar } from "../components/Searchbar";
 
 interface Props {
-  onOpenDetail: (id: string) => void;
+  onOpenDetail: (id: string, videoTime?: number) => void;
   onOpenCapture: () => void;
   reloadKey: number;
 }
@@ -14,6 +14,7 @@ export function Library({ onOpenDetail, onOpenCapture, reloadKey }: Props) {
   const [items, setItems] = useState<Item[]>([]);
   const [totals, setTotals] = useState<Record<string, number>>({});
   const [tagCounts, setTagCounts] = useState<TagCount[]>([]);
+  const [storageBytes, setStorageBytes] = useState<number | null>(null);
   const [activeKind, setActiveKind] = useState<string | null>(null);
   const [activeTag, setActiveTag] = useState<string | null>(null);
   const [query, setQuery] = useState("");
@@ -49,6 +50,14 @@ export function Library({ onOpenDetail, onOpenCapture, reloadKey }: Props) {
 
       const tg = await api.tags();
       setTagCounts(tg);
+
+      // Storage usage
+      try {
+        const s = await api.storageInfo();
+        setStorageBytes(s.total_bytes);
+      } catch {
+        // non-critical
+      }
     } catch (e) {
       setErr(String(e));
     } finally {
@@ -60,6 +69,16 @@ export function Library({ onOpenDetail, onOpenCapture, reloadKey }: Props) {
     void refresh();
   }, [refresh, reloadKey]);
 
+  // Poll while any visible item has a pending download/OCR — auto-refresh cards.
+  const hasPending = items.some(
+    (it) => it.download_status === "pending" || it.ocr_status === "pending",
+  );
+  useEffect(() => {
+    if (!hasPending) return;
+    const id = setInterval(() => void refresh(), 5000);
+    return () => clearInterval(id);
+  }, [hasPending, refresh]);
+
   return (
     <div className="flex h-screen">
       <Sidebar
@@ -67,6 +86,7 @@ export function Library({ onOpenDetail, onOpenCapture, reloadKey }: Props) {
         tagCounts={tagCounts}
         activeKind={activeKind}
         activeTag={activeTag}
+        storageBytes={storageBytes}
         onKind={(k) => {
           setActiveKind(k);
           setQuery("");
@@ -124,7 +144,7 @@ export function Library({ onOpenDetail, onOpenCapture, reloadKey }: Props) {
                   {items
                     .filter((_, i) => i % cols === colIdx)
                     .map((it) => (
-                      <Card key={it.id} item={it} onClick={() => onOpenDetail(it.id)} />
+                      <Card key={it.id} item={it} onClick={(vt) => onOpenDetail(it.id, vt)} />
                     ))}
                 </div>
               ))}
@@ -163,3 +183,4 @@ function labelFor(kind: string): string {
   };
   return map[kind] || kind;
 }
+

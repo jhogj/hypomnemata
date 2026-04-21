@@ -49,6 +49,10 @@ async function j<T>(r: Response): Promise<T> {
   return r.json() as Promise<T>;
 }
 
+export interface StorageInfo {
+  total_bytes: number;
+}
+
 export const api = {
   async listItems(params: {
     kind?: string;
@@ -115,6 +119,10 @@ export const api = {
 
   async tags(): Promise<TagCount[]> {
     return j(await fetch(`${API}/tags`));
+  },
+
+  async storageInfo(): Promise<StorageInfo> {
+    return j(await fetch(`${API}/storage`));
   },
 
   assetUrl(relative: string): string {

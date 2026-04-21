@@ -1,8 +1,9 @@
+import { useRef, useState } from "react";
 import { api, type Item } from "../lib/api";
 
 interface Props {
   item: Item;
-  onClick: () => void;
+  onClick: (videoTime?: number) => void;
 }
 
 const KIND_LABEL: Record<Item["kind"], string> = {
@@ -31,11 +32,24 @@ function getThumbnailPath(item: Item): string | null {
   }
 }
 
+/** Check if the item has a playable video asset. */
+function getVideoUrl(item: Item): string | null {
+  if (!item.asset_path) return null;
+  if (/\.(mp4|webm|mkv|mov|m4v)$/i.test(item.asset_path)) {
+    return api.assetUrl(item.asset_path);
+  }
+  return null;
+}
+
 export function Card({ item, onClick }: Props) {
+  const [playing, setPlaying] = useState(false);
+  const videoRef = useRef<HTMLVideoElement>(null);
+
   const hasImage = item.asset_path && ["image", "tweet"].includes(item.kind);
   const showThumb = hasImage && /\.(png|jpe?g|gif|webp)$/i.test(item.asset_path || "");
   const thumbnailPath = getThumbnailPath(item);
-  const isVideoKind = item.kind === "video" || (item.kind === "tweet" && item.asset_path && /\.(mp4|webm|mkv|mov|m4v)$/i.test(item.asset_path));
+  const videoUrl = getVideoUrl(item);
+  const isVideoKind = item.kind === "video" || (item.kind === "tweet" && videoUrl != null);
 
   // Determine what image to show: direct image asset, or a thumbnail
   const cardImageUrl = showThumb
@@ -44,13 +58,43 @@ export function Card({ item, onClick }: Props) {
       ? api.assetUrl(thumbnailPath)
       : null;
 
+  // Can this card play inline?
+  const canPlay = isVideoKind && videoUrl != null;
+
+  function handlePlayClick(e: React.MouseEvent) {
+    e.stopPropagation();
+    setPlaying(true);
+  }
+
+  function handleCardClick() {
+    // Capture currentTime from the inline player before opening the modal.
+    let videoTime: number | undefined;
+    if (playing && videoRef.current) {
+      videoTime = videoRef.current.currentTime;
+      videoRef.current.pause();
+    }
+    setPlaying(false);
+    onClick(videoTime);
+  }
+
   return (
     <button
       type="button"
-      onClick={onClick}
+      onClick={handleCardClick}
       className="group mb-4 w-full break-inside-avoid overflow-hidden rounded border border-paper-border bg-paper-card text-left shadow-sm transition-shadow hover:shadow-md"
     >
-      {cardImageUrl ? (
+      {playing && videoUrl ? (
+        /* Inline video player — click on the video interacts with controls, not the card */
+        <div onClick={(e) => e.stopPropagation()}>
+          <video
+            ref={videoRef}
+            src={videoUrl}
+            controls
+            autoPlay
+            className="block w-full"
+          />
+        </div>
+      ) : cardImageUrl ? (
         <div className="relative">
           <img
             src={cardImageUrl}
@@ -58,7 +102,22 @@ export function Card({ item, onClick }: Props) {
             className="block w-full"
             loading="lazy"
           />
-          {(isVideoKind || (!showThumb && thumbnailPath)) && (
+          {canPlay ? (
+            <div
+              className="absolute inset-0 flex cursor-pointer items-center justify-center"
+              onClick={handlePlayClick}
+            >
+              <div className="flex h-12 w-12 items-center justify-center rounded-full bg-black/60 text-white shadow-lg backdrop-blur-sm transition-transform group-hover:scale-110">
+                <svg
+                  viewBox="0 0 24 24"
+                  fill="currentColor"
+                  className="ml-0.5 h-5 w-5"
+                >
+                  <path d="M8 5v14l11-7z" />
+                </svg>
+              </div>
+            </div>
+          ) : (!showThumb && thumbnailPath) ? (
             <div className="absolute inset-0 flex items-center justify-center">
               <div className="flex h-12 w-12 items-center justify-center rounded-full bg-black/60 text-white shadow-lg backdrop-blur-sm transition-transform group-hover:scale-110">
                 <svg
@@ -70,7 +129,7 @@ export function Card({ item, onClick }: Props) {
                 </svg>
               </div>
             </div>
-          )}
+          ) : null}
         </div>
       ) : item.download_status === "pending" ? (
         <div className="flex h-32 items-center justify-center border-b border-paper-border bg-paper-tag text-sm text-paper-mid">

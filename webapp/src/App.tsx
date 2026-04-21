@@ -6,12 +6,16 @@ import { DetailModal } from "./screens/DetailModal";
 export default function App() {
   const [captureOpen, setCaptureOpen] = useState(false);
   const [detailId, setDetailId] = useState<string | null>(null);
+  const [videoTime, setVideoTime] = useState<number | undefined>();
   const [reload, setReload] = useState(0);
 
   return (
     <>
       <Library
-        onOpenDetail={setDetailId}
+        onOpenDetail={(id, vt) => {
+          setDetailId(id);
+          setVideoTime(vt);
+        }}
         onOpenCapture={() => setCaptureOpen(true)}
         reloadKey={reload}
       />
@@ -29,10 +33,15 @@ export default function App() {
       {detailId && (
         <DetailModal
           itemId={detailId}
-          onClose={() => setDetailId(null)}
+          initialVideoTime={videoTime}
+          onClose={() => {
+            setDetailId(null);
+            setVideoTime(undefined);
+          }}
           onChanged={() => setReload((r) => r + 1)}
           onDeleted={() => {
             setDetailId(null);
+            setVideoTime(undefined);
             setReload((r) => r + 1);
           }}
         />
