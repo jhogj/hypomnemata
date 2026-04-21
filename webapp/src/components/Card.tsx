@@ -1,5 +1,6 @@
 import { useRef, useState, useEffect } from "react";
-import { api, type Item } from "../lib/api";
+import { type Item } from "../lib/api";
+import { getVideoUrl, getPreviewImageUrl, getThumbnailPath } from "../lib/media";
 
 interface Props {
   item: Item;
@@ -22,42 +23,16 @@ function formatDate(iso: string): string {
   return d.toLocaleDateString("pt-BR", { day: "2-digit", month: "short" });
 }
 
-/** Extract thumbnail_path from meta_json if available. */
-function getThumbnailPath(item: Item): string | null {
-  if (!item.meta_json) return null;
-  try {
-    const m = JSON.parse(item.meta_json) as { thumbnail_path?: string };
-    return m.thumbnail_path || null;
-  } catch {
-    return null;
-  }
-}
-
-/** Check if the item has a playable video asset. */
-function getVideoUrl(item: Item): string | null {
-  if (!item.asset_path) return null;
-  if (/\.(mp4|webm|mkv|mov|m4v)$/i.test(item.asset_path)) {
-    return api.assetUrl(item.asset_path);
-  }
-  return null;
-}
-
 export function Card({ item, onClick, onDelete }: Props) {
   const [playing, setPlaying] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
 
+  const videoUrl = getVideoUrl(item);
+  const isVideoKind = item.kind === "video" || (item.kind === "tweet" && videoUrl != null);
+  const cardImageUrl = getPreviewImageUrl(item);
   const hasImage = item.asset_path && ["image", "tweet", "article"].includes(item.kind);
   const showThumb = hasImage && /\.(png|jpe?g|gif|webp)$/i.test(item.asset_path || "");
   const thumbnailPath = getThumbnailPath(item);
-  const videoUrl = getVideoUrl(item);
-  const isVideoKind = item.kind === "video" || (item.kind === "tweet" && videoUrl != null);
-
-  // Determine what image to show: direct image asset, or a thumbnail
-  const cardImageUrl = showThumb
-    ? api.assetUrl(item.asset_path!)
-    : thumbnailPath
-      ? api.assetUrl(thumbnailPath)
-      : null;
 
   const canPlay = isVideoKind && videoUrl;
 

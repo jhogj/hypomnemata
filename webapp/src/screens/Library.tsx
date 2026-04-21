@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api, type Item, type TagCount } from "../lib/api";
 import { Card } from "../components/Card";
+import { ListView } from "../components/ListView";
 import { Sidebar } from "../components/Sidebar";
 import { Searchbar } from "../components/Searchbar";
 
@@ -20,8 +21,27 @@ export function Library({ onOpenDetail, onOpenCapture, reloadKey }: Props) {
   const [query, setQuery] = useState("");
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const [viewMode, setViewMode] = useState<"grid" | "list">(() => {
+    return (localStorage.getItem("hypomnemata_view_mode") as "grid" | "list") || "grid";
+  });
+
   const gridRef = useRef<HTMLDivElement>(null);
   const cols = useMasonryCols(gridRef);
+
+  function toggleViewMode(mode: "grid" | "list") {
+    setViewMode(mode);
+    localStorage.setItem("hypomnemata_view_mode", mode);
+  }
+
+  async function handleDelete(item: Item) {
+    if (!confirm("Excluir este item?")) return;
+    try {
+      await api.deleteItem(item.id);
+      void refresh();
+    } catch (e) {
+      alert("Erro ao excluir: " + e);
+    }
+  }
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -105,19 +125,49 @@ export function Library({ onOpenDetail, onOpenCapture, reloadKey }: Props) {
           onOpenCapture={onOpenCapture}
         />
         <div className="h-[calc(100vh-57px)] overflow-y-auto px-6 py-5">
-          <div className="mb-4 flex items-center gap-3 text-sm text-paper-mid">
-            <span className="font-medium text-paper-ink">
-              {query
-                ? `Busca: "${query}"`
-                : activeTag
-                  ? `#${activeTag}`
-                  : activeKind
-                    ? labelFor(activeKind)
-                    : "Recentes"}
-            </span>
-            <span className="text-xs">
-              {loading ? "carregando..." : `${items.length} ${items.length === 1 ? "item" : "itens"}`}
-            </span>
+          <div className="mb-4 flex items-center justify-between text-sm text-paper-mid">
+            <div className="flex items-center gap-3">
+              <span className="font-medium text-paper-ink">
+                {query
+                  ? `Busca: "${query}"`
+                  : activeTag
+                    ? `#${activeTag}`
+                    : activeKind
+                      ? labelFor(activeKind)
+                      : "Recentes"}
+              </span>
+              <span className="text-xs">
+                {loading ? "carregando..." : `${items.length} ${items.length === 1 ? "item" : "itens"}`}
+              </span>
+            </div>
+            <div className="flex items-center gap-1 rounded bg-paper-tag p-0.5">
+              <button
+                onClick={() => toggleViewMode("grid")}
+                className={`rounded p-1 transition-colors ${viewMode === "grid" ? "bg-paper-card shadow-sm text-paper-ink" : "text-paper-mid hover:text-paper-ink"}`}
+                title="Visão em Grid"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <rect x="3" y="3" width="7" height="7"></rect>
+                  <rect x="14" y="3" width="7" height="7"></rect>
+                  <rect x="14" y="14" width="7" height="7"></rect>
+                  <rect x="3" y="14" width="7" height="7"></rect>
+                </svg>
+              </button>
+              <button
+                onClick={() => toggleViewMode("list")}
+                className={`rounded p-1 transition-colors ${viewMode === "list" ? "bg-paper-card shadow-sm text-paper-ink" : "text-paper-mid hover:text-paper-ink"}`}
+                title="Visão em Lista"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <line x1="8" y1="6" x2="21" y2="6"></line>
+                  <line x1="8" y1="12" x2="21" y2="12"></line>
+                  <line x1="8" y1="18" x2="21" y2="18"></line>
+                  <line x1="3" y1="6" x2="3.01" y2="6"></line>
+                  <line x1="3" y1="12" x2="3.01" y2="12"></line>
+                  <line x1="3" y1="18" x2="3.01" y2="18"></line>
+                </svg>
+              </button>
+            </div>
           </div>
 
           {err && (
@@ -137,6 +187,12 @@ export function Library({ onOpenDetail, onOpenCapture, reloadKey }: Props) {
                 Capturar algo (⌘K)
               </button>
             </div>
+          ) : viewMode === "list" ? (
+            <ListView
+              items={items}
+              onClick={(item) => onOpenDetail(item.id)}
+              onDelete={handleDelete}
+            />
           ) : (
             <div ref={gridRef} className="flex gap-4">
               {Array.from({ length: cols }, (_, colIdx) => (

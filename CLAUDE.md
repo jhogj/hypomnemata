@@ -231,6 +231,15 @@ cd extension && npm install && npm run build        # carregar dist/ em chrome:/
 
 **Dep nova**: `pymupdf>=1.24` adicionada em `pyproject.toml`.
 
+### 2026-04-21 — Visão em Lista e Hover Preview
+
+**Funcionalidade**: Adicionada a capacidade de alternar a visualização da biblioteca entre o formato original "Grid" (Masonry Cards) e o formato "Lista" (linhas detalhadas). Na visão em lista, repousar o mouse sobre um item exibe um preview flutuante (bolha) com a imagem ou miniatura do conteúdo após um breve delay, sem iniciar a reprodução de mídias nativas (apenas imagem estática ou capa).
+
+**Implementação**:
+- **Frontend** (`Library.tsx`): Estado `viewMode` persistido no `localStorage` e ícones de toggle de visão adicionados ao header.
+- **Frontend** (`ListView.tsx`): Novo componente de lista renderizando os dados dos itens em formato de tabela/linhas.
+- **Frontend** (`HoverPreview.tsx`): Lógica de timeout (`onMouseEnter`/`onMouseLeave`) que exibe um portal/elemento posicionado de forma fixa (`fixed`) com a capa daquele item caso haja hover > 600ms. O preview lê as mesmas thumbnails geradas para os cards.
+
 ### 2026-04-21 — .gitignore criado
 - Arquivo na raiz do projeto. Ignora: `__pycache__/`, `*.py[cod]`, `*.egg-info/`, `.venv/`, `.ruff_cache/`, `.pytest_cache/`, `node_modules/`, `webapp/dist/`, `extension/dist/`, `.DS_Store`, `.env*` (exceto `.env.example`), `.vscode/`, `.idea/`.
 - **Não** ignora lockfiles (`package-lock.json`, `uv.lock`) — necessários para builds reprodutíveis.
