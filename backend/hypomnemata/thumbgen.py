@@ -73,8 +73,8 @@ def _run_thumbgen_sync(item_id: str) -> None:
             if not asset.exists():
                 return
 
-            # Determine output path — thumb.jpg next to the asset
-            thumb_path = asset.parent / "thumb.jpg"
+            # Use asset name for thumb to avoid collisions in the month folder
+            thumb_path = asset.with_suffix(".thumb.jpg")
 
             ext = asset.suffix.lower()
             ok = False

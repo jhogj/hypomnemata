@@ -76,11 +76,11 @@ async def test_capture_video_url_sets_download_pending(client):
 
 @pytest.mark.asyncio
 async def test_capture_video_file_only_no_download(client):
-    """Vídeo enviado como arquivo (sem source_url) não deve disparar download."""
+    """Vídeo enviado como arquivo dispara thumbnail generation (pending status)."""
     files = {"file": ("clip.mp4", b"fake-mp4-data", "video/mp4")}
     r = await client.post("/captures", data={"kind": "video"}, files=files)
     assert r.status_code == 201
-    assert r.json()["download_status"] is None
+    assert r.json()["download_status"] == "pending"
 
 
 @pytest.mark.asyncio

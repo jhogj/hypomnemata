@@ -17,8 +17,8 @@
 
 ## Status atual
 
-- **Onda**: 1 (MVP) — **entregue** + Onda 2 itens 6 e 7 (OCR + yt-dlp) + melhorias de tweet + thumbnails + inline playback + storage + auto-refresh + delete from card + scraping de artigos.
-- **Última sessão**: 2026-04-21 — scraping de artigos de portais de notícias (trafilatura: título, texto, hero image, metadados). Reader view no DetailModal. 32/32 testes passando.
+- **Onda**: 1 (MVP) — **entregue** + Onda 2 itens 6 e 7 (OCR + yt-dlp) + melhorias de tweet + thumbnails + inline playback + storage + auto-refresh + delete from card + scraping de artigos + thumbgen para uploads.
+- **Última sessão**: 2026-04-21 — geração de thumbnails para vídeos/PDFs enviados manualmente, visualizador de PDF inline no DetailModal. 32/32 testes passando.
 - **Próxima tarefa**: nenhuma pendente crítica. Possíveis próximos: busca semântica, exportação.
 
 ### Deps externas necessárias (além do `uv sync`)
@@ -29,12 +29,14 @@
 | `tesseract` | OCR de imagens | `brew install tesseract tesseract-lang` |
 | `gallery-dl` | download fotos de tweets (galeria) | já em `pyproject.toml` via `uv sync` |
 | `trafilatura` | scraping de artigos (título, texto, metadados) | já em `pyproject.toml` via `uv sync` |
+| `pymupdf` | geração de thumbnails de PDF | já em `pyproject.toml` via `uv sync` |
 
 ### O que existe em código
 - `backend/` — FastAPI + SQLAlchemy async + FTS5. Rotas: POST /captures, GET /items (filtros kind/tag/order), GET /items/{id}, PATCH /items/{id}, DELETE /items/{id}, GET /search, GET /tags, GET /assets/{path}, GET /storage, /health. Testes em `backend/tests/` (32 testes).
   - `backend/hypomnemata/ocr.py` — worker OCR: pytesseract (imagens), pypdf (PDFs), roda em thread via `asyncio.to_thread`. Coluna `ocr_status` no Item.
   - `backend/hypomnemata/ytdlp.py` — worker de download: yt-dlp para vídeos e tweets com vídeo; gallery-dl + oEmbed fallback para tweets com foto. Geração de thumbnails (yt-dlp info thumb + ffmpeg fallback). Coluna `download_status` no Item. Cada item usa subdiretório próprio em `assets/{ano}/{mês}/{item_id}/`.
   - `backend/hypomnemata/article.py` — worker de scraping de artigos: trafilatura para extração de título, texto, metadados (autor, data, site) e hero image (og:image). Mesma arquitetura de background task.
+  - `backend/hypomnemata/thumbgen.py` — worker de thumbnails: pymupdf (primeira página de PDFs) e ffmpeg (frame 1s de vídeos) para arquivos uploadados via modal.
   - `backend/hypomnemata/routes/storage_info.py` — GET /storage: retorna total de bytes usados pelo diretório de assets.
 - `webapp/` — React + Vite + Tailwind. Telas: Library (masonry flex + sidebar + busca), CaptureModal (⌘K, tabs URL/Arquivo/Texto), DetailModal (preview + nota/tags editáveis, texto extraído collapsible, galeria de fotos de tweet, excluir). Proxy `/api/*` → backend.
 - `extension/` — Chrome MV3 via @crxjs/vite-plugin. Popup React (tags/nota/botão), service worker com atalho ⌘⇧Y, `chrome.tabs.captureVisibleTab` + injeção de script pra pegar meta/selection.
@@ -212,6 +214,21 @@ cd extension && npm install && npm run build        # carregar dist/ em chrome:/
   - `downloadLabel()` atualizado: `"Extraindo artigo..."` para pending, `"trafilatura não instalado"` para missing_dep.
 
 **Dep nova**: `trafilatura>=2.0` em `pyproject.toml`.
+
+### 2026-04-21 — Thumbnails de uploads e Visualizador de PDF
+
+**Funcionalidade**: Quando o usuário faz upload manual de um PDF ou Vídeo, o sistema agora gera e mostra uma thumbnail no card (primeira página do PDF ou frame em `t=1s` do vídeo). Ao clicar em um PDF, ele abre direto no modal para leitura, em vez de só mostrar um link de download.
+
+**Implementação**:
+- **Backend** (`thumbgen.py`): Novo background worker. Usa `PyMuPDF` (`fitz`) para PDFs e `ffmpeg` para vídeos. A imagem é salva como `thumb.jpg` na pasta do asset e registrada no `meta_json.thumbnail_path`. O item fica como `download_status = "pending"` até terminar para usar o auto-refresh já implementado no webapp.
+- **Backend** (`captures.py`): Arquivos uploadados do tipo PDF/Video agora passam pelo `download_status = "pending"` e disparam o `generate_upload_thumbnail()`.
+- **Frontend** (`Card.tsx`): Removido o bug onde PDFs mostravam botão de "play" sobreposto. O ícone de play só renderiza se `isVideoKind` for verdadeiro, independentemente de ter thumbnail.
+- **Frontend** (`DetailModal.tsx`): Adicionado `<object type="application/pdf">` para renderizar o leitor nativo de PDFs do navegador no painel esquerdo do modal.
+- **Testes** (`test_ytdlp.py`): O teste `test_capture_video_file_only_no_download` foi atualizado para esperar o `download_status = "pending"` em uploads diretos de vídeo, refletindo a nova regra para acionar o `thumbgen`.
+
+- **Bugfix**: Corrigido um problema onde uploads de diferentes itens sobrescreviam a mesma miniatura na pasta do mês (colisão de `thumb.jpg`). A miniatura agora usa o nome original com o sufixo `.thumb.jpg` (ex: `ID.thumb.jpg`).
+
+**Dep nova**: `pymupdf>=1.24` adicionada em `pyproject.toml`.
 
 ### 2026-04-21 — .gitignore criado
 - Arquivo na raiz do projeto. Ignora: `__pycache__/`, `*.py[cod]`, `*.egg-info/`, `.venv/`, `.ruff_cache/`, `.pytest_cache/`, `node_modules/`, `webapp/dist/`, `extension/dist/`, `.DS_Store`, `.env*` (exceto `.env.example`), `.vscode/`, `.idea/`.
