@@ -125,6 +125,27 @@ export const api = {
     return j(await fetch(`${API}/storage`));
   },
 
+  async summarizeStream(
+    id: string,
+    onChunk: (text: string) => void,
+  ): Promise<void> {
+    const r = await fetch(`${API}/items/${id}/summarize`, { method: "POST" });
+    if (!r.ok) throw new Error(`HTTP ${r.status}: ${await r.text()}`);
+    const reader = r.body!.getReader();
+    const decoder = new TextDecoder();
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      onChunk(decoder.decode(value, { stream: true }));
+    }
+  },
+
+  async autotagItem(id: string): Promise<string[]> {
+    const r = await fetch(`${API}/items/${id}/autotag`, { method: "POST" });
+    if (!r.ok) throw new Error(`HTTP ${r.status}: ${await r.text()}`);
+    return ((await r.json()) as { tags: string[] }).tags;
+  },
+
   assetUrl(relative: string): string {
     return `${API}/assets/${relative}`;
   },

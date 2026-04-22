@@ -18,7 +18,13 @@ export function DetailModal({ itemId, initialVideoTime, onClose, onChanged, onDe
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [ocrOpen, setOcrOpen] = useState(false);
+  const [subOpen, setSubOpen] = useState(false);
+  const [summarizing, setSummarizing] = useState(false);
+  const [summaryText, setSummaryText] = useState("");
+  const [autotagging, setAutotagging] = useState(false);
+  const [suggestedTags, setSuggestedTags] = useState<string[]>([]);
   const ocrRef = useRef<HTMLDivElement>(null);
+  const subRef = useRef<HTMLDivElement>(null);
   const detailVideoRef = useRef<HTMLVideoElement>(null);
   const videoTimeApplied = useRef(false);
 
@@ -78,6 +84,17 @@ export function DetailModal({ itemId, initialVideoTime, onClose, onChanged, onDe
     return () => document.removeEventListener("mousedown", handleClick);
   }, [ocrOpen]);
 
+  useEffect(() => {
+    if (!subOpen) return;
+    function handleClick(e: MouseEvent) {
+      if (subRef.current && !subRef.current.contains(e.target as Node)) {
+        setSubOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, [subOpen]);
+
   async function save() {
     if (!item) return;
     setBusy(true);
@@ -97,6 +114,54 @@ export function DetailModal({ itemId, initialVideoTime, onClose, onChanged, onDe
     } finally {
       setBusy(false);
     }
+  }
+
+  async function handleSummarize() {
+    if (!item) return;
+    setSummarizing(true);
+    setSummaryText("");
+    setErr(null);
+    try {
+      await api.summarizeStream(item.id, (chunk) =>
+        setSummaryText((prev) => prev + chunk),
+      );
+      const updated = await api.getItem(item.id);
+      setItem(updated);
+    } catch (e) {
+      setErr(String(e));
+    } finally {
+      setSummarizing(false);
+    }
+  }
+
+  async function handleAutotag() {
+    if (!item) return;
+    setAutotagging(true);
+    setSuggestedTags([]);
+    setErr(null);
+    try {
+      setSuggestedTags(await api.autotagItem(item.id));
+    } catch (e) {
+      setErr(String(e));
+    } finally {
+      setAutotagging(false);
+    }
+  }
+
+  function addSuggestedTag(tag: string) {
+    const current = tags.split(",").map((t) => t.trim()).filter(Boolean);
+    if (!current.includes(tag)) {
+      setTags([...current, tag].join(", "));
+      setDirty(true);
+    }
+    setSuggestedTags((prev) => prev.filter((t) => t !== tag));
+  }
+
+  function addAllSuggestedTags() {
+    const current = tags.split(",").map((t) => t.trim()).filter(Boolean);
+    const toAdd = suggestedTags.filter((t) => !current.includes(t));
+    if (toAdd.length) { setTags([...current, ...toAdd].join(", ")); setDirty(true); }
+    setSuggestedTags([]);
   }
 
   async function del() {
@@ -153,6 +218,12 @@ export function DetailModal({ itemId, initialVideoTime, onClose, onChanged, onDe
   })();
 
   const isArticleReady = item.kind === "article" && item.body_text && item.download_status === "done";
+
+  const existingSummary: string | null = (() => {
+    if (!item.meta_json) return null;
+    try { return (JSON.parse(item.meta_json) as { summary?: string }).summary ?? null; }
+    catch { return null; }
+  })();
 
   function downloadLabel(status: string | null, _kind: string): string | null {
     if (!status || status === "done") return null;
@@ -363,6 +434,63 @@ export function DetailModal({ itemId, initialVideoTime, onClose, onChanged, onDe
               />
             </label>
 
+            {(item.body_text || item.title) && (
+              <div className="space-y-2 border-t border-paper-border pt-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-medium uppercase tracking-wider text-paper-light">IA</span>
+                  <div className="flex gap-1.5">
+                    <button
+                      type="button"
+                      onClick={handleSummarize}
+                      disabled={summarizing || autotagging}
+                      className="rounded-md border border-paper-border px-2.5 py-1 text-xs text-paper-mid hover:bg-paper-bg disabled:opacity-40"
+                    >
+                      {summarizing ? "Resumindo..." : existingSummary ? "Refazer resumo" : "Resumir"}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleAutotag}
+                      disabled={summarizing || autotagging}
+                      className="rounded-md border border-paper-border px-2.5 py-1 text-xs text-paper-mid hover:bg-paper-bg disabled:opacity-40"
+                    >
+                      {autotagging ? "Sugerindo..." : "Sugerir tags"}
+                    </button>
+                  </div>
+                </div>
+
+                {(summaryText || existingSummary) && (
+                  <div className={`rounded-md border border-paper-border p-3 text-xs leading-relaxed text-paper-ink ${summarizing ? "bg-paper-tag" : "bg-paper-bg"}`}>
+                    {summaryText || existingSummary}
+                    {summarizing && <span className="ml-0.5 animate-pulse">▌</span>}
+                  </div>
+                )}
+
+                {suggestedTags.length > 0 && (
+                  <div className="space-y-1.5">
+                    <div className="flex flex-wrap gap-1">
+                      {suggestedTags.map((tag) => (
+                        <button
+                          key={tag}
+                          type="button"
+                          onClick={() => addSuggestedTag(tag)}
+                          className="rounded-full border border-paper-accent/30 bg-paper-accent/10 px-2 py-0.5 text-xs text-paper-accent hover:bg-paper-accent/20"
+                        >
+                          + {tag}
+                        </button>
+                      ))}
+                    </div>
+                    <button
+                      type="button"
+                      onClick={addAllSuggestedTags}
+                      className="text-xs text-paper-accent hover:underline"
+                    >
+                      Adicionar todas
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
+
             {item.kind === "tweet" && item.body_text && (
               <div>
                 <div className="mb-1 text-xs font-medium uppercase tracking-wider text-paper-light">
@@ -389,6 +517,30 @@ export function DetailModal({ itemId, initialVideoTime, onClose, onChanged, onDe
                 )}
               </div>
             )}
+
+            {item.kind === "video" && item.body_text && item.download_status === "done" && (() => {
+              const meta = item.meta_json ? (() => { try { return JSON.parse(item.meta_json!); } catch { return {}; } })() : {};
+              const label = meta.subtitle_lang
+                ? `Legenda (${meta.subtitle_lang})`
+                : "Descrição do vídeo";
+              return (
+                <div ref={subRef}>
+                  <button
+                    type="button"
+                    onClick={() => setSubOpen((v) => !v)}
+                    className="flex w-full items-center justify-between text-xs font-medium uppercase tracking-wider text-paper-light hover:text-paper-mid"
+                  >
+                    <span>{label}</span>
+                    <span>{subOpen ? "▾" : "▸"}</span>
+                  </button>
+                  {subOpen && (
+                    <div className="mt-2 max-h-48 overflow-y-auto rounded-md border border-paper-border bg-paper-tag p-3 text-xs leading-relaxed text-paper-ink">
+                      {item.body_text}
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
 
             {downloadLabel(item.download_status, item.kind) && (
               <div className={`rounded-md px-3 py-2 text-xs ${

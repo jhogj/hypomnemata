@@ -17,9 +17,9 @@
 
 ## Status atual
 
-- **Onda**: 1 (MVP) — **entregue** + Onda 2 itens 6 e 7 (OCR + yt-dlp) + melhorias de tweet + thumbnails + inline playback + storage + auto-refresh + delete from card + scraping de artigos + thumbgen para uploads.
-- **Última sessão**: 2026-04-21 — geração de thumbnails para vídeos/PDFs enviados manualmente, visualizador de PDF inline no DetailModal. 32/32 testes passando.
-- **Próxima tarefa**: nenhuma pendente crítica. Possíveis próximos: busca semântica, exportação.
+- **Onda**: 1 (MVP) — **entregue** + Onda 2 itens 6, 7 e 8 (OCR + yt-dlp + Playwright) + melhorias de tweet + thumbnails + inline playback + storage + auto-refresh + delete from card + scraping de artigos + thumbgen para uploads.
+- **Última sessão**: 2026-04-21 — Playwright como fallback automático de scraping para SPAs (item 8 da Onda 2). 37/37 testes passando.
+- **Próxima tarefa**: Onda 3 — Ollama (resumo manual de itens) ou exportação ZIP.
 
 ### Deps externas necessárias (além do `uv sync`)
 | Ferramenta | Uso | Instalação |
@@ -30,6 +30,7 @@
 | `gallery-dl` | download fotos de tweets (galeria) | já em `pyproject.toml` via `uv sync` |
 | `trafilatura` | scraping de artigos (título, texto, metadados) | já em `pyproject.toml` via `uv sync` |
 | `pymupdf` | geração de thumbnails de PDF | já em `pyproject.toml` via `uv sync` |
+| `playwright` (chromium) | fallback JS/SPA para scraping de artigos | `uv sync` instala o pacote; depois `uv run playwright install chromium` (baixa ~130MB) |
 
 ### O que existe em código
 - `backend/` — FastAPI + SQLAlchemy async + FTS5. Rotas: POST /captures, GET /items (filtros kind/tag/order), GET /items/{id}, PATCH /items/{id}, DELETE /items/{id}, GET /search, GET /tags, GET /assets/{path}, GET /storage, /health. Testes em `backend/tests/` (32 testes).

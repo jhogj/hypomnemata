@@ -12,6 +12,8 @@ class Settings(BaseSettings):
     port: int = 8787
     cors_origins: list[str] = ["http://localhost:5173", "http://127.0.0.1:5173"]
     allow_chrome_extension: bool = True
+    llm_url: str = "http://localhost:8080"
+    llm_model: str = "mlx-community/gemma-4-e2b-it-4bit"
 
     @property
     def db_path(self) -> Path:
