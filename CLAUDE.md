@@ -17,9 +17,9 @@
 
 ## Status atual
 
-- **Onda**: 1 (MVP), 2, 3 entregues. Onda 4 (busca semântica) adiada. Onda 5 (Polimento) iniciada.
-- **Última sessão**: 2026-04-21 — Adiado busca semântica, exportação de backup em ZIP implementada.
-- **Próxima tarefa**: Hotkey global e launchd (Onda 5) - se o usuário decidir retomar.
+- **Onda**: 1 (MVP), 2, 3 entregues. Onda 4 (busca semântica) adiada. Onda 5 (Polimento) em andamento.
+- **Última sessão**: 2026-04-22 — Zettelkasten in-text implementado (links bidirecionais via `[[mention]]` no campo de notas).
+- **Próxima tarefa**: Ações em Lote e Pastas (Ideia 2 aprovada).
 
 ### Deps externas necessárias (além do `uv sync`)
 | Ferramenta | Uso | Instalação |
@@ -43,8 +43,10 @@
   - `backend/hypomnemata/routes/storage_info.py` — GET /storage: retorna total de bytes usados pelo diretório de assets.
   - `backend/hypomnemata/llm.py` — cliente LLM agnóstico de provider via `/v1/chat/completions` (OpenAI-compatible). `stream_summary()` faz streaming de tokens; `get_autotags()` retorna lista de tags. Configurado por `HYPO_LLM_URL` e `HYPO_LLM_MODEL`.
   - `backend/hypomnemata/playwright_scraper.py` — `fetch_with_playwright(url)`: renderiza página com Chromium headless, retorna HTML completo. Usado como fallback em `article.py` quando trafilatura não extrai texto suficiente.
-  - Rotas novas: `POST /items/{id}/summarize` (streaming), `POST /items/{id}/autotag` (JSON).
+  - Rotas novas: `POST /items/{id}/summarize` (streaming), `POST /items/{id}/autotag` (JSON), `POST /items/{id}/links`, `DELETE /items/{id}/links/{target_id}`.
+  - `backend/hypomnemata/crud.py` — `sync_item_links()`: varre `note` + `body_text` via Regex, extrai UUIDs de `[[uuid|display]]` e sincroniza a tabela `item_links` automaticamente ao salvar.
 - `webapp/` — React + Vite + Tailwind. Telas: Library (masonry flex + sidebar + busca), CaptureModal (⌘K, tabs URL/Arquivo/Texto), DetailModal (preview + nota/tags editáveis, texto extraído collapsible, galeria de fotos de tweet, excluir). Proxy `/api/*` → backend.
+  - `webapp/src/components/NoteEditor.tsx` — Editor de notas com modo Leitura/Edição. Usa `react-mentions` para autocomplete de `[[` com busca FTS5. Grava `[[uuid|título]]` no texto e renderiza o nome atual do item (buscado no banco) no modo leitura. Clicável para navegar entre itens.
 - `extension/` — Chrome MV3 via @crxjs/vite-plugin. Popup React (tags/nota/botão), service worker com atalho ⌘⇧Y, `chrome.tabs.captureVisibleTab` + injeção de script pra pegar meta/selection.
 - `.gitignore` — na raiz do projeto.
 
@@ -361,10 +363,18 @@ Formato quando aparecerem mais:
 
 ### Aprovadas (ainda não implementadas)
 
-### 2026-04-21 — Conexão de Ideias (Zettelkasten / Links)
-- **Proposta**: Permitir que os itens sejam ligados uns aos outros de forma bidirecional no banco de dados (tabela `item_links`).
-- **Decisão**: Aprovada.
-- **Motivo**: Transforma o Hypomnemata num repositório de conhecimento interconectado. Em implementação.
+### 2026-04-22 — Conexão de Ideias (Zettelkasten / Links)
+- **Proposta**: Mencionar itens diretamente no texto das notas com `[[nome]]`, com IDs únicos por trás para que renomear um item atualize todas as referências automaticamente.
+- **Decisão**: Aprovada e **implementada**.
+- **Implementação**:
+  - `models.py`: tabela `item_links (source_id, target_id)` com `ON DELETE CASCADE`.
+  - `crud.py`: `sync_item_links()` — varre `note` e `body_text` via Regex, extrai `[[uuid|display]]` e recria os relacionamentos.
+  - `routes/items.py`: `PATCH /items/{id}` chama `sync_item_links()` antes de commitar. Rotas `POST /items/{id}/links` e `DELETE /items/{id}/links/{target_id}` mantidas para futura API direta.
+  - `NoteEditor.tsx`: modo Leitura (renderiza título atualizado em âmbar, clicável) e Edição (usa `react-mentions` com portal no `body` para autocomplete acima de modais).
+  - `webapp/src/index.css`: estilos do `react-mentions` integrados ao design system.
+  - `react-mentions` + `@types/react-mentions` adicionados ao frontend.
+- **Formato gravado**: `[[550e8400-e29b-41d4-a716-446655440000|Nome do Item]]` — o UUID é permanente; o display é cache.
+- **Bugs corrigidos**: portal z-index via `style` inline; dropdown cortado pelo `overflow:hidden` do modal; `handleClickOutside` fechando antes da seleção via verificação do elemento `.mentions-editor__suggestions`; largura do dropdown via `ResizeObserver`.
 
 ### 2026-04-21 — Ações em Lote e Pastas
 - **Proposta**: Adicionar checkboxes na listagem para deleções e tags em lote, e a capacidade de organizar itens em pastas/listas (exclusivas ou ordenadas).

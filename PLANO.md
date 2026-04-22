@@ -116,6 +116,13 @@ CREATE TABLE item_tags (
   PRIMARY KEY (item_id, tag_id)
 );
 
+-- Adicionada em 2026-04-22 (Zettelkasten)
+CREATE TABLE item_links (
+  source_id TEXT NOT NULL REFERENCES items(id) ON DELETE CASCADE,
+  target_id TEXT NOT NULL REFERENCES items(id) ON DELETE CASCADE,
+  PRIMARY KEY (source_id, target_id)
+);
+
 CREATE VIRTUAL TABLE items_fts USING fts5(
   title, note, body_text, content='items', content_rowid='rowid',
   tokenize='unicode61 remove_diacritics 2'
