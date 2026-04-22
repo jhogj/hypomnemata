@@ -44,6 +44,7 @@ export default function App() {
             setVideoTime(undefined);
             setReload((r) => r + 1);
           }}
+          onNavigate={(id) => setDetailId(id)}
         />
       )}
     </>

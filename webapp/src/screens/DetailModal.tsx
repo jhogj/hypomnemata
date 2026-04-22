@@ -8,9 +8,10 @@ interface Props {
   onClose: () => void;
   onChanged: () => void;
   onDeleted: () => void;
+  onNavigate?: (id: string) => void;
 }
 
-export function DetailModal({ itemId, initialVideoTime, onClose, onChanged, onDeleted }: Props) {
+export function DetailModal({ itemId, initialVideoTime, onClose, onChanged, onDeleted, onNavigate }: Props) {
   const [item, setItem] = useState<Item | null>(null);
   const [title, setTitle] = useState("");
   const [note, setNote] = useState("");
@@ -437,6 +438,7 @@ export function DetailModal({ itemId, initialVideoTime, onClose, onChanged, onDe
                   setDirty(true);
                 }}
                 knownLinks={[...(item.links || []), ...(item.backlinks || [])]}
+                onNavigate={onNavigate}
               />
             </label>
 

@@ -5,9 +5,10 @@ interface Props {
   value: string;
   onChange: (val: string) => void;
   knownLinks: ItemSummary[];
+  onNavigate?: (id: string) => void;
 }
 
-export function NoteEditor({ value, onChange, knownLinks }: Props) {
+export function NoteEditor({ value, onChange, knownLinks, onNavigate }: Props) {
   const [isEditing, setIsEditing] = useState(false);
   const [query, setQuery] = useState<{ text: string; cursorIndex: number } | null>(null);
   const [results, setResults] = useState<Item[]>([]);
@@ -37,6 +38,10 @@ export function NoteEditor({ value, onChange, knownLinks }: Props) {
           key={match.index}
           className="inline-flex cursor-pointer items-center rounded bg-paper-accent/10 px-1.5 py-0.5 text-xs font-medium text-paper-accent hover:bg-paper-accent/20"
           title={id}
+          onClick={(e) => {
+            e.stopPropagation();
+            if (onNavigate) onNavigate(id);
+          }}
         >
           ↗ {title}
         </span>
