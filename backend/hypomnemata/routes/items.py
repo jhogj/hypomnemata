@@ -11,13 +11,20 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..crud import load_tag_names, set_item_tags, to_out, load_links, load_backlinks, sync_item_links
 from ..db import SessionLocal, get_session
 from ..models import Item, ItemTag, Tag, ItemLink
-from ..llm import get_autotags, stream_summary
+from ..llm import get_autotags, stream_summary, stream_chat
 from ..schemas import ItemList, ItemOut, ItemPatch
 from ..storage import delete_asset
 from pydantic import BaseModel
 
 class LinkInput(BaseModel):
     target_id: str
+
+class ChatMessage(BaseModel):
+    role: Literal["user", "assistant"]
+    content: str
+
+class ChatInput(BaseModel):
+    messages: list[ChatMessage]
 
 router = APIRouter(prefix="/items", tags=["items"])
 
@@ -194,6 +201,40 @@ async def autotag_item(item_id: str, db: AsyncSession = Depends(get_session)) ->
     except Exception as exc:
         raise HTTPException(status_code=503, detail=str(exc))
     return {"tags": tags}
+
+
+@router.post("/{item_id}/chat")
+async def chat_with_item(item_id: str, payload: ChatInput, db: AsyncSession = Depends(get_session)) -> StreamingResponse:
+    item = await db.get(Item, item_id)
+    if item is None:
+        raise HTTPException(status_code=404, detail="item not found")
+    if not item.body_text and not item.title:
+        raise HTTPException(status_code=422, detail="item sem conteúdo para conversar")
+    messages = [{"role": m.role, "content": m.content} for m in payload.messages]
+    title, body_text = item.title, item.body_text
+
+    async def _generate():
+        chunks: list[bytes] = []
+        async for chunk in stream_chat(title, body_text, messages):
+            chunks.append(chunk)
+            yield chunk
+        assistant_reply = b"".join(chunks).decode(errors="replace")
+        if assistant_reply and not assistant_reply.startswith("[Erro"):
+            full_history = messages + [{"role": "assistant", "content": assistant_reply}]
+            async with SessionLocal() as save_db:
+                save_item = await save_db.get(Item, item_id)
+                if save_item:
+                    meta: dict = {}
+                    if save_item.meta_json:
+                        try:
+                            meta = json.loads(save_item.meta_json)
+                        except Exception:
+                            pass
+                    meta["chat_history"] = full_history
+                    save_item.meta_json = json.dumps(meta, ensure_ascii=False)
+                    await save_db.commit()
+
+    return StreamingResponse(_generate(), media_type="text/plain; charset=utf-8")
 
 
 @router.delete("/{item_id}", status_code=status.HTTP_204_NO_CONTENT)

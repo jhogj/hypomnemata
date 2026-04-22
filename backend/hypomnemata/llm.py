@@ -105,6 +105,56 @@ async def stream_summary(
         yield f"[Erro: {exc}]".encode()
 
 
+_CHAT_SYSTEM_PROMPT = """\
+Você é um assistente que responde perguntas sobre o conteúdo fornecido abaixo.
+Responda sempre em português, de forma direta e concisa.
+Baseie suas respostas apenas no conteúdo a seguir — não invente informações.
+
+CONTEÚDO:
+{context}"""
+
+
+async def stream_chat(
+    title: str | None,
+    body_text: str | None,
+    messages: list[dict],
+) -> AsyncGenerator[bytes, None]:
+    context = _build_content(title, body_text, max_chars=6000)
+    if not context:
+        return
+    system = _CHAT_SYSTEM_PROMPT.format(context=context)
+    full_messages = [{"role": "system", "content": system}] + messages
+    timeout = httpx.Timeout(connect=5.0, read=None, write=10.0, pool=5.0)
+    try:
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            async with client.stream(
+                "POST",
+                f"{settings.llm_url}/v1/chat/completions",
+                json={"model": settings.llm_model, "messages": full_messages, "stream": True, "max_tokens": 2048},
+            ) as resp:
+                resp.raise_for_status()
+                async for line in resp.aiter_lines():
+                    if not line.startswith("data: "):
+                        continue
+                    payload = line[6:]
+                    if payload.strip() == "[DONE]":
+                        break
+                    try:
+                        data = json.loads(payload)
+                        token = data["choices"][0]["delta"].get("content", "")
+                        if token:
+                            yield token.encode()
+                    except (json.JSONDecodeError, KeyError, IndexError):
+                        continue
+    except httpx.ConnectError:
+        yield b"[Erro: servidor LLM nao esta rodando]"
+    except httpx.HTTPStatusError as exc:
+        yield f"[Erro HTTP {exc.response.status_code}: verifique se o modelo esta carregado]".encode()
+    except Exception as exc:
+        log.warning("stream_chat failed: %s", exc)
+        yield f"[Erro: {exc}]".encode()
+
+
 async def get_autotags(
     title: str | None,
     body_text: str | None,
