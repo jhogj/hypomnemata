@@ -235,6 +235,12 @@ export function DetailModal({ itemId, initialVideoTime, onClose, onChanged, onDe
     catch { return false; }
   })();
 
+  const thumbnailPath: string | null = (() => {
+    if (!item.meta_json) return null;
+    try { return (JSON.parse(item.meta_json) as { thumbnail_path?: string }).thumbnail_path ?? null; }
+    catch { return null; }
+  })();
+
   function downloadLabel(status: string | null, _kind: string): string | null {
     if (!status || status === "done") return null;
     if (status === "pending") {
@@ -314,6 +320,7 @@ export function DetailModal({ itemId, initialVideoTime, onClose, onChanged, onDe
             <video
               ref={detailVideoRef}
               src={api.assetUrl(item.asset_path!)}
+              poster={thumbnailPath ? api.assetUrl(thumbnailPath) : undefined}
               controls
               autoPlay={initialVideoTime != null && initialVideoTime > 0}
               onLoadedMetadata={() => {
