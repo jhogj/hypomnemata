@@ -461,7 +461,6 @@ def _run_ytdlp_sync(item_id: str) -> None:
                 )
 
                 # Auto-resumo: só quando há legenda (body_text vindo de subtitle).
-                # Descrição pura não justifica — é conteúdo do autor, não transcrição.
                 if existing_meta.get("subtitle_lang") and vals.get("body_text"):
                     from .llm import summarize_sync
                     existing_meta["ai_status"] = "pending"
@@ -486,6 +485,15 @@ def _run_ytdlp_sync(item_id: str) -> None:
                         db.commit()
                         if video_summary:
                             log.info("auto-resumo salvo item=%s (%d chars)", item_id, len(video_summary))
+
+                # Auto-tags (silencioso se LLM indisponível)
+                from .llm import get_autotags_sync
+                auto_tags = get_autotags_sync(vals.get("title", item.title), vals.get("body_text"))
+                if auto_tags:
+                    from .crud import set_item_tags_sync
+                    set_item_tags_sync(db, item_id, auto_tags)
+                    db.commit()
+                    log.info("auto-tags salvas item=%s: %s", item_id, auto_tags)
 
             except ImportError:
                 log.warning("yt-dlp não instalado, skipping item=%s", item_id)

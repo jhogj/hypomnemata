@@ -199,9 +199,8 @@ def _run_scrape_sync(item_id: str) -> None:
                     "asset_path" in vals,
                 )
 
-                # Auto-resumo: sinaliza "pending" para o frontend mostrar loading,
-                # depois gera o resumo. Sempre limpa ai_status no final.
-                from .llm import summarize_sync
+                # Auto-resumo
+                from .llm import summarize_sync, get_autotags_sync
                 existing_meta["ai_status"] = "pending"
                 db.execute(
                     update(Item)
@@ -224,6 +223,14 @@ def _run_scrape_sync(item_id: str) -> None:
                     db.commit()
                     if summary:
                         log.info("auto-resumo salvo item=%s (%d chars)", item_id, len(summary))
+
+                # Auto-tags (silencioso se LLM indisponível)
+                auto_tags = get_autotags_sync(vals.get("title", item.title), text)
+                if auto_tags:
+                    from .crud import set_item_tags_sync
+                    set_item_tags_sync(db, item_id, auto_tags)
+                    db.commit()
+                    log.info("auto-tags salvas item=%s: %s", item_id, auto_tags)
 
             except Exception as exc:
                 log.exception("article scrape failed item=%s: %s", item_id, exc)

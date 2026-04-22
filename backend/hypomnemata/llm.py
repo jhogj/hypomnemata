@@ -114,6 +114,33 @@ CONTEÚDO:
 {context}"""
 
 
+def get_autotags_sync(title: str | None, body_text: str | None) -> list[str]:
+    """Versão síncrona de get_autotags para uso dentro de workers asyncio.to_thread.
+
+    Retorna lista de tags ou [] se o servidor LLM não estiver disponível.
+    Nunca levanta exceção — falha silenciosa.
+    """
+    import httpx
+
+    content = _build_content(title, body_text, max_chars=2000)
+    if not content:
+        return []
+    messages = [{"role": "user", "content": _AUTOTAG_PROMPT.format(content=content)}]
+    try:
+        with httpx.Client(timeout=60.0) as client:
+            resp = client.post(
+                f"{settings.llm_url}/v1/chat/completions",
+                json={"model": settings.llm_model, "messages": messages, "stream": False, "max_tokens": 512},
+            )
+            resp.raise_for_status()
+            raw = resp.json()["choices"][0]["message"]["content"]
+            tags = [t.strip().lower() for t in raw.split(",") if t.strip()]
+            return [t for t in tags if t][:8]
+    except Exception as exc:
+        log.debug("auto-tags ignoradas (LLM indisponível): %s", exc)
+        return []
+
+
 async def stream_chat(
     title: str | None,
     body_text: str | None,

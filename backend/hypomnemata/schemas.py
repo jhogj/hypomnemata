@@ -42,6 +42,7 @@ class ItemPatch(BaseModel):
     title: str | None = None
     note: str | None = None
     body_text: str | None = None
+    summary: str | None = None
     tags: list[str] | None = None
 
     @field_validator("tags")

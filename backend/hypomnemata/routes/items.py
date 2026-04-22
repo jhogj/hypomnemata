@@ -146,6 +146,18 @@ async def patch_item(
         item.body_text = data["body_text"]
     if "tags" in data:
         await set_item_tags(db, item, data["tags"] or [])
+    if "summary" in data:
+        meta: dict = {}
+        if item.meta_json:
+            try:
+                meta = json.loads(item.meta_json)
+            except Exception:
+                pass
+        if data["summary"]:
+            meta["summary"] = data["summary"]
+        else:
+            meta.pop("summary", None)
+        item.meta_json = json.dumps(meta, ensure_ascii=False)
 
     await sync_item_links(db, item)
     await db.commit()

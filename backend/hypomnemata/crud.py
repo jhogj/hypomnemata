@@ -115,6 +115,21 @@ def to_out(
     )
 
 
+def set_item_tags_sync(db, item_id: str, names: list[str]) -> None:
+    """Versão síncrona de set_item_tags para uso em workers (Session síncrona)."""
+    from sqlalchemy import delete as sa_delete, select as sa_select
+    clean = sorted({n.strip().lower() for n in names if n and n.strip()})
+    db.execute(sa_delete(ItemTag).where(ItemTag.item_id == item_id))
+    for name in clean:
+        tag = db.execute(sa_select(Tag).where(Tag.name == name)).scalar_one_or_none()
+        if not tag:
+            tag = Tag(name=name)
+            db.add(tag)
+            db.flush()
+        db.add(ItemTag(item_id=item_id, tag_id=tag.id))
+    db.flush()
+
+
 async def tag_counts(db: AsyncSession) -> list[tuple[str, int]]:
     stmt = (
         select(Tag.name, func.count(ItemTag.item_id))
