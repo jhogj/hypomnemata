@@ -1,7 +1,7 @@
-"""Provider-agnostic LLM client via OpenAI-compatible /v1/chat/completions.
+"""Cliente LLM via OpenAI-compatible /v1/chat/completions.
 
-Works with Ollama (port 11434), MLX-LM (port 8080) and LM Studio (port 1234).
-Change HYPO_LLM_URL + HYPO_LLM_MODEL to switch provider without tocar no código.
+Compatível com MLX-LM (porta 8080), LM Studio (porta 1234) e Ollama (porta 11434).
+Configure HYPO_LLM_URL e HYPO_LLM_MODEL para trocar de provider sem mexer no código.
 """
 from __future__ import annotations
 
@@ -55,7 +55,7 @@ async def stream_summary(
             async with client.stream(
                 "POST",
                 f"{settings.llm_url}/v1/chat/completions",
-                json={"model": settings.llm_model, "messages": messages, "stream": True},
+                json={"model": settings.llm_model, "messages": messages, "stream": True, "max_tokens": 4096},
             ) as resp:
                 resp.raise_for_status()
                 async for line in resp.aiter_lines():
@@ -72,7 +72,7 @@ async def stream_summary(
                     except (json.JSONDecodeError, KeyError, IndexError):
                         continue
     except httpx.ConnectError:
-        yield b"[Erro: servidor LLM nao esta rodando. Veja CLAUDE.md para instrucoes]"
+        yield b"[Erro: servidor LLM nao esta rodando]"
     except httpx.HTTPStatusError as exc:
         yield f"[Erro HTTP {exc.response.status_code}: verifique se o modelo esta carregado]".encode()
     except Exception as exc:
@@ -92,7 +92,7 @@ async def get_autotags(
         async with httpx.AsyncClient(timeout=120.0) as client:
             resp = await client.post(
                 f"{settings.llm_url}/v1/chat/completions",
-                json={"model": settings.llm_model, "messages": messages, "stream": False},
+                json={"model": settings.llm_model, "messages": messages, "stream": False, "max_tokens": 1024},
             )
             resp.raise_for_status()
             raw = resp.json()["choices"][0]["message"]["content"]

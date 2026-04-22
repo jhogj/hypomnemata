@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..crud import load_tag_names, set_item_tags, to_out
 from ..db import SessionLocal, get_session
 from ..models import Item, ItemTag, Tag
-from ..ollama import get_autotags, stream_summary
+from ..llm import get_autotags, stream_summary
 from ..schemas import ItemList, ItemOut, ItemPatch
 from ..storage import delete_asset
 
