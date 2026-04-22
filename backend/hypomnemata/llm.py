@@ -41,6 +41,31 @@ def _build_content(title: str | None, body_text: str | None, max_chars: int = 40
     return "\n\n".join(parts) if parts else None
 
 
+def summarize_sync(title: str | None, body_text: str | None) -> str | None:
+    """Versão síncrona para uso dentro de workers asyncio.to_thread.
+
+    Retorna o resumo ou None se o servidor LLM não estiver disponível.
+    Nunca levanta exceção — falha silenciosa para não bloquear o scraping.
+    """
+    import httpx
+
+    content = _build_content(title, body_text)
+    if not content:
+        return None
+    messages = [{"role": "user", "content": _SUMMARY_PROMPT.format(content=content)}]
+    try:
+        with httpx.Client(timeout=120.0) as client:
+            resp = client.post(
+                f"{settings.llm_url}/v1/chat/completions",
+                json={"model": settings.llm_model, "messages": messages, "stream": False, "max_tokens": 4096},
+            )
+            resp.raise_for_status()
+            return resp.json()["choices"][0]["message"]["content"].strip() or None
+    except Exception as exc:
+        log.debug("auto-summarize ignorado (LLM indisponível): %s", exc)
+        return None
+
+
 async def stream_summary(
     title: str | None,
     body_text: str | None,

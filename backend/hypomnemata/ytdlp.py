@@ -460,6 +460,33 @@ def _run_ytdlp_sync(item_id: str) -> None:
                     primary.stat().st_size / 1_048_576,
                 )
 
+                # Auto-resumo: só quando há legenda (body_text vindo de subtitle).
+                # Descrição pura não justifica — é conteúdo do autor, não transcrição.
+                if existing_meta.get("subtitle_lang") and vals.get("body_text"):
+                    from .llm import summarize_sync
+                    existing_meta["ai_status"] = "pending"
+                    db.execute(
+                        update(Item)
+                        .where(Item.id == item_id)
+                        .values(meta_json=json.dumps(existing_meta, ensure_ascii=False))
+                    )
+                    db.commit()
+                    video_summary: str | None = None
+                    try:
+                        video_summary = summarize_sync(vals.get("title", item.title), vals["body_text"])
+                    finally:
+                        existing_meta.pop("ai_status", None)
+                        if video_summary:
+                            existing_meta["summary"] = video_summary
+                        db.execute(
+                            update(Item)
+                            .where(Item.id == item_id)
+                            .values(meta_json=json.dumps(existing_meta, ensure_ascii=False))
+                        )
+                        db.commit()
+                        if video_summary:
+                            log.info("auto-resumo salvo item=%s (%d chars)", item_id, len(video_summary))
+
             except ImportError:
                 log.warning("yt-dlp não instalado, skipping item=%s", item_id)
                 db.execute(

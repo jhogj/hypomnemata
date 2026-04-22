@@ -17,9 +17,9 @@
 
 ## Status atual
 
-- **Onda**: 1 (MVP) — **entregue** + Onda 2 itens 6, 7 e 8 (OCR + yt-dlp + Playwright) + melhorias de tweet + thumbnails + inline playback + storage + auto-refresh + delete from card + scraping de artigos + thumbgen para uploads.
-- **Última sessão**: 2026-04-21 — Playwright como fallback automático de scraping para SPAs (item 8 da Onda 2). 37/37 testes passando.
-- **Próxima tarefa**: Onda 3 — Ollama (resumo manual de itens) ou exportação ZIP.
+- **Onda**: 1 (MVP) — **entregue** + Onda 2 completa (OCR + yt-dlp + Playwright + legendas YT) + Onda 3 itens 9 e 10 (resumo IA + auto-tagging via MLX-LM).
+- **Última sessão**: 2026-04-21 — legendas de vídeo YT, IA com MLX-LM (Gemma 4 E2B), resumo streaming + sugestão de tags. 42/42 testes passando.
+- **Próxima tarefa**: Onda 4 (busca semântica) ou Onda 5 (exportação ZIP).
 
 ### Deps externas necessárias (além do `uv sync`)
 | Ferramenta | Uso | Instalação |
@@ -31,6 +31,8 @@
 | `trafilatura` | scraping de artigos (título, texto, metadados) | já em `pyproject.toml` via `uv sync` |
 | `pymupdf` | geração de thumbnails de PDF | já em `pyproject.toml` via `uv sync` |
 | `playwright` (chromium) | fallback JS/SPA para scraping de artigos | `uv sync` instala o pacote; depois `uv run playwright install chromium` (baixa ~130MB) |
+| `mlx-lm` | servidor LLM local (resumo + tags) | `pip3 install mlx-lm`; depois `python3.12 -m mlx_lm server --model mlx-community/gemma-4-e2b-it-4bit --port 8080` |
+| `hf` CLI | autenticação HuggingFace (necessária para baixar modelos MLX) | `brew install hf`; depois `hf auth login` |
 
 ### O que existe em código
 - `backend/` — FastAPI + SQLAlchemy async + FTS5. Rotas: POST /captures, GET /items (filtros kind/tag/order), GET /items/{id}, PATCH /items/{id}, DELETE /items/{id}, GET /search, GET /tags, GET /assets/{path}, GET /storage, /health. Testes em `backend/tests/` (32 testes).
@@ -39,6 +41,9 @@
   - `backend/hypomnemata/article.py` — worker de scraping de artigos: trafilatura para extração de título, texto, metadados (autor, data, site) e hero image (og:image). Mesma arquitetura de background task.
   - `backend/hypomnemata/thumbgen.py` — worker de thumbnails: pymupdf (primeira página de PDFs) e ffmpeg (frame 1s de vídeos) para arquivos uploadados via modal.
   - `backend/hypomnemata/routes/storage_info.py` — GET /storage: retorna total de bytes usados pelo diretório de assets.
+  - `backend/hypomnemata/llm.py` — cliente LLM agnóstico de provider via `/v1/chat/completions` (OpenAI-compatible). `stream_summary()` faz streaming de tokens; `get_autotags()` retorna lista de tags. Configurado por `HYPO_LLM_URL` e `HYPO_LLM_MODEL`.
+  - `backend/hypomnemata/playwright_scraper.py` — `fetch_with_playwright(url)`: renderiza página com Chromium headless, retorna HTML completo. Usado como fallback em `article.py` quando trafilatura não extrai texto suficiente.
+  - Rotas novas: `POST /items/{id}/summarize` (streaming), `POST /items/{id}/autotag` (JSON).
 - `webapp/` — React + Vite + Tailwind. Telas: Library (masonry flex + sidebar + busca), CaptureModal (⌘K, tabs URL/Arquivo/Texto), DetailModal (preview + nota/tags editáveis, texto extraído collapsible, galeria de fotos de tweet, excluir). Proxy `/api/*` → backend.
 - `extension/` — Chrome MV3 via @crxjs/vite-plugin. Popup React (tags/nota/botão), service worker com atalho ⌘⇧Y, `chrome.tabs.captureVisibleTab` + injeção de script pra pegar meta/selection.
 - `.gitignore` — na raiz do projeto.
@@ -46,7 +51,7 @@
 ### Comandos rápidos
 ```
 # backend
-cd backend && uv sync && uv run pytest              # 32 testes
+cd backend && uv sync && uv run pytest              # 42 testes
 cd backend && uv run uvicorn hypomnemata.main:app --port 8787
 
 # webapp
@@ -55,6 +60,9 @@ cd webapp && npm run typecheck && npm run build
 
 # extensão
 cd extension && npm install && npm run build        # carregar dist/ em chrome://extensions
+
+# MLX-LM (servidor IA local — rodar antes do backend quando quiser usar IA)
+python3.12 -m mlx_lm server --model mlx-community/gemma-4-e2b-it-4bit --port 8080
 ```
 
 ---
@@ -308,6 +316,26 @@ Formato quando aparecerem mais:
 ```
 
 ---
+
+### 2026-04-21 — Legendas de vídeo do YouTube (Onda 2, item 7 revisitado)
+- Download de legenda separado do vídeo em dois passos: (1) yt-dlp baixa o vídeo sem flags de legenda; (2) segunda chamada com `skip_download=True` tenta legenda em `["pt", "pt-BR"]`. Se falhar (HTTP 429, sem legenda), o vídeo já está salvo — não interrompe o download.
+- **Bug corrigido**: flags de legenda na mesma chamada do vídeo causavam abort em HTTP 429 do YouTube.
+- Legenda vira `body_text` (preferida sobre descrição para busca FTS5); descrição vai para `meta_json["description"]`. `meta_json["subtitle_lang"]` guarda o idioma detectado.
+- Frontend: collapsible "Legenda (pt)" ou "Descrição do vídeo" no DetailModal conforme disponibilidade.
+
+### 2026-04-21 — MLX-LM em vez de Ollama para IA local
+- **Problema**: Ollama com qwen2.5:7b (4.7 GB) travou o MacBook Air M2 8GB.
+- **Tentativas**: Gemma 4 via Ollama = 7.2 GB (muito grande); Gemma 4 E2B via Ollama não tem Q4_0 disponível.
+- **Solução**: MLX-LM com `mlx-community/gemma-4-e2b-it-4bit` = 1.3 GB (formato MLX nativo Apple Silicon). 40–87% mais rápido que Ollama/llama.cpp. Expõe `/v1/chat/completions` (OpenAI-compatible) na porta 8080.
+- **Autenticação HuggingFace**: modelo é Apache 2.0 mas exige login HF. `brew install hf && hf auth login`.
+- **Config**: `HYPO_LLM_URL=http://localhost:8080`, `HYPO_LLM_MODEL=mlx-community/gemma-4-e2b-it-4bit`. Para Ollama basta trocar a URL para `http://localhost:11434`.
+- **Mac Mini M4 16GB**: pode usar `mlx-community/gemma-4-e4b-it-4bit` (~2.5 GB, mais qualidade) via `.env`.
+
+### 2026-04-21 — IA: resumo streaming + auto-tagging (Onda 3, itens 9 e 10)
+- **`llm.py`**: cliente agnóstico de provider. `stream_summary()` usa SSE streaming (`data: ...` chunks). `get_autotags()` retorna lista de tags via chamada não-streaming. `max_tokens`: 4096 para resumo, 1024 para tags (sem limite artificial — é local).
+- **Rotas**: `POST /items/{id}/summarize` → `StreamingResponse` text/plain; salva resumo em `meta_json["summary"]` ao terminar. `POST /items/{id}/autotag` → `{"tags": [...]}`.
+- **Frontend**: seção "IA" no painel direito do DetailModal (visível quando item tem conteúdo). Botão "Resumir" mostra texto aparecendo token a token com cursor piscante. Botão "Sugerir tags" retorna chips clicáveis (+ individual ou "Adicionar todas"). Resumo persiste ao reabrir modal via `meta_json["summary"]`.
+- **Bug corrigido**: `max_tokens` não definido → MLX-LM usava padrão de 256 tokens → resumos cortados no meio da frase.
 
 ## Ideias discutidas
 

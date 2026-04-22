@@ -53,14 +53,18 @@ export function DetailModal({ itemId, initialVideoTime, onClose, onChanged, onDe
     return () => document.removeEventListener("keydown", onKey);
   }, [onClose]);
 
-  // Polling enquanto o download está em andamento — atualiza o item a cada 5s.
+  // Polling enquanto download ou IA estiver em andamento.
   useEffect(() => {
-    if (item?.download_status !== "pending") return;
+    const aiPending = (() => {
+      if (!item?.meta_json) return false;
+      try { return (JSON.parse(item.meta_json) as { ai_status?: string }).ai_status === "pending"; }
+      catch { return false; }
+    })();
+    if (item?.download_status !== "pending" && !aiPending) return;
     const id = setInterval(async () => {
       try {
         const updated = await api.getItem(itemId);
         setItem(updated);
-        // Só sobrescreve campos do formulário se o usuário não editou nada.
         if (!dirty) {
           setTitle(updated.title || "");
           setNote(updated.note || "");
@@ -71,7 +75,7 @@ export function DetailModal({ itemId, initialVideoTime, onClose, onChanged, onDe
       }
     }, 5000);
     return () => clearInterval(id);
-  }, [item?.download_status, itemId, dirty]);
+  }, [item?.download_status, item?.meta_json, itemId, dirty]);
 
   useEffect(() => {
     if (!ocrOpen) return;
@@ -223,6 +227,12 @@ export function DetailModal({ itemId, initialVideoTime, onClose, onChanged, onDe
     if (!item.meta_json) return null;
     try { return (JSON.parse(item.meta_json) as { summary?: string }).summary ?? null; }
     catch { return null; }
+  })();
+
+  const isAiPending: boolean = (() => {
+    if (!item.meta_json) return false;
+    try { return (JSON.parse(item.meta_json) as { ai_status?: string }).ai_status === "pending"; }
+    catch { return false; }
   })();
 
   function downloadLabel(status: string | null, _kind: string): string | null {
@@ -442,10 +452,10 @@ export function DetailModal({ itemId, initialVideoTime, onClose, onChanged, onDe
                     <button
                       type="button"
                       onClick={handleSummarize}
-                      disabled={summarizing || autotagging}
+                      disabled={summarizing || autotagging || isAiPending}
                       className="rounded-md border border-paper-border px-2.5 py-1 text-xs text-paper-mid hover:bg-paper-bg disabled:opacity-40"
                     >
-                      {summarizing ? "Resumindo..." : existingSummary ? "Refazer resumo" : "Resumir"}
+                      {summarizing ? "Resumindo..." : isAiPending ? "IA processando..." : existingSummary ? "Refazer resumo" : "Resumir"}
                     </button>
                     <button
                       type="button"
@@ -458,12 +468,29 @@ export function DetailModal({ itemId, initialVideoTime, onClose, onChanged, onDe
                   </div>
                 </div>
 
-                {(summaryText || existingSummary) && (
-                  <div className={`rounded-md border border-paper-border p-3 text-xs leading-relaxed text-paper-ink ${summarizing ? "bg-paper-tag" : "bg-paper-bg"}`}>
-                    {summaryText || existingSummary}
-                    {summarizing && <span className="ml-0.5 animate-pulse">▌</span>}
+                {isAiPending && !summaryText && (
+                  <div className="flex items-center gap-2 rounded-md border border-paper-border bg-paper-tag px-3 py-2 text-xs text-paper-mid">
+                    <span className="animate-pulse">▌</span>
+                    Gerando resumo com IA...
                   </div>
                 )}
+
+                {(summaryText || existingSummary) && (() => {
+                  const text = summaryText || existingSummary!;
+                  if (!summarizing && text.startsWith("[Erro")) {
+                    return (
+                      <div className="rounded-md bg-amber-50 px-3 py-2 text-xs text-amber-700">
+                        {text.replace(/^\[Erro[: ]*/, "Erro: ").replace(/\]$/, "")}
+                      </div>
+                    );
+                  }
+                  return (
+                    <div className={`rounded-md border border-paper-border p-3 text-xs leading-relaxed text-paper-ink ${summarizing ? "bg-paper-tag" : "bg-paper-bg"}`}>
+                      {text}
+                      {summarizing && <span className="ml-0.5 animate-pulse">▌</span>}
+                    </div>
+                  );
+                })()}
 
                 {suggestedTags.length > 0 && (
                   <div className="space-y-1.5">

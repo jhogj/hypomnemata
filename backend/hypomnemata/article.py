@@ -199,6 +199,32 @@ def _run_scrape_sync(item_id: str) -> None:
                     "asset_path" in vals,
                 )
 
+                # Auto-resumo: sinaliza "pending" para o frontend mostrar loading,
+                # depois gera o resumo. Sempre limpa ai_status no final.
+                from .llm import summarize_sync
+                existing_meta["ai_status"] = "pending"
+                db.execute(
+                    update(Item)
+                    .where(Item.id == item_id)
+                    .values(meta_json=json.dumps(existing_meta, ensure_ascii=False))
+                )
+                db.commit()
+                summary: str | None = None
+                try:
+                    summary = summarize_sync(vals.get("title", item.title), text)
+                finally:
+                    existing_meta.pop("ai_status", None)
+                    if summary:
+                        existing_meta["summary"] = summary
+                    db.execute(
+                        update(Item)
+                        .where(Item.id == item_id)
+                        .values(meta_json=json.dumps(existing_meta, ensure_ascii=False))
+                    )
+                    db.commit()
+                    if summary:
+                        log.info("auto-resumo salvo item=%s (%d chars)", item_id, len(summary))
+
             except Exception as exc:
                 log.exception("article scrape failed item=%s: %s", item_id, exc)
                 db.execute(
