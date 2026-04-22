@@ -3,8 +3,8 @@ from __future__ import annotations
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from .models import Item, ItemTag, Tag
-from .schemas import ItemOut
+from .models import Item, ItemTag, Tag, ItemLink
+from .schemas import ItemOut, ItemSummary
 
 
 async def ensure_tags(db: AsyncSession, names: list[str]) -> list[Tag]:
@@ -42,7 +42,32 @@ async def load_tag_names(db: AsyncSession, item_id: str) -> list[str]:
     return [r[0] for r in (await db.execute(stmt)).all()]
 
 
-def to_out(item: Item, tag_names: list[str] | None = None) -> ItemOut:
+async def load_links(db: AsyncSession, item_id: str) -> list[dict]:
+    stmt = (
+        select(Item.id, Item.title, Item.kind, Item.captured_at)
+        .join(ItemLink, ItemLink.target_id == Item.id)
+        .where(ItemLink.source_id == item_id)
+        .order_by(Item.captured_at.desc())
+    )
+    return [{"id": r.id, "title": r.title, "kind": r.kind, "captured_at": r.captured_at} for r in (await db.execute(stmt)).all()]
+
+
+async def load_backlinks(db: AsyncSession, item_id: str) -> list[dict]:
+    stmt = (
+        select(Item.id, Item.title, Item.kind, Item.captured_at)
+        .join(ItemLink, ItemLink.source_id == Item.id)
+        .where(ItemLink.target_id == item_id)
+        .order_by(Item.captured_at.desc())
+    )
+    return [{"id": r.id, "title": r.title, "kind": r.kind, "captured_at": r.captured_at} for r in (await db.execute(stmt)).all()]
+
+
+def to_out(
+    item: Item, 
+    tag_names: list[str] | None = None,
+    links: list[dict] | None = None,
+    backlinks: list[dict] | None = None,
+) -> ItemOut:
     tags = tag_names if tag_names is not None else sorted(t.name for t in item.tags)
     return ItemOut(
         id=item.id,
@@ -58,6 +83,8 @@ def to_out(item: Item, tag_names: list[str] | None = None) -> ItemOut:
         captured_at=item.captured_at,
         created_at=item.created_at,
         tags=tags,
+        links=[ItemSummary(**lnk) for lnk in (links or [])],
+        backlinks=[ItemSummary(**lnk) for lnk in (backlinks or [])],
     )
 
 

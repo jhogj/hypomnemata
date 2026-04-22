@@ -360,7 +360,21 @@ Formato quando aparecerem mais:
 ## Ideias discutidas
 
 ### Aprovadas (ainda não implementadas)
-*(nenhuma além das que já estão no PLANO.md)*
+
+### 2026-04-21 — Conexão de Ideias (Zettelkasten / Links)
+- **Proposta**: Permitir que os itens sejam ligados uns aos outros de forma bidirecional no banco de dados (tabela `item_links`).
+- **Decisão**: Aprovada.
+- **Motivo**: Transforma o Hypomnemata num repositório de conhecimento interconectado. Em implementação.
+
+### 2026-04-21 — Ações em Lote e Pastas
+- **Proposta**: Adicionar checkboxes na listagem para deleções e tags em lote, e a capacidade de organizar itens em pastas/listas (exclusivas ou ordenadas).
+- **Decisão**: Aprovada.
+- **Motivo**: Organização de grandes volumes de itens.
+
+### 2026-04-21 — Visão de Linha do Tempo (Timeline)
+- **Proposta**: Uma visualização alternativa que agrupa os cards por cabeçalhos temporais dinâmicos ("Hoje", "Semana Passada", "Março de 2026").
+- **Decisão**: Aprovada.
+- **Motivo**: Auxilia na recuperação temporal de itens.
 
 ### Rejeitadas (salvas a pedido)
 *(nenhuma)*

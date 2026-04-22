@@ -7,6 +7,13 @@ export type Kind =
   | "note"
   | "pdf";
 
+export interface ItemSummary {
+  id: string;
+  title: string | null;
+  kind: Kind;
+  captured_at: string;
+}
+
 export interface Item {
   id: string;
   kind: Kind;
@@ -21,6 +28,8 @@ export interface Item {
   captured_at: string;
   created_at: string;
   tags: string[];
+  links?: ItemSummary[];
+  backlinks?: ItemSummary[];
 }
 
 export interface ItemList {
@@ -152,5 +161,21 @@ export const api = {
 
   exportBackupUrl(): string {
     return `${API}/system/export`;
+  },
+
+  async addLink(itemId: string, targetId: string): Promise<void> {
+    const r = await fetch(`${API}/items/${itemId}/links`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ target_id: targetId }),
+    });
+    if (!r.ok) throw new Error(`HTTP ${r.status}: ${await r.text()}`);
+  },
+
+  async removeLink(itemId: string, targetId: string): Promise<void> {
+    const r = await fetch(`${API}/items/${itemId}/links/${targetId}`, {
+      method: "DELETE",
+    });
+    if (!r.ok && r.status !== 204) throw new Error(`HTTP ${r.status}: ${await r.text()}`);
   },
 };

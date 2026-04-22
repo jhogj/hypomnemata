@@ -9,6 +9,12 @@ from .models import KINDS
 Kind = Literal["image", "article", "video", "tweet", "bookmark", "note", "pdf"]
 
 
+class ItemSummary(BaseModel):
+    id: str
+    title: str | None = None
+    kind: str
+    captured_at: str
+
 class ItemOut(BaseModel):
     id: str
     kind: str
@@ -23,6 +29,8 @@ class ItemOut(BaseModel):
     captured_at: str
     created_at: str
     tags: list[str] = Field(default_factory=list)
+    links: list[ItemSummary] = Field(default_factory=list)
+    backlinks: list[ItemSummary] = Field(default_factory=list)
 
 
 class ItemList(BaseModel):

@@ -8,12 +8,16 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..crud import load_tag_names, set_item_tags, to_out
+from ..crud import load_tag_names, set_item_tags, to_out, load_links, load_backlinks
 from ..db import SessionLocal, get_session
-from ..models import Item, ItemTag, Tag
+from ..models import Item, ItemTag, Tag, ItemLink
 from ..llm import get_autotags, stream_summary
 from ..schemas import ItemList, ItemOut, ItemPatch
 from ..storage import delete_asset
+from pydantic import BaseModel
+
+class LinkInput(BaseModel):
+    target_id: str
 
 router = APIRouter(prefix="/items", tags=["items"])
 
@@ -84,7 +88,38 @@ async def get_item(item_id: str, db: AsyncSession = Depends(get_session)) -> Ite
     if item is None:
         raise HTTPException(status_code=404, detail="item not found")
     names = await load_tag_names(db, item.id)
-    return to_out(item, tag_names=names)
+    links = await load_links(db, item.id)
+    backlinks = await load_backlinks(db, item.id)
+    return to_out(item, tag_names=names, links=links, backlinks=backlinks)
+
+
+@router.post("/{item_id}/links")
+async def add_link(item_id: str, payload: LinkInput, db: AsyncSession = Depends(get_session)):
+    target_id = payload.target_id
+    if item_id == target_id:
+        raise HTTPException(400, "Cannot link item to itself")
+    
+    target = await db.get(Item, target_id)
+    if not target:
+        raise HTTPException(404, "Target item not found")
+        
+    source = await db.get(Item, item_id)
+    if not source:
+        raise HTTPException(404, "Source item not found")
+        
+    try:
+        db.add(ItemLink(source_id=item_id, target_id=target_id))
+        await db.commit()
+    except Exception:
+        await db.rollback()
+        
+    return {"ok": True}
+
+@router.delete("/{item_id}/links/{target_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def remove_link(item_id: str, target_id: str, db: AsyncSession = Depends(get_session)):
+    from sqlalchemy import delete
+    await db.execute(delete(ItemLink).where(ItemLink.source_id == item_id, ItemLink.target_id == target_id))
+    await db.commit()
 
 
 @router.patch("/{item_id}", response_model=ItemOut)

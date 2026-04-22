@@ -61,4 +61,16 @@ class ItemTag(Base):
     )
 
 
+class ItemLink(Base):
+    __tablename__ = "item_links"
+    __table_args__ = (UniqueConstraint("source_id", "target_id", name="uq_item_link"),)
+
+    source_id: Mapped[str] = mapped_column(
+        String, ForeignKey("items.id", ondelete="CASCADE"), primary_key=True
+    )
+    target_id: Mapped[str] = mapped_column(
+        String, ForeignKey("items.id", ondelete="CASCADE"), primary_key=True
+    )
+
+
 KINDS = {"image", "article", "video", "tweet", "bookmark", "note", "pdf"}
