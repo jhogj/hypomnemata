@@ -352,6 +352,11 @@ Formato quando aparecerem mais:
 - **Frontend**: Botão "Exportar Backup" adicionado na Sidebar do webapp, abaixo das estatísticas de disco, apontando para a nova rota via um `<a>` tag `_blank` que abre o modal de salvar nativo do browser.
 - **Nota**: Demais itens da Onda 5 (importação, atalho global e empacotamento launchd) foram postergados. A Onda 4 (busca semântica) também foi documentada como adiada no `PLANO.md`.
 
+### 2026-04-21 — Fallback de OCR (Tesseract) para PDFs Escaneados
+- **Problema**: `pypdf` consegue extrair texto nativo de PDFs digitais, mas retorna vazio para PDFs que são compostos apenas de imagens escaneadas, tornando-os impossíveis de pesquisar na busca FTS5.
+- **Solução** (`ocr.py`): Se o texto extraído nativamente pelo `pypdf` for muito pequeno (menos de 150 caracteres), o sistema trata o arquivo como "PDF escaneado" e executa um fallback.
+- **Implementação**: Utiliza a biblioteca `PyMuPDF` (`fitz`) para renderizar cada página do PDF em uma imagem temporária (resolução 2x), salvando no disco temporário com `tempfile`. Em seguida, aplica o Tesseract (`pytesseract`) nelas para extrair o texto. Isso complementa o FTS sem exigir bibliotecas extras além do que o sistema já usava (Tesseract para imagens soltas e PyMuPDF para thumbnails).
+
 ## Ideias discutidas
 
 ### Aprovadas (ainda não implementadas)

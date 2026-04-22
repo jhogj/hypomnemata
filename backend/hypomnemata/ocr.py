@@ -33,10 +33,59 @@ def _ocr_image(abs_path: Path) -> str:
 
 def _ocr_pdf(abs_path: Path) -> str:
     from pypdf import PdfReader
+    import logging
+
+    log = logging.getLogger("hypomnemata.ocr")
 
     reader = PdfReader(str(abs_path))
     parts = [page.extract_text() or "" for page in reader.pages]
-    return "\n\n".join(p.strip() for p in parts if p.strip())
+    text = "\n\n".join(p.strip() for p in parts if p.strip())
+
+    # Se extraiu uma quantidade razoável de texto, é um PDF nativo
+    if len(text) > 150:
+        return text
+
+    # Se não, pode ser um PDF escaneado (imagens). Vamos usar OCR.
+    log.info("Pouco texto nativo encontrado em %s (%d chars). Tentando OCR via Tesseract...", abs_path, len(text))
+    try:
+        import fitz  # PyMuPDF
+        import pytesseract
+        from PIL import Image
+        import tempfile
+        import os
+
+        doc = fitz.open(str(abs_path))
+        ocr_parts = []
+        
+        with tempfile.TemporaryDirectory() as temp_dir:
+            for i in range(doc.page_count):
+                page = doc[i]
+                # Renderiza em 2x para ter qualidade suficiente para o OCR
+                mat = fitz.Matrix(2.0, 2.0)
+                pix = page.get_pixmap(matrix=mat)
+                
+                temp_path = Path(temp_dir) / f"page_{i}.png"
+                pix.save(str(temp_path))
+                
+                img = Image.open(temp_path)
+                try:
+                    page_text = pytesseract.image_to_string(img, lang="por+eng").strip()
+                except pytesseract.pytesseract.TesseractError:
+                    page_text = pytesseract.image_to_string(img, lang="eng").strip()
+                
+                if page_text:
+                    ocr_parts.append(page_text)
+                    
+        doc.close()
+        
+        if ocr_parts:
+            ocr_text = "\n\n".join(ocr_parts)
+            return ocr_text
+
+    except Exception as e:
+        log.warning("Falha no OCR de fallback para PDF %s: %s", abs_path, e)
+
+    return text
 
 
 def _run_ocr_sync(item_id: str) -> None:
