@@ -231,6 +231,22 @@ async def autotag_item(item_id: str, db: AsyncSession = Depends(get_session)) ->
     return {"tags": tags}
 
 
+@router.delete("/{item_id}/chat", status_code=status.HTTP_204_NO_CONTENT)
+async def clear_chat_history(item_id: str, db: AsyncSession = Depends(get_session)) -> None:
+    item = await db.get(Item, item_id)
+    if item is None:
+        raise HTTPException(status_code=404, detail="item not found")
+    meta: dict = {}
+    if item.meta_json:
+        try:
+            meta = json.loads(item.meta_json)
+        except Exception:
+            pass
+    meta.pop("chat_history", None)
+    item.meta_json = json.dumps(meta, ensure_ascii=False)
+    await db.commit()
+
+
 @router.post("/{item_id}/chat")
 async def chat_with_item(item_id: str, payload: ChatInput, db: AsyncSession = Depends(get_session)) -> StreamingResponse:
     item = await db.get(Item, item_id)

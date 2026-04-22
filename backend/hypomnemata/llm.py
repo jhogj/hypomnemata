@@ -146,7 +146,7 @@ async def stream_chat(
     body_text: str | None,
     messages: list[dict],
 ) -> AsyncGenerator[bytes, None]:
-    context = _build_content(title, body_text, max_chars=6000)
+    context = _build_content(title, body_text, max_chars=12000)
     if not context:
         return
     system = _CHAT_SYSTEM_PROMPT.format(context=context)
