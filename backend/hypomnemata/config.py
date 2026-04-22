@@ -14,6 +14,7 @@ class Settings(BaseSettings):
     allow_chrome_extension: bool = True
     llm_url: str = "http://localhost:8080"
     llm_model: str = "mlx-community/gemma-4-e2b-it-4bit"
+    backup_dir: Path | None = None
 
     @property
     def db_path(self) -> Path:

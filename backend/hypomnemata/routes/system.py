@@ -5,7 +5,7 @@ import tempfile
 from datetime import datetime
 from pathlib import Path
 
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException
 from fastapi.responses import FileResponse
 from starlette.background import BackgroundTask
 
@@ -33,6 +33,24 @@ def _cleanup_backup(zip_path: Path):
     temp_dir = zip_path.parent
     if temp_dir.exists():
         shutil.rmtree(temp_dir, ignore_errors=True)
+
+@router.post("/backup")
+async def trigger_backup():
+    """Executa backup incremental via rsync para HYPO_BACKUP_DIR."""
+    from ..backup import run_backup
+    try:
+        msg = await asyncio.to_thread(run_backup)
+        return {"ok": True, "message": msg}
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc))
+
+
+@router.get("/backup/status")
+async def backup_status():
+    """Retorna se o backup está configurado."""
+    configured = settings.backup_dir is not None
+    return {"configured": configured, "backup_dir": str(settings.backup_dir) if configured else None}
+
 
 @router.get("/export")
 async def export_backup():

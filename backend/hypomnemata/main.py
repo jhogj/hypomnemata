@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import logging
 from contextlib import asynccontextmanager
 
@@ -18,6 +19,18 @@ async def lifespan(app: FastAPI):
     settings.ensure_dirs()
     await init_db()
     log.info("hypomnemata ready at %s:%s (data=%s)", settings.host, settings.port, settings.data_dir)
+
+    if settings.backup_dir:
+        async def _startup_backup():
+            import asyncio as _aio
+            from .backup import run_backup
+            try:
+                msg = await _aio.to_thread(run_backup)
+                log.info("backup no startup: %s", msg)
+            except Exception as exc:
+                log.warning("backup no startup falhou (ignorado): %s", exc)
+        asyncio.ensure_future(_startup_backup())
+
     yield
 
 
