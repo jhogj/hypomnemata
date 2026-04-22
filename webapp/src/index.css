@@ -42,11 +42,11 @@
 
 /* A pill de menção sobreposta no highlighter */
 .mentions-editor__highlighter strong {
-  background-color: rgba(199, 164, 117, 0.25);
-  border-radius: 3px;
-  padding: 0 2px;
-  color: inherit;
+  border-radius: 0;
+  padding: 0;
+  color: rgb(120, 80, 20); /* tom âmbar escuro — visível mas discreto */
   font-weight: 500;
+  background: none;
 }
 
 /* O textarea transparente por cima */
@@ -64,7 +64,9 @@
   background: transparent;
   resize: vertical;
   color: #1c1917; /* paper-ink */
+  caret-color: #1c1917;
   position: relative;
+  z-index: 1;
 }
 
 .mentions-editor__input:focus {
@@ -72,11 +74,10 @@
   box-shadow: 0 0 0 1px rgb(199, 164, 117);
 }
 
-/* Dropdown de sugestões */
+/* Dropdown de sugestões — renderizado no body via portal */
 .mentions-editor__suggestions {
-  position: absolute;
-  z-index: 20;
-  margin-top: 4px;
+  position: fixed;
+  z-index: 9999;
 }
 
 .mentions-editor__suggestions__list {
