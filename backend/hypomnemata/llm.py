@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from collections.abc import AsyncGenerator
 
 import httpx
@@ -134,7 +135,7 @@ def get_autotags_sync(title: str | None, body_text: str | None) -> list[str]:
             )
             resp.raise_for_status()
             raw = resp.json()["choices"][0]["message"]["content"]
-            tags = [t.strip().lower() for t in raw.split(",") if t.strip()]
+            tags = [t.strip().lower() for t in re.split(r"[,\n]+", raw) if t.strip()]
             return [t for t in tags if t][:8]
     except Exception as exc:
         log.debug("auto-tags ignoradas (LLM indisponível): %s", exc)
@@ -198,7 +199,7 @@ async def get_autotags(
             )
             resp.raise_for_status()
             raw = resp.json()["choices"][0]["message"]["content"]
-            tags = [t.strip().lower() for t in raw.split(",") if t.strip()]
+            tags = [t.strip().lower() for t in re.split(r"[,\n]+", raw) if t.strip()]
             return [t for t in tags if t][:8]
     except httpx.ConnectError:
         raise RuntimeError("Servidor LLM não está rodando")

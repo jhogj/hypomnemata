@@ -474,26 +474,39 @@ def _run_ytdlp_sync(item_id: str) -> None:
                     try:
                         video_summary = summarize_sync(vals.get("title", item.title), vals["body_text"])
                     finally:
-                        existing_meta.pop("ai_status", None)
+                        # Re-lê meta_json do banco para não sobrescrever edições do usuário.
+                        fresh = db.execute(select(Item).where(Item.id == item_id)).scalar_one_or_none()
+                        fresh_meta: dict = {}
+                        if fresh and fresh.meta_json:
+                            try:
+                                fresh_meta = json.loads(fresh.meta_json)
+                            except Exception:
+                                pass
+                        fresh_meta.pop("ai_status", None)
                         if video_summary:
-                            existing_meta["summary"] = video_summary
+                            fresh_meta["summary"] = video_summary
                         db.execute(
                             update(Item)
                             .where(Item.id == item_id)
-                            .values(meta_json=json.dumps(existing_meta, ensure_ascii=False))
+                            .values(meta_json=json.dumps(fresh_meta, ensure_ascii=False))
                         )
                         db.commit()
                         if video_summary:
                             log.info("auto-resumo salvo item=%s (%d chars)", item_id, len(video_summary))
 
-                # Auto-tags (silencioso se LLM indisponível)
+                # Auto-tags: só gera se o item ainda não tiver tags.
                 from .llm import get_autotags_sync
-                auto_tags = get_autotags_sync(vals.get("title", item.title), vals.get("body_text"))
-                if auto_tags:
-                    from .crud import set_item_tags_sync
-                    set_item_tags_sync(db, item_id, auto_tags)
-                    db.commit()
-                    log.info("auto-tags salvas item=%s: %s", item_id, auto_tags)
+                from .models import ItemTag
+                has_tags = db.execute(
+                    select(ItemTag).where(ItemTag.item_id == item_id).limit(1)
+                ).first()
+                if not has_tags:
+                    auto_tags = get_autotags_sync(vals.get("title", item.title), vals.get("body_text"))
+                    if auto_tags:
+                        from .crud import set_item_tags_sync
+                        set_item_tags_sync(db, item_id, auto_tags)
+                        db.commit()
+                        log.info("auto-tags salvas item=%s: %s", item_id, auto_tags)
 
             except ImportError:
                 log.warning("yt-dlp não instalado, skipping item=%s", item_id)

@@ -201,6 +201,7 @@ def _run_scrape_sync(item_id: str) -> None:
 
                 # Auto-resumo
                 from .llm import summarize_sync, get_autotags_sync
+                from .models import ItemTag
                 existing_meta["ai_status"] = "pending"
                 db.execute(
                     update(Item)
@@ -212,25 +213,40 @@ def _run_scrape_sync(item_id: str) -> None:
                 try:
                     summary = summarize_sync(vals.get("title", item.title), text)
                 finally:
-                    existing_meta.pop("ai_status", None)
+                    # Re-lê meta_json do banco para não sobrescrever edições
+                    # feitas pelo usuário durante a chamada ao LLM.
+                    fresh = db.execute(select(Item).where(Item.id == item_id)).scalar_one_or_none()
+                    fresh_meta: dict = {}
+                    if fresh and fresh.meta_json:
+                        try:
+                            fresh_meta = json.loads(fresh.meta_json)
+                        except Exception:
+                            pass
+                    fresh_meta.pop("ai_status", None)
                     if summary:
-                        existing_meta["summary"] = summary
+                        fresh_meta["summary"] = summary
                     db.execute(
                         update(Item)
                         .where(Item.id == item_id)
-                        .values(meta_json=json.dumps(existing_meta, ensure_ascii=False))
+                        .values(meta_json=json.dumps(fresh_meta, ensure_ascii=False))
                     )
                     db.commit()
                     if summary:
                         log.info("auto-resumo salvo item=%s (%d chars)", item_id, len(summary))
 
-                # Auto-tags (silencioso se LLM indisponível)
-                auto_tags = get_autotags_sync(vals.get("title", item.title), text)
-                if auto_tags:
-                    from .crud import set_item_tags_sync
-                    set_item_tags_sync(db, item_id, auto_tags)
-                    db.commit()
-                    log.info("auto-tags salvas item=%s: %s", item_id, auto_tags)
+                # Auto-tags: só gera se o item ainda não tiver tags
+                # (preserva tags fornecidas pelo usuário na captura).
+                from sqlalchemy import select as sa_select
+                has_tags = db.execute(
+                    sa_select(ItemTag).where(ItemTag.item_id == item_id).limit(1)
+                ).first()
+                if not has_tags:
+                    auto_tags = get_autotags_sync(vals.get("title", item.title), text)
+                    if auto_tags:
+                        from .crud import set_item_tags_sync
+                        set_item_tags_sync(db, item_id, auto_tags)
+                        db.commit()
+                        log.info("auto-tags salvas item=%s: %s", item_id, auto_tags)
 
             except Exception as exc:
                 log.exception("article scrape failed item=%s: %s", item_id, exc)

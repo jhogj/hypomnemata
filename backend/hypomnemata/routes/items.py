@@ -263,20 +263,34 @@ async def chat_with_item(item_id: str, payload: ChatInput, db: AsyncSession = De
             chunks.append(chunk)
             yield chunk
         assistant_reply = b"".join(chunks).decode(errors="replace")
-        if assistant_reply and not assistant_reply.startswith("[Erro"):
-            full_history = messages + [{"role": "assistant", "content": assistant_reply}]
-            async with SessionLocal() as save_db:
-                save_item = await save_db.get(Item, item_id)
-                if save_item:
-                    meta: dict = {}
-                    if save_item.meta_json:
-                        try:
-                            meta = json.loads(save_item.meta_json)
-                        except Exception:
-                            pass
-                    meta["chat_history"] = full_history
-                    save_item.meta_json = json.dumps(meta, ensure_ascii=False)
-                    await save_db.commit()
+
+        # Detecta erro em qualquer posição (não só no início — falhas mid-stream
+        # geram "...texto real...[Erro: ReadError]").
+        import re as _re
+        error_match = _re.search(r"\[Erro[:\s]", assistant_reply)
+        if error_match:
+            # Trunca na posição do erro; se não sobrou texto útil, descarta a resposta.
+            clean_reply = assistant_reply[: error_match.start()].strip()
+        else:
+            clean_reply = assistant_reply
+
+        async with SessionLocal() as save_db:
+            save_item = await save_db.get(Item, item_id)
+            if save_item:
+                meta: dict = {}
+                if save_item.meta_json:
+                    try:
+                        meta = json.loads(save_item.meta_json)
+                    except Exception:
+                        pass
+                # Sempre persiste a mensagem do usuário; só inclui a resposta
+                # da IA se ela tiver conteúdo válido.
+                history = list(messages)
+                if clean_reply:
+                    history.append({"role": "assistant", "content": clean_reply})
+                meta["chat_history"] = history
+                save_item.meta_json = json.dumps(meta, ensure_ascii=False)
+                await save_db.commit()
 
     return StreamingResponse(_generate(), media_type="text/plain; charset=utf-8")
 

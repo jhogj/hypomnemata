@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -14,9 +14,16 @@ router = APIRouter(prefix="/folders", tags=["folders"])
 class FolderCreate(BaseModel):
     name: str
 
+    @field_validator("name")
+    @classmethod
+    def _not_blank(cls, v: str) -> str:
+        if not v.strip():
+            raise ValueError("name must not be empty or whitespace")
+        return v
 
-class FolderRename(BaseModel):
-    name: str
+
+class FolderRename(FolderCreate):
+    pass
 
 
 class FolderItemsAdd(BaseModel):
@@ -48,7 +55,10 @@ async def rename_folder(folder_id: str, payload: FolderRename, db: AsyncSession 
         raise HTTPException(404, "folder not found")
     folder.name = payload.name.strip()
     await db.commit()
-    return {"id": folder.id, "name": folder.name, "item_count": 0}
+    count = (await db.execute(
+        select(func.count(FolderItem.item_id)).where(FolderItem.folder_id == folder_id)
+    )).scalar_one()
+    return {"id": folder.id, "name": folder.name, "item_count": count}
 
 
 @router.delete("/{folder_id}", status_code=status.HTTP_204_NO_CONTENT)

@@ -1,5 +1,6 @@
 from pathlib import Path
 
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -15,6 +16,16 @@ class Settings(BaseSettings):
     llm_url: str = "http://localhost:8080"
     llm_model: str = "mlx-community/gemma-4-e2b-it-4bit"
     backup_dir: Path | None = None
+
+    @field_validator("backup_dir", mode="after")
+    @classmethod
+    def _expand_backup_dir(cls, v: Path | None) -> Path | None:
+        return v.expanduser() if v is not None else v
+
+    @field_validator("data_dir", mode="after")
+    @classmethod
+    def _expand_data_dir(cls, v: Path) -> Path:
+        return v.expanduser()
 
     @property
     def db_path(self) -> Path:
