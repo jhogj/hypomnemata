@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..crud import load_tag_names, set_item_tags, to_out, load_links, load_backlinks, sync_item_links
 from ..db import SessionLocal, get_session
-from ..models import Item, ItemTag, Tag, ItemLink
+from ..models import Item, ItemTag, Tag, ItemLink, Folder, FolderItem
 from ..llm import get_autotags, stream_summary, stream_chat
 from ..schemas import ItemList, ItemOut, ItemPatch
 from ..storage import delete_asset
@@ -47,10 +47,22 @@ async def _collect_tag_names(db: AsyncSession, item_ids: list[str]) -> dict[str,
     return acc
 
 
+@router.get("/{item_id}/folders")
+async def get_item_folders(item_id: str, db: AsyncSession = Depends(get_session)):
+    rows = (await db.execute(
+        select(Folder.id, Folder.name)
+        .join(FolderItem, FolderItem.folder_id == Folder.id)
+        .where(FolderItem.item_id == item_id)
+        .order_by(Folder.name)
+    )).all()
+    return [{"id": r.id, "name": r.name} for r in rows]
+
+
 @router.get("", response_model=ItemList)
 async def list_items(
     kind: str | None = Query(default=None),
     tag: str | None = Query(default=None),
+    folder: str | None = Query(default=None),
     limit: int = Query(default=50, ge=1, le=500),
     offset: int = Query(default=0, ge=0),
     order: Order = Query(default="captured_at_desc"),
@@ -70,6 +82,10 @@ async def list_items(
         )
         stmt = stmt.where(Item.id.in_(sub))
         count_stmt = count_stmt.where(Item.id.in_(sub))
+    if folder:
+        sub_f = select(FolderItem.item_id).where(FolderItem.folder_id == folder)
+        stmt = stmt.where(Item.id.in_(sub_f))
+        count_stmt = count_stmt.where(Item.id.in_(sub_f))
 
     match order:
         case "captured_at_asc":

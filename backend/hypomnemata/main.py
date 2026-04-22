@@ -8,7 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from .config import settings
 from .db import init_db
-from .routes import assets, captures, items, search, storage_info, tags, system
+from .routes import assets, captures, folders, items, search, storage_info, tags, system
 
 log = logging.getLogger("hypomnemata")
 
@@ -37,6 +37,7 @@ def create_app() -> FastAPI:
     )
 
     app.include_router(captures.router)
+    app.include_router(folders.router)
     app.include_router(items.router)
     app.include_router(search.router)
     app.include_router(tags.router)

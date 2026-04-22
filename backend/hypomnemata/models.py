@@ -73,4 +73,24 @@ class ItemLink(Base):
     )
 
 
+class Folder(Base):
+    __tablename__ = "folders"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=_uuid7_str)
+    name: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[str] = mapped_column(String, nullable=False, default=_utcnow_iso)
+
+
+class FolderItem(Base):
+    __tablename__ = "folder_items"
+
+    folder_id: Mapped[str] = mapped_column(
+        String, ForeignKey("folders.id", ondelete="CASCADE"), primary_key=True
+    )
+    item_id: Mapped[str] = mapped_column(
+        String, ForeignKey("items.id", ondelete="CASCADE"), primary_key=True
+    )
+    added_at: Mapped[str] = mapped_column(String, nullable=False, default=_utcnow_iso)
+
+
 KINDS = {"image", "article", "video", "tweet", "bookmark", "note", "pdf"}
