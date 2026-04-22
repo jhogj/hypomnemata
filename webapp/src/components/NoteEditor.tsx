@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect } from "react";
-import { api, type Item, type ItemSummary } from "../lib/api";
+import { api, type ItemSummary } from "../lib/api";
+import { MentionsInput, Mention, SuggestionDataItem } from "react-mentions";
 
 interface Props {
   value: string;
@@ -10,10 +11,20 @@ interface Props {
 
 export function NoteEditor({ value, onChange, knownLinks, onNavigate }: Props) {
   const [isEditing, setIsEditing] = useState(false);
-  const [query, setQuery] = useState<{ text: string; cursorIndex: number } | null>(null);
-  const [results, setResults] = useState<Item[]>([]);
   const [localTitles, setLocalTitles] = useState<Record<string, string>>({});
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  // Fecha o modo de edição quando clicar fora
+  useEffect(() => {
+    if (!isEditing) return;
+    function handleClickOutside(e: MouseEvent) {
+      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+        setIsEditing(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [isEditing]);
 
   function renderReadMode() {
     if (!value) return <span className="text-paper-mid opacity-60">Clique para adicionar uma nota...</span>;
@@ -55,53 +66,23 @@ export function NoteEditor({ value, onChange, knownLinks, onNavigate }: Props) {
     return <div className="whitespace-pre-wrap font-sans text-sm text-paper-ink">{parts}</div>;
   }
 
-  function handleChange(e: React.ChangeEvent<HTMLTextAreaElement>) {
-    const val = e.target.value;
-    onChange(val);
-
-    const cursor = e.target.selectionStart;
-    const textBeforeCursor = val.slice(0, cursor);
-    const match = textBeforeCursor.match(/\[\[([^\]]*)$/);
-    if (match) {
-      setQuery({ text: match[1], cursorIndex: cursor });
-    } else {
-      setQuery(null);
+  async function fetchMentions(query: string, callback: (data: SuggestionDataItem[]) => void) {
+    if (!query) return;
+    try {
+      const res = await api.search(query);
+      const items = res.items.slice(0, 5).map((it) => ({
+        id: it.id,
+        display: it.title || "Sem título",
+        kind: it.kind,
+      }));
+      callback(items);
+    } catch (e) {
+      callback([]);
     }
-  }
-
-  useEffect(() => {
-    if (!query) {
-      setResults([]);
-      return;
-    }
-    const timer = setTimeout(async () => {
-      try {
-        const res = await api.search(query.text);
-        setResults(res.items.slice(0, 5));
-      } catch (e) {}
-    }, 300);
-    return () => clearTimeout(timer);
-  }, [query?.text]);
-
-  function insertLink(item: Item) {
-    if (!query || !textareaRef.current) return;
-    
-    setLocalTitles(prev => ({ ...prev, [item.id]: item.title || "Sem título" }));
-    
-    const before = value.slice(0, query.cursorIndex - query.text.length - 2);
-    const after = value.slice(query.cursorIndex);
-    const insert = `[[${item.id}]]`;
-    
-    onChange(before + insert + after);
-    setQuery(null);
-    
-    setTimeout(() => {
-      textareaRef.current?.focus();
-    }, 10);
   }
 
   return (
-    <div className="relative">
+    <div className="relative" ref={containerRef}>
       {!isEditing ? (
         <div 
           onClick={() => setIsEditing(true)}
@@ -111,30 +92,34 @@ export function NoteEditor({ value, onChange, knownLinks, onNavigate }: Props) {
         </div>
       ) : (
         <div className="relative">
-          <textarea
-            ref={textareaRef}
+          <MentionsInput
             value={value}
-            onChange={handleChange}
+            onChange={(_e, newValue) => onChange(newValue)}
+            className="mentions-editor"
+            placeholder="Digite [[ para conectar outro item..."
             autoFocus
-            onBlur={() => setTimeout(() => { if (!query) setIsEditing(false) }, 200)}
-            rows={5}
-            className="w-full resize-y rounded-md border border-paper-accent bg-paper-bg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-paper-accent"
-          />
-          {query && results.length > 0 && (
-            <div className="absolute z-10 mt-1 w-full rounded-md border border-paper-border bg-paper-card py-1 shadow-xl">
-              {results.map(res => (
-                <button
-                  key={res.id}
-                  type="button"
-                  onMouseDown={(e) => { e.preventDefault(); insertLink(res); }}
-                  className="block w-full px-3 py-1.5 text-left text-xs text-paper-ink hover:bg-paper-tag"
-                >
-                  <div className="font-medium truncate">{res.title || "Sem título"}</div>
-                  <div className="text-[10px] text-paper-mid opacity-70 uppercase tracking-wider">{res.kind}</div>
-                </button>
-              ))}
-            </div>
-          )}
+          >
+            <Mention
+              trigger="[["
+              markup="[[__id__|__display__]]"
+              displayTransform={(_id, display) => `↗ ${display}`}
+              data={fetchMentions}
+              onAdd={(id, display) => {
+                setLocalTitles((prev) => ({ ...prev, [String(id)]: display }));
+              }}
+              style={{
+                backgroundColor: 'rgba(199, 164, 117, 0.2)',
+                borderRadius: '4px',
+                padding: '0 2px',
+              }}
+              renderSuggestion={(suggestion: any, _search, highlightedDisplay) => (
+                <div className="flex w-full flex-col gap-0.5 px-3 py-2 truncate">
+                  <div className="font-medium text-paper-ink truncate">{highlightedDisplay}</div>
+                  <div className="text-[10px] text-paper-mid opacity-70 uppercase tracking-wider">{suggestion.kind}</div>
+                </div>
+              )}
+            />
+          </MentionsInput>
         </div>
       )}
     </div>

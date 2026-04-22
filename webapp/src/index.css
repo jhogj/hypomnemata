@@ -9,3 +9,95 @@
     height: 100%;
   }
 }
+
+/* ── react-mentions editor ─────────────────────────────── */
+.mentions-editor {
+  width: 100%;
+  font-family: inherit;
+  font-size: 0.875rem;
+  line-height: 1.5;
+}
+
+/* O container que envolve tudo (highlighter + input) */
+.mentions-editor__control {
+  width: 100%;
+  min-height: 5rem;
+  position: relative;
+}
+
+/* O highlighter (renderiza as pills coloridas) */
+.mentions-editor__highlighter {
+  position: absolute;
+  inset: 0;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid transparent;
+  border-radius: 0.375rem;
+  box-sizing: border-box;
+  overflow: hidden;
+  pointer-events: none;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: transparent;
+}
+
+/* A pill de menção sobreposta no highlighter */
+.mentions-editor__highlighter strong {
+  background-color: rgba(199, 164, 117, 0.25);
+  border-radius: 3px;
+  padding: 0 2px;
+  color: inherit;
+  font-weight: 500;
+}
+
+/* O textarea transparente por cima */
+.mentions-editor__input {
+  width: 100%;
+  min-height: 5rem;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid rgb(199, 164, 117);
+  border-radius: 0.375rem;
+  outline: none;
+  box-sizing: border-box;
+  font-family: inherit;
+  font-size: 0.875rem;
+  line-height: 1.5;
+  background: transparent;
+  resize: vertical;
+  color: #1c1917; /* paper-ink */
+  position: relative;
+}
+
+.mentions-editor__input:focus {
+  outline: none;
+  box-shadow: 0 0 0 1px rgb(199, 164, 117);
+}
+
+/* Dropdown de sugestões */
+.mentions-editor__suggestions {
+  position: absolute;
+  z-index: 20;
+  margin-top: 4px;
+}
+
+.mentions-editor__suggestions__list {
+  background-color: white;
+  border: 1px solid #e5e7eb;
+  border-radius: 0.375rem;
+  box-shadow: 0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1);
+  overflow: hidden;
+  min-width: 220px;
+}
+
+.mentions-editor__suggestions__item {
+  padding: 0;
+  border-bottom: 1px solid #f3f4f6;
+  cursor: pointer;
+}
+
+.mentions-editor__suggestions__item:last-child {
+  border-bottom: none;
+}
+
+.mentions-editor__suggestions__item--focused {
+  background-color: #f3f4f6;
+}
