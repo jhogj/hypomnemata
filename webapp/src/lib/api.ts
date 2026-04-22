@@ -149,4 +149,8 @@ export const api = {
   assetUrl(relative: string): string {
     return `${API}/assets/${relative}`;
   },
+
+  exportBackupUrl(): string {
+    return `${API}/system/export`;
+  },
 };

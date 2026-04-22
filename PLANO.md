@@ -164,9 +164,8 @@ Backend escuta só em `127.0.0.1`. CORS: `chrome-extension://<id>` e `http://loc
 9. Ollama: `POST /items/{id}/summarize` (disparo manual).
 10. Auto-tagging com revisão humana.
 
-### Onda 4 — Busca semântica (se justificar)
-11. sqlite-vec + embeddings via Ollama.
-12. `/similar/{id}` e merge FTS+vetorial em `/search`.
+### Onda 4 — Busca semântica (Adiada)
+*Nota: A implementação da busca semântica (sqlite-vec + embeddings via Ollama) ficou para depois. É um requisito muito complexo para o escopo de um projeto menor neste momento.*
 
 ### Onda 5 — Polimento
 13. Export/import (zip com SQLite + assets).

@@ -17,9 +17,9 @@
 
 ## Status atual
 
-- **Onda**: 1 (MVP) — **entregue** + Onda 2 completa (OCR + yt-dlp + Playwright + legendas YT) + Onda 3 itens 9 e 10 (resumo IA + auto-tagging via MLX-LM).
-- **Última sessão**: 2026-04-21 — legendas de vídeo YT, IA com MLX-LM (Gemma 4 E2B), resumo streaming + sugestão de tags. 42/42 testes passando.
-- **Próxima tarefa**: Onda 4 (busca semântica) ou Onda 5 (exportação ZIP).
+- **Onda**: 1 (MVP), 2, 3 entregues. Onda 4 (busca semântica) adiada. Onda 5 (Polimento) iniciada.
+- **Última sessão**: 2026-04-21 — Adiado busca semântica, exportação de backup em ZIP implementada.
+- **Próxima tarefa**: Hotkey global e launchd (Onda 5) - se o usuário decidir retomar.
 
 ### Deps externas necessárias (além do `uv sync`)
 | Ferramenta | Uso | Instalação |
@@ -323,6 +323,15 @@ Formato quando aparecerem mais:
 - Legenda vira `body_text` (preferida sobre descrição para busca FTS5); descrição vai para `meta_json["description"]`. `meta_json["subtitle_lang"]` guarda o idioma detectado.
 - Frontend: collapsible "Legenda (pt)" ou "Descrição do vídeo" no DetailModal conforme disponibilidade.
 
+### 2026-04-21 — Polimento da IA: auto-resumo, indicador de loading e thumbnail no modal
+
+- **Auto-resumo ao capturar**: após scraping de artigo ou download de vídeo com legenda, `article.py` e `ytdlp.py` chamam `summarize_sync()` (versão síncrona do `llm.py`) no mesmo thread. Falha silenciosa se MLX-LM não estiver rodando.
+- **`ai_status = "pending"`**: antes de chamar o LLM, o backend seta `meta_json["ai_status"] = "pending"` e faz commit. Remove a chave no `finally` após concluir (com ou sem erro). Isso permite o frontend saber que o resumo está sendo gerado.
+- **Polling no DetailModal**: o `useEffect` de polling agora também ativa quando `meta_json["ai_status"] === "pending"` — não só `download_status === "pending"`. Fica checando a cada 5s até o resumo chegar.
+- **Indicador visual**: botão mostra "IA processando..." e fica desabilitado; box pulsante "▌ Gerando resumo com IA..." aparece na seção IA enquanto `ai_status` está pending.
+- **Erros do LLM em amber**: quando LLM não está rodando e usuário clica "Resumir", o texto `[Erro: ...]` que vinha como texto de resumo agora aparece como badge amber com mensagem legível.
+- **Poster do vídeo no modal**: `<video>` no DetailModal recebe `poster={api.assetUrl(thumbnailPath)}` extraído de `meta_json.thumbnail_path`. Corrige bug onde o modal mostrava frame aleatório em vez do thumbnail ao abrir o item.
+
 ### 2026-04-21 — MLX-LM em vez de Ollama para IA local
 - **Problema**: Ollama com qwen2.5:7b (4.7 GB) travou o MacBook Air M2 8GB.
 - **Tentativas**: Gemma 4 via Ollama = 7.2 GB (muito grande); Gemma 4 E2B via Ollama não tem Q4_0 disponível.
@@ -336,6 +345,12 @@ Formato quando aparecerem mais:
 - **Rotas**: `POST /items/{id}/summarize` → `StreamingResponse` text/plain; salva resumo em `meta_json["summary"]` ao terminar. `POST /items/{id}/autotag` → `{"tags": [...]}`.
 - **Frontend**: seção "IA" no painel direito do DetailModal (visível quando item tem conteúdo). Botão "Resumir" mostra texto aparecendo token a token com cursor piscante. Botão "Sugerir tags" retorna chips clicáveis (+ individual ou "Adicionar todas"). Resumo persiste ao reabrir modal via `meta_json["summary"]`.
 - **Bug corrigido**: `max_tokens` não definido → MLX-LM usava padrão de 256 tokens → resumos cortados no meio da frase.
+
+### 2026-04-21 — Exportação de Backup em ZIP (Onda 5)
+- **Funcionalidade**: Capacidade de baixar o banco de dados inteiro e a pasta de assets (`~/Hypomnemata/`) como um arquivo ZIP.
+- **Implementação**: Rota `GET /system/export` no backend, utilizando `shutil.make_archive` em uma thread assíncrona. O arquivo temporário é apagado via `BackgroundTask` do FastAPI após o download.
+- **Frontend**: Botão "Exportar Backup" adicionado na Sidebar do webapp, abaixo das estatísticas de disco, apontando para a nova rota via um `<a>` tag `_blank` que abre o modal de salvar nativo do browser.
+- **Nota**: Demais itens da Onda 5 (importação, atalho global e empacotamento launchd) foram postergados. A Onda 4 (busca semântica) também foi documentada como adiada no `PLANO.md`.
 
 ## Ideias discutidas
 
