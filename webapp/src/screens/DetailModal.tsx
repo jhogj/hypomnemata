@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { api, type Item } from "../lib/api";
+import { NoteEditor } from "../components/NoteEditor";
 
 interface Props {
   itemId: string;
@@ -23,9 +24,6 @@ export function DetailModal({ itemId, initialVideoTime, onClose, onChanged, onDe
   const [summaryText, setSummaryText] = useState("");
   const [autotagging, setAutotagging] = useState(false);
   const [suggestedTags, setSuggestedTags] = useState<string[]>([]);
-  const [linkQuery, setLinkQuery] = useState("");
-  const [linkResults, setLinkResults] = useState<Item[]>([]);
-  const [searchingLinks, setSearchingLinks] = useState(false);
   const ocrRef = useRef<HTMLDivElement>(null);
   const subRef = useRef<HTMLDivElement>(null);
   const detailVideoRef = useRef<HTMLVideoElement>(null);
@@ -102,24 +100,7 @@ export function DetailModal({ itemId, initialVideoTime, onClose, onChanged, onDe
     return () => document.removeEventListener("mousedown", handleClick);
   }, [subOpen]);
 
-  useEffect(() => {
-    if (!linkQuery.trim()) {
-      setLinkResults([]);
-      return;
-    }
-    const timer = setTimeout(async () => {
-      setSearchingLinks(true);
-      try {
-        const res = await api.search(linkQuery);
-        setLinkResults(res.items.filter((i) => i.id !== item?.id).slice(0, 5));
-      } catch (e) {
-        // ignora erro de busca
-      } finally {
-        setSearchingLinks(false);
-      }
-    }, 300);
-    return () => clearTimeout(timer);
-  }, [linkQuery, item?.id]);
+
 
   async function save() {
     if (!item) return;
@@ -203,31 +184,7 @@ export function DetailModal({ itemId, initialVideoTime, onClose, onChanged, onDe
     }
   }
 
-  async function handleAddLink(targetId: string) {
-    if (!item) return;
-    try {
-      await api.addLink(item.id, targetId);
-      const updated = await api.getItem(item.id);
-      setItem(updated);
-      setLinkQuery("");
-      setLinkResults([]);
-      onChanged();
-    } catch (e) {
-      setErr("Erro ao adicionar link: " + String(e));
-    }
-  }
 
-  async function handleRemoveLink(targetId: string) {
-    if (!item) return;
-    try {
-      await api.removeLink(item.id, targetId);
-      const updated = await api.getItem(item.id);
-      setItem(updated);
-      onChanged();
-    } catch (e) {
-      setErr("Erro ao remover link: " + String(e));
-    }
-  }
 
   if (!item)
     return (
@@ -473,14 +430,13 @@ export function DetailModal({ itemId, initialVideoTime, onClose, onChanged, onDe
               <div className="mb-1 text-xs font-medium uppercase tracking-wider text-paper-light">
                 Nota pessoal
               </div>
-              <textarea
+              <NoteEditor
                 value={note}
-                rows={4}
-                onChange={(e) => {
-                  setNote(e.target.value);
+                onChange={(val) => {
+                  setNote(val);
                   setDirty(true);
                 }}
-                className="w-full resize-y rounded-md border border-paper-border bg-paper-bg px-3 py-2 text-sm focus:border-paper-accent focus:outline-none"
+                knownLinks={[...(item.links || []), ...(item.backlinks || [])]}
               />
             </label>
 
@@ -499,67 +455,7 @@ export function DetailModal({ itemId, initialVideoTime, onClose, onChanged, onDe
               />
             </label>
 
-            {/* Conexões */}
-            <div className="space-y-3 border-t border-paper-border pt-3">
-              <div className="text-xs font-medium uppercase tracking-wider text-paper-light">
-                Conexões
-              </div>
 
-              {(item.links && item.links.length > 0) || (item.backlinks && item.backlinks.length > 0) ? (
-                <div className="space-y-3">
-                  {item.links && item.links.length > 0 && (
-                    <div>
-                      <div className="mb-1 text-[10px] uppercase text-paper-mid">Links</div>
-                      <div className="flex flex-col gap-1">
-                        {item.links.map(lnk => (
-                          <div key={lnk.id} className="flex items-center justify-between rounded-md border border-paper-border bg-paper-bg px-2 py-1 text-xs">
-                            <span className="truncate text-paper-ink">{lnk.title || "Sem título"} <span className="opacity-50">({lnk.kind})</span></span>
-                            <button onClick={() => handleRemoveLink(lnk.id)} className="ml-2 text-paper-mid hover:text-red-500" title="Remover link">×</button>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-
-                  {item.backlinks && item.backlinks.length > 0 && (
-                    <div>
-                      <div className="mb-1 text-[10px] uppercase text-paper-mid">Mencionado por</div>
-                      <div className="flex flex-col gap-1">
-                        {item.backlinks.map(lnk => (
-                          <div key={lnk.id} className="flex items-center justify-between rounded-md border border-paper-border bg-paper-bg px-2 py-1 text-xs">
-                            <span className="truncate text-paper-ink">{lnk.title || "Sem título"} <span className="opacity-50">({lnk.kind})</span></span>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                </div>
-              ) : null}
-
-              <div className="relative">
-                <input
-                  value={linkQuery}
-                  onChange={(e) => setLinkQuery(e.target.value)}
-                  placeholder="Buscar para conectar..."
-                  className="w-full rounded-md border border-paper-border bg-paper-bg px-3 py-1.5 text-xs focus:border-paper-accent focus:outline-none"
-                />
-                {linkResults.length > 0 && (
-                  <div className="absolute z-10 mt-1 w-full rounded-md border border-paper-border bg-paper-card py-1 shadow-lg">
-                    {linkResults.map(res => (
-                      <button
-                        key={res.id}
-                        type="button"
-                        onClick={() => handleAddLink(res.id)}
-                        className="block w-full px-3 py-1.5 text-left text-xs text-paper-ink hover:bg-paper-tag"
-                      >
-                        <div className="truncate font-medium">{res.title || "Sem título"}</div>
-                        <div className="truncate text-[10px] text-paper-mid">{res.note || "Sem nota"}</div>
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </div>
-            </div>
 
             {(item.body_text || item.title) && (
               <div className="space-y-2 border-t border-paper-border pt-3">

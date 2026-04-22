@@ -8,7 +8,7 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..crud import load_tag_names, set_item_tags, to_out, load_links, load_backlinks
+from ..crud import load_tag_names, set_item_tags, to_out, load_links, load_backlinks, sync_item_links
 from ..db import SessionLocal, get_session
 from ..models import Item, ItemTag, Tag, ItemLink
 from ..llm import get_autotags, stream_summary
@@ -140,9 +140,12 @@ async def patch_item(
     if "tags" in data:
         await set_item_tags(db, item, data["tags"] or [])
 
+    await sync_item_links(db, item)
     await db.commit()
     names = await load_tag_names(db, item.id)
-    return to_out(item, tag_names=names)
+    links = await load_links(db, item.id)
+    backlinks = await load_backlinks(db, item.id)
+    return to_out(item, tag_names=names, links=links, backlinks=backlinks)
 
 
 @router.post("/{item_id}/summarize")

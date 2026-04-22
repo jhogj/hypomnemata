@@ -22,6 +22,8 @@ async def ensure_tags(db: AsyncSession, names: list[str]) -> list[Tag]:
     )
 
 
+import re
+
 async def set_item_tags(db: AsyncSession, item: Item, names: list[str]) -> None:
     """Replace the item's tags. Uses direct ItemTag rows to avoid triggering
     a lazy load on item.tags in async context."""
@@ -29,6 +31,31 @@ async def set_item_tags(db: AsyncSession, item: Item, names: list[str]) -> None:
     tags = await ensure_tags(db, names)
     for t in tags:
         db.add(ItemTag(item_id=item.id, tag_id=t.id))
+    await db.flush()
+
+async def sync_item_links(db: AsyncSession, item: Item) -> None:
+    """Extrai [[ID]] dos campos de texto e sincroniza os links."""
+    text = (item.note or "") + " " + (item.body_text or "")
+    
+    # Regex para extrair UUIDs dentro de colchetes [[...]] (ignorando possível pipe de título)
+    pattern = r"\[\[([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})(?:\|[^\]]*)?\]\]"
+    matches = re.findall(pattern, text)
+    unique_targets = set(matches)
+    
+    # Não permitir link para si mesmo
+    if item.id in unique_targets:
+        unique_targets.remove(item.id)
+        
+    await db.execute(delete(ItemLink).where(ItemLink.source_id == item.id))
+    
+    # Valida se os targets realmente existem no banco antes de inserir para não quebrar a FK
+    if unique_targets:
+        stmt = select(Item.id).where(Item.id.in_(unique_targets))
+        valid_targets = set((await db.execute(stmt)).scalars().all())
+        
+        for t_id in valid_targets:
+            db.add(ItemLink(source_id=item.id, target_id=t_id))
+    
     await db.flush()
 
 
