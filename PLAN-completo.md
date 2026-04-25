@@ -171,6 +171,8 @@ Testar:
 
 ### Sprint 6 — Ingestão Web, Vídeos E Tweets
 
+> **Nota de divergência (2026-04-25)**: a implementação real apropriou Sprint 6 para o trabalho de IA (6.1 infra LLM, 6.2 resumo/autotag funcional, 6.3 `JobAutomation`). O escopo original abaixo foi adiado e voltou ao plano como sub-sprints **6.4 (scrapeArticle)**, **6.5 (downloadMedia)** e **6.6 (generateThumbnail/tweet)**, a serem entregues antes da Sprint 8. Detalhes em `AGENTS.md` ("Reabrir Sprint 6 para ingestão web").
+
 Entrega:
 - Scraping de artigos com título, texto, autor, data, site e imagem principal.
 - Download de vídeos/legendas via `yt-dlp`.

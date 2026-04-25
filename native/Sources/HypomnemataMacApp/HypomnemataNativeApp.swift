@@ -1,8 +1,18 @@
+import AppKit
 import SwiftUI
 
 @main
 struct HypomnemataNativeApp: App {
     @StateObject private var model = AppModel()
+
+    init() {
+        let app = NSApplication.shared
+        app.setActivationPolicy(.regular)
+        DispatchQueue.main.async {
+            app.activate(ignoringOtherApps: true)
+            NSApp.windows.first?.makeKeyAndOrderFront(nil)
+        }
+    }
 
     var body: some Scene {
         WindowGroup {

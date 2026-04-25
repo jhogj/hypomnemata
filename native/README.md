@@ -123,4 +123,9 @@ its Info.plist during packaging so macOS exposes it in the Services/Share UI.
   - 7.2: complete as of 2026-04-25. `ItemChatService` streams replies grounded in the stored content; `chat_messages` table-backed history exposed by the repository; detail sheet toggle with streaming bubbles, cursor, auto-scroll and clear-conversation.
   - 7.3: complete as of 2026-04-25. `ItemAIService.streamSummary` and `AppModel.streamSummary` push chunks straight into the detail sheet's summary field, sharing the prompt with the synchronous `summarize` used by background jobs.
 - Sprint 7: complete as of 2026-04-25.
-- Next step: Sprint 8 (backup, exportação e restore).
+- Sprint 6 reopened on 2026-04-25 — the IA work shipped as 6.1/6.2/6.3 was the only part of the original Sprint 6 plan that landed; web/video ingestion runners were never written, so URL captures stay stuck on `pending`. Three follow-up sub-sprints are queued before Sprint 8:
+  - 6.4 (next): `scrapeArticle` runner via `trafilatura` subprocess with WKWebView fallback for SPA pages, plus encrypted hero image asset.
+  - 6.5: `downloadMedia` runner via `yt-dlp` + `ffmpeg`, with subtitle preference (pt/en) and recoverable failures.
+  - 6.6: `generateThumbnail` runner for downloaded media and tweet photos (`gallery-dl` + oEmbed fallback), wiring encrypted thumbnails into the library list/grid.
+- Sprint 8 (backup, export, restore) follows once 6.4–6.6 close.
+- Next step: Sprint 6.4.

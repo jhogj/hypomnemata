@@ -20,9 +20,9 @@
 ## Status atual
 
 - **App legado** (FastAPI/React): Ondas 1, 2, 3 entregues. Onda 4 adiada. Ver `CLAUDE.md` para detalhes.
-- **Rewrite nativo**: Sprints 0–6 + 7.1 + 7.2 + 7.3 concluídas em 2026-04-25.
-- **Última sessão**: 2026-04-25 — Sprint 7.3: resumo na sheet de detalhe agora chega via streaming (`ItemAIService.streamSummary` + `AppModel.streamSummary` + UI populando o campo conforme os chunks).
-- **Próxima tarefa**: Sprint 7 fechado. Próximo bloco do plano nativo é a Sprint 8 (backup, exportação e restore do próprio app).
+- **Rewrite nativo**: Sprints 0–5 entregues; Sprint 6 só nas frentes de IA (6.1/6.2/6.3) — ingestão web/vídeo planejada no `PLAN-completo.md` original ficou pra trás. Sprint 7 (7.1/7.2/7.3) fechado.
+- **Última sessão**: 2026-04-25 — Sprint 7.3: resumo na sheet de detalhe agora chega via streaming (`ItemAIService.streamSummary` + `AppModel.streamSummary` + UI populando o campo conforme os chunks). Em seguida, captura real (URL de artigo, vídeo do YouTube) revelou que `scrapeArticle`/`downloadMedia`/`generateThumbnail` não têm executor; jobs ficam `pending` para sempre.
+- **Próxima tarefa**: Sprint 6.4 — runner de `scrapeArticle` (trafilatura subprocess + fallback WKWebView + hero image criptografada). Em seguida 6.5 (downloadMedia) e 6.6 (thumbnails de mídia baixada / tweets via gallery-dl + oEmbed). Sprint 8 (backup) vai depois desse bloco.
 
 ### Comandos (nativo)
 
@@ -50,6 +50,10 @@ CLANG_MODULE_CACHE_PATH=/tmp/hypo-clang-cache SWIFTPM_HOME=/tmp/hypo-swiftpm-cac
 | 7.1 | Settings de IA: `LLMSettingsStore` no vault SQLCipher; `LLMConfiguration.resolve(overrides:env:)` em camadas (vault > env > default); UI em "IA local" com salvar/limpar e validação |
 | 7.2 | Chat com documento: `ItemChatService` (gate de 300 chars + system prompt em pt), métodos `chatHistory/appendChatMessage/clearChatHistory` no repositório, `AppModel.sendChatMessage` com streaming, painel de chat no detalhe com bubbles, cursor piscante e limpar conversa |
 | 7.3 | Resumo em streaming: `ItemAIService.streamSummary` (mesmo prompt do `summarize`, mas via `streamChat`), `AppModel.streamSummary` com `onChunk`, campo "Resumo" do detalhe é zerado e preenchido em tempo real conforme os chunks chegam |
+| **6.4** | **Próximo**: runner de `scrapeArticle` — subprocess `trafilatura` (JSON), fallback WKWebView para SPA, hero image criptografada, status do job amarrado ao item |
+| 6.5 | Runner de `downloadMedia` — `yt-dlp` + `ffmpeg` para merge, legendas pt/en, asset criptografado via `EncryptedAssetStore`, polling/erros recuperáveis |
+| 6.6 | Runner de `generateThumbnail` para mídia baixada e tweets — `gallery-dl` + fallback oEmbed, thumb encriptada compartilhada com a lib |
+| 8+ | Backup, exportação e restore (originalmente Sprint 8) — só depois do bloco 6.4–6.6 |
 
 ---
 
@@ -87,6 +91,17 @@ CLANG_MODULE_CACHE_PATH=/tmp/hypo-clang-cache SWIFTPM_HOME=/tmp/hypo-swiftpm-cac
 - **Prioridade**: `LLMConfiguration.resolve(overrides:env:)` resolve campo por campo — vault > env > default. Vault é fonte de verdade do app; env vira fallback global do shell.
 - **Validação**: `saveLLMSettings` chama `resolve(...)` antes de gravar; URL/modelo/limite inválidos não são persistidos.
 - **UI**: nova seção "IA local" em `SettingsView` com placeholders mostrando o valor atualmente em uso (env ou default), botões salvar/limpar overrides, e linha de resumo "Em uso: <url> · <modelo> · <limite>".
+
+### 2026-04-25 — Reabrir Sprint 6 para ingestão web (6.4–6.6 antes da 8)
+- **Contexto**: o `PLAN-completo.md` original definia Sprint 6 como "Ingestão Web, Vídeos E Tweets" (trafilatura + yt-dlp + gallery-dl + WKWebView fallback). Na implementação, Sprint 6 foi inteiramente reaproveitada para IA (6.1 infra LLM, 6.2 resumo/autotag funcional, 6.3 `JobAutomation`), e o trabalho de ingestão foi adiado com a nota "aguardando o runner de Sprint 7+". Sprint 7 (7.1/7.2/7.3) cuidou só de IA — então o runner nunca foi escrito.
+- **Sintoma confirmado em 2026-04-25**: capturar URL de artigo gera job `scrapeArticle` que fica `pending` para sempre; capturar URL de vídeo do YouTube gera `downloadMedia` `pending` e o detalhe mostra "Este item não tem vídeo local para reproduzir". Texto colado/arquivos locais funcionam porque dependem só de `bodyText`/asset já no banco.
+- **Causa raíz no código**: `Sources/HypomnemataAI/JobAutomation.swift` lança `unsupportedJobKind` para `scrapeArticle`/`downloadMedia`/`generateThumbnail`/`runOCR` (`runOCR` na real roda síncrono na captura, então tudo bem; os outros três é que ficam órfãos).
+- **Decisão**: reabrir Sprint 6 antes da 8 (backup), em três sub-sprints isoladas:
+  - **6.4** — runner de `scrapeArticle`: subprocess `trafilatura --json --URL`, fallback `WKWebView` (renderiza JS, devolve HTML para `trafilatura --json`), hero image baixada, criptografada via `EncryptedAssetStore` e ligada como asset do item. Status amarrado ao job; erro recuperável quando rede/binário falham.
+  - **6.5** — runner de `downloadMedia`: subprocess `yt-dlp` (merge via `ffmpeg`), legenda preferida pt/en (segunda chamada com `skip_download` para não abortar em 429), arquivo final movido cripto para `Assets/`. UI atualiza assim que o job vira `done`.
+  - **6.6** — runner de `generateThumbnail` para mídia baixada e fotos de tweets: `yt-dlp` info-thumb + ffmpeg fallback para vídeos; `gallery-dl` para tweets com foto + fallback oEmbed (`publish.twitter.com/oembed`). Thumb sai encriptada e alimenta lista/grid e detalhe.
+- **Sprint 8 (backup) só depois disso**: ingestão é coração da captura; sem ela o nativo não substitui o legado, então prioridade > backup.
+- **Não-objetivo**: não vamos migrar dados antigos do app legado nesse bloco (continua fora do v1).
 
 ### 2026-04-25 — Resumo em streaming na sheet de detalhe (Sprint 7.3)
 - **Decisão**: `ItemAIService` ganha `streamSummary(context:)` que retorna `AsyncThrowingStream<String, Error>` reaproveitando exatamente os mesmos `summaryMessages(for:)` do `summarize` síncrono — só muda o transporte (`streamChat` no lugar de `complete`). Isso garante que o resumo gerado pelo botão e o resumo gerado pelos jobs de background convergem para o mesmo prompt.
