@@ -62,16 +62,24 @@ export interface StorageInfo {
   total_bytes: number;
 }
 
+export interface FolderOut {
+  id: string;
+  name: string;
+  item_count: number;
+}
+
 export const api = {
   async listItems(params: {
     kind?: string;
     tag?: string;
+    folder?: string;
     limit?: number;
     offset?: number;
   } = {}): Promise<ItemList> {
     const q = new URLSearchParams();
     if (params.kind) q.set("kind", params.kind);
     if (params.tag) q.set("tag", params.tag);
+    if (params.folder) q.set("folder", params.folder);
     if (params.limit !== undefined) q.set("limit", String(params.limit));
     if (params.offset !== undefined) q.set("offset", String(params.offset));
     return j(await fetch(`${API}/items?${q}`));
@@ -83,7 +91,7 @@ export const api = {
 
   async patchItem(
     id: string,
-    patch: { title?: string | null; note?: string | null; body_text?: string | null; tags?: string[] },
+    patch: { title?: string | null; note?: string | null; body_text?: string | null; summary?: string | null; tags?: string[] },
   ): Promise<Item> {
     return j(
       await fetch(`${API}/items/${id}`, {
@@ -149,6 +157,31 @@ export const api = {
     }
   },
 
+  async clearChatHistory(id: string): Promise<void> {
+    const r = await fetch(`${API}/items/${id}/chat`, { method: "DELETE" });
+    if (!r.ok && r.status !== 204) throw new Error(`HTTP ${r.status}`);
+  },
+
+  async chatStream(
+    id: string,
+    messages: { role: "user" | "assistant"; content: string }[],
+    onChunk: (text: string) => void,
+  ): Promise<void> {
+    const r = await fetch(`${API}/items/${id}/chat`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ messages }),
+    });
+    if (!r.ok) throw new Error(`HTTP ${r.status}: ${await r.text()}`);
+    const reader = r.body!.getReader();
+    const decoder = new TextDecoder();
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      onChunk(decoder.decode(value, { stream: true }));
+    }
+  },
+
   async autotagItem(id: string): Promise<string[]> {
     const r = await fetch(`${API}/items/${id}/autotag`, { method: "POST" });
     if (!r.ok) throw new Error(`HTTP ${r.status}: ${await r.text()}`);
@@ -161,6 +194,62 @@ export const api = {
 
   exportBackupUrl(): string {
     return `${API}/system/export`;
+  },
+
+  async triggerBackup(): Promise<{ ok: boolean; message: string }> {
+    const r = await fetch(`${API}/system/backup`, { method: "POST" });
+    if (!r.ok) {
+      const detail = await r.json().catch(() => ({ detail: "Erro desconhecido" }));
+      throw new Error((detail as { detail: string }).detail);
+    }
+    return r.json();
+  },
+
+  async backupStatus(): Promise<{ configured: boolean; backup_dir: string | null }> {
+    return j(await fetch(`${API}/system/backup/status`));
+  },
+
+  async listFolders(): Promise<FolderOut[]> {
+    return j(await fetch(`${API}/folders`));
+  },
+
+  async createFolder(name: string): Promise<FolderOut> {
+    return j(await fetch(`${API}/folders`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name }),
+    }));
+  },
+
+  async renameFolder(id: string, name: string): Promise<FolderOut> {
+    return j(await fetch(`${API}/folders/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name }),
+    }));
+  },
+
+  async deleteFolder(id: string): Promise<void> {
+    const r = await fetch(`${API}/folders/${id}`, { method: "DELETE" });
+    if (!r.ok && r.status !== 204) throw new Error(`HTTP ${r.status}`);
+  },
+
+  async addItemsToFolder(folderId: string, itemIds: string[]): Promise<void> {
+    const r = await fetch(`${API}/folders/${folderId}/items`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ item_ids: itemIds }),
+    });
+    if (!r.ok && r.status !== 204) throw new Error(`HTTP ${r.status}`);
+  },
+
+  async removeItemFromFolder(folderId: string, itemId: string): Promise<void> {
+    const r = await fetch(`${API}/folders/${folderId}/items/${itemId}`, { method: "DELETE" });
+    if (!r.ok && r.status !== 204) throw new Error(`HTTP ${r.status}`);
+  },
+
+  async getItemFolders(itemId: string): Promise<{ id: string; name: string }[]> {
+    return j(await fetch(`${API}/items/${itemId}/folders`));
   },
 
   async addLink(itemId: string, targetId: string): Promise<void> {

@@ -1,4 +1,4 @@
-# CLAUDE.md — Memória viva do Hypomnemata
+# AGENTS.md — Memória viva do Hypomnemata
 
 > **Primeira ação em toda sessão nova nesta área: ler este arquivo inteiro.**
 > Ele diz onde paramos, o que foi decidido, o que está pendente e o que já quebrou.
@@ -497,4 +497,4 @@ Formato quando aparecerem:
 - Esboço técnico original: `descricao_hypomnemata.txt`
 - Wireframes: `design/Hypomnemata Wireframe.html` (3 telas)
 - Plano aprovado: `PLANO.md`
-- Plano (cópia em cache do Claude): `~/.claude/plans/vc-deve-escrever-um-jazzy-blum.md`
+- Plano (cópia em cache do Codex): `~/.Codex/plans/vc-deve-escrever-um-jazzy-blum.md`

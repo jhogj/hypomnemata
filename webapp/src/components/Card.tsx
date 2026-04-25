@@ -6,6 +6,11 @@ interface Props {
   item: Item;
   onClick: (videoTime?: number) => void;
   onDelete: () => void;
+  selectionMode?: boolean;
+  selected?: boolean;
+  onToggleSelect?: () => void;
+  onDragStart?: (itemId: string) => void;
+  onDragEnd?: () => void;
 }
 
 const KIND_LABEL: Record<Item["kind"], string> = {
@@ -23,7 +28,7 @@ function formatDate(iso: string): string {
   return d.toLocaleDateString("pt-BR", { day: "2-digit", month: "short" });
 }
 
-export function Card({ item, onClick, onDelete }: Props) {
+export function Card({ item, onClick, onDelete, selectionMode, selected, onToggleSelect, onDragStart, onDragEnd }: Props) {
   const [playing, setPlaying] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
 
@@ -69,7 +74,7 @@ export function Card({ item, onClick, onDelete }: Props) {
   }
 
   function handleCardClick() {
-    // Capture currentTime from the inline player before opening the modal.
+    if (selectionMode) { onToggleSelect?.(); return; }
     let videoTime: number | undefined;
     if (playing && videoRef.current) {
       videoTime = videoRef.current.currentTime;
@@ -83,9 +88,28 @@ export function Card({ item, onClick, onDelete }: Props) {
     <button
       ref={cardRef}
       type="button"
+      draggable={!selectionMode}
+      onDragStart={(e) => { e.dataTransfer.setData("item_id", item.id); e.dataTransfer.effectAllowed = "copy"; onDragStart?.(item.id); }}
+      onDragEnd={() => onDragEnd?.()}
       onClick={handleCardClick}
-      className="group mb-4 w-full break-inside-avoid overflow-hidden rounded border border-paper-border bg-paper-card text-left shadow-sm transition-shadow hover:shadow-md"
+      className={`group relative mb-4 w-full break-inside-avoid overflow-hidden rounded border bg-paper-card text-left shadow-sm transition-shadow hover:shadow-md ${
+        selected ? "border-paper-accent ring-2 ring-paper-accent/30" : "border-paper-border"
+      }`}
     >
+      {/* Checkbox de seleção */}
+      {selectionMode && (
+        <div className="absolute left-2 top-2 z-10">
+          <div className={`flex h-5 w-5 items-center justify-center rounded border-2 transition-colors ${
+            selected ? "border-paper-accent bg-paper-accent" : "border-white bg-white/80 shadow"
+          }`}>
+            {selected && (
+              <svg viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="3" className="h-3 w-3">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
+              </svg>
+            )}
+          </div>
+        </div>
+      )}
       {playing && videoUrl ? (
         /* Inline video player — click on the video interacts with controls, not the card */
         <div onClick={(e) => e.stopPropagation()}>

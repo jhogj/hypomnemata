@@ -32,6 +32,7 @@ export default function App() {
 
       {detailId && (
         <DetailModal
+          key={detailId}
           itemId={detailId}
           initialVideoTime={videoTime}
           onClose={() => {
