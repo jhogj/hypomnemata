@@ -15,11 +15,15 @@ struct HypomnemataNativeApp: App {
                 .onReceive(NotificationCenter.default.publisher(for: NSApplication.willTerminateNotification)) { _ in
                     model.prepareForQuit()
                 }
+                .onOpenURL { url in
+                    _ = model.openExternalCapture(url)
+                }
         }
+        .handlesExternalEvents(matching: ["capture"])
         .commands {
             CommandGroup(replacing: .newItem) {
                 Button("Nova captura") {
-                    model.showCapture = true
+                    model.openCapture()
                 }
                 .keyboardShortcut("k", modifiers: [.command])
 

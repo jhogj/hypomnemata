@@ -16,6 +16,7 @@ struct CaptureSheet: View {
     @State private var selectedFileURL: URL?
     @State private var showingFileImporter = false
     @State private var errorMessage: String?
+    @State private var didApplyPrefill = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -76,6 +77,7 @@ struct CaptureSheet: View {
             HStack {
                 Spacer()
                 Button("Cancelar") {
+                    model.clearCapturePrefill()
                     dismiss()
                 }
                 Button("Salvar") {
@@ -95,6 +97,7 @@ struct CaptureSheet: View {
         }
         .padding(22)
         .frame(width: 560)
+        .onAppear(perform: applyPrefillIfNeeded)
         .onChange(of: selectedTab) { _, _ in
             errorMessage = nil
         }
@@ -124,6 +127,26 @@ struct CaptureSheet: View {
             selectedFileURL != nil
         default:
             bodyText.trimmedNonEmpty != nil
+        }
+    }
+
+    private func applyPrefillIfNeeded() {
+        guard !didApplyPrefill, let draft = model.capturePrefill else {
+            return
+        }
+        didApplyPrefill = true
+        title = draft.title ?? ""
+        note = draft.note ?? ""
+        tags = draft.tags.joined(separator: ", ")
+        if let sourceURL = draft.sourceURL {
+            selectedTab = 0
+            urlString = sourceURL
+        } else if let fileURL = draft.fileURL {
+            selectedTab = 1
+            selectedFileURL = fileURL
+        } else if let text = draft.bodyText {
+            selectedTab = 2
+            bodyText = text
         }
     }
 }

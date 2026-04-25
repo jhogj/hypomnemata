@@ -1,4 +1,5 @@
 import Foundation
+import HypomnemataCore
 
 public struct DependencyRequirement: Identifiable, Equatable, Sendable {
     public var id: String { executable }
@@ -77,6 +78,16 @@ public struct DependencyDoctor: Sendable {
         }
     }
 
+    public func status(for executable: String) -> DependencyStatus? {
+        guard let requirement = requirements.first(where: { $0.executable == executable }) else {
+            return nil
+        }
+        return DependencyStatus(
+            requirement: requirement,
+            path: locate(executable: requirement.executable)
+        )
+    }
+
     private func locate(executable: String) -> String? {
         let pathValue = environment["PATH"] ?? "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin"
         for directory in pathValue.split(separator: ":").map(String.init) {
@@ -86,5 +97,42 @@ public struct DependencyDoctor: Sendable {
             }
         }
         return nil
+    }
+}
+
+public struct JobDependencyResolver: Sendable {
+    private let doctor: DependencyDoctor
+
+    public init(doctor: DependencyDoctor = DependencyDoctor()) {
+        self.doctor = doctor
+    }
+
+    public func missingDependencyError(for kind: JobKind) -> String? {
+        let executables = requiredExecutables(for: kind)
+        let missing = executables.compactMap { executable -> DependencyStatus? in
+            guard let status = doctor.status(for: executable), !status.isInstalled else {
+                return nil
+            }
+            return status
+        }
+        guard !missing.isEmpty else {
+            return nil
+        }
+        return missing
+            .map { "Dependência ausente: \($0.requirement.executable). Rode `\($0.requirement.installCommand)`." }
+            .joined(separator: " ")
+    }
+
+    private func requiredExecutables(for kind: JobKind) -> [String] {
+        switch kind {
+        case .scrapeArticle:
+            ["trafilatura"]
+        case .downloadMedia:
+            ["yt-dlp"]
+        case .generateThumbnail:
+            ["ffmpeg"]
+        case .runOCR, .summarize, .autotag:
+            []
+        }
     }
 }

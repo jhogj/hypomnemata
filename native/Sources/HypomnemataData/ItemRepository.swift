@@ -53,6 +53,9 @@ public protocol ItemRepository: Sendable {
     func patchItem(id: String, patch: ItemPatch) throws -> Item
     func deleteItems(ids: [String]) throws
     func insertAsset(_ asset: AssetRecord) throws
+    func insertJobs(_ jobs: [Job]) throws
+    func jobs(forItemID itemID: String) throws -> [Job]
+    func updateJobStatus(id: String, status: JobStatus, error: String?) throws
     func assets(forItemID itemID: String) throws -> [AssetRecord]
     func assets(forItemIDs itemIDs: [String]) throws -> [AssetRecord]
     func totalItemCount() throws -> Int
@@ -250,6 +253,68 @@ public final class SQLiteItemRepository: ItemRepository, @unchecked Sendable {
                     asset.width,
                     asset.height,
                     asset.createdAt,
+                ]
+            )
+        }
+    }
+
+    public func insertJobs(_ jobs: [Job]) throws {
+        guard !jobs.isEmpty else {
+            return
+        }
+        try database.writer.write { db in
+            for job in jobs {
+                try db.execute(
+                    sql: """
+                        INSERT INTO jobs(
+                            id, item_id, kind, status, error, attempts, payload_json, created_at, updated_at
+                        )
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        """,
+                    arguments: [
+                        job.id,
+                        job.itemID,
+                        job.kind.rawValue,
+                        job.status.rawValue,
+                        job.error,
+                        job.attempts,
+                        job.payloadJSON,
+                        job.createdAt,
+                        job.updatedAt,
+                    ]
+                )
+            }
+        }
+    }
+
+    public func jobs(forItemID itemID: String) throws -> [Job] {
+        try database.writer.read { db in
+            try Row.fetchAll(
+                db,
+                sql: """
+                    SELECT *
+                    FROM jobs
+                    WHERE item_id = ?
+                    ORDER BY created_at, id
+                    """,
+                arguments: [itemID]
+            ).map(Self.job(from:))
+        }
+    }
+
+    public func updateJobStatus(id: String, status: JobStatus, error: String?) throws {
+        try database.writer.write { db in
+            try db.execute(
+                sql: """
+                    UPDATE jobs
+                    SET status = ?, error = ?, updated_at = ?
+                    WHERE id = ?
+                    """,
+                arguments: [
+                    status.rawValue,
+                    error,
+                    ClockTimestamp.nowISO8601(),
+                    id,
                 ]
             )
         }
@@ -503,6 +568,20 @@ public final class SQLiteItemRepository: ItemRepository, @unchecked Sendable {
             width: row["width"],
             height: row["height"],
             createdAt: row["created_at"]
+        )
+    }
+
+    private static func job(from row: Row) -> Job {
+        Job(
+            id: row["id"],
+            itemID: row["item_id"],
+            kind: JobKind(rawValue: row["kind"]) ?? .scrapeArticle,
+            status: JobStatus(rawValue: row["status"]) ?? .failed,
+            error: row["error"],
+            attempts: row["attempts"],
+            payloadJSON: row["payload_json"],
+            createdAt: row["created_at"],
+            updatedAt: row["updated_at"]
         )
     }
 

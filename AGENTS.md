@@ -20,9 +20,9 @@
 ## Status atual
 
 - **Onda**: 1 (MVP), 2, 3 entregues. Onda 4 (busca semântica) adiada. Onda 5 (Polimento) em andamento.
-- **Rewrite nativo**: Sprint 0, Sprint 1, Sprint 2 e Sprint 3.1 entregues em 2026-04-25.
-- **Última sessão**: 2026-04-25 — Sprint 3.1: captura interna validada.
-- **Próxima tarefa**: Sprint 3.2 — criar registros reais em `jobs` após captura. Timeline segue como ideia aprovada para o app legado/web.
+- **Rewrite nativo**: Sprint 0, Sprint 1, Sprint 2 e Sprint 3 entregues em 2026-04-25.
+- **Última sessão**: 2026-04-25 — Sprint 3.3: jobs com erro recuperável + entrada externa URL/texto.
+- **Próxima tarefa**: Sprint 4 — Organização e Zettelkasten. Timeline segue como ideia aprovada para o app legado/web.
 
 ### Deps externas necessárias (além do `uv sync`)
 | Ferramenta | Uso | Instalação |
@@ -267,6 +267,45 @@ python3.12 -m mlx_lm server --model mlx-community/gemma-4-e2b-it-4bit --port 808
   - `swift run --disable-sandbox HypomnemataNativeChecks` — passou.
   - `swift build --disable-sandbox --product HypomnemataMacApp` — passou.
 - **Status**: Sprint 3.1 concluída. Próxima rodada: Sprint 3.2 — criar registros reais em `jobs` após captura.
+
+### 2026-04-25 — Sprint 3.2: registros reais em `jobs` após captura
+- **Implementado em `SQLiteItemRepository`**:
+  - `insertJobs(_:)` grava uma lista de `Job` na tabela `jobs`;
+  - `jobs(forItemID:)` lista jobs de um item em ordem estável por `created_at` e `id`;
+  - mapeamento `Row -> Job` para leitura do status, payload e erro.
+- **Implementado em `AppModel`**:
+  - captura bem-sucedida não grava mais `planned_jobs` em `metadataJSON`;
+  - depois de criar o item e, quando houver arquivo, registrar o asset criptografado, o app cria jobs reais com `status = pending`;
+  - payload dos jobs inclui `source_url` para capturas por URL e `asset_id` para capturas de arquivo.
+- **Checks ampliados**:
+  - inserção e leitura de jobs pendentes;
+  - preservação de `payload_json`;
+  - cascade delete: apagar item remove seus jobs.
+- **Validação rodada**:
+  - `swift run --disable-sandbox HypomnemataNativeChecks` — passou.
+  - `swift build --disable-sandbox --product HypomnemataMacApp` — passou.
+- **Status**: Sprint 3.2 concluída. Próxima rodada: Sprint 3.3 — estado de erro recuperável em jobs sem perder item.
+
+### 2026-04-25 — Sprint 3.3: erro recuperável em jobs e entrada externa
+- **Implementado em `DependencyDoctor` / `JobDependencyResolver`**:
+  - `DependencyDoctor.status(for:)` permite consultar uma dependência específica;
+  - `JobDependencyResolver` mapeia jobs para binários externos: `scrapeArticle` → `trafilatura`, `downloadMedia` → `yt-dlp`, `generateThumbnail` → `ffmpeg`;
+  - jobs que dependem de binário ausente são criados com `status = failed` e erro acionável com o comando `brew install ...`;
+  - `runOCR`, `summarize` e `autotag` não falham por dependência local nesse estágio.
+- **Implementado em `SQLiteItemRepository`**:
+  - `updateJobStatus(id:status:error:)` atualiza status/erro sem remover item;
+  - checks validam job `failed` com mensagem de dependência e preservação de cascade delete.
+- **Implementado em `AppModel` / SwiftUI / AppKit**:
+  - `createCapture(_:)` sempre preserva o item capturado e registra jobs pendentes ou falhos conforme dependências locais;
+  - `CaptureSheet` aceita prefill para capturas externas;
+  - `onOpenURL` recebe `http/https` diretos e `hypomnemata://capture?url=...` ou `hypomnemata://capture?text=...`;
+  - `CaptureServicesProvider` registra provider AppKit para receber texto/URL via macOS Services pasteboard e abrir a sheet de captura preenchida.
+- **Nota de empacotamento**:
+  - o handler de Services existe no alvo SwiftPM; para aparecer no menu Share/Services de um `.app` distribuível ainda será necessário incluir a declaração `NSServices` no Info.plist na etapa de empacotamento/release.
+- **Validação rodada**:
+  - `swift run --disable-sandbox HypomnemataNativeChecks` — passou.
+  - `swift build --disable-sandbox --product HypomnemataMacApp` — passou.
+- **Status**: Sprint 3 funcionalmente concluída no app nativo. Próxima etapa: Sprint 4 — Organização e Zettelkasten.
 
 ### 2026-04-21 — Bun não instalado; usando npm por ora
 - Decisão 9 (`bun`) permanece, mas no momento da primeira sessão o `bun` não estava instalado no sistema (só `npm 11.12.1` e `node 25.9.0`).

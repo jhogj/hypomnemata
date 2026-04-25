@@ -18,8 +18,9 @@
 ## Status atual
 
 - **Onda**: 1 (MVP), 2, 3 entregues. Onda 4 (busca semântica) adiada. Onda 5 (Polimento) em andamento.
-- **Última sessão**: 2026-04-22 — Backup incremental para iCloud via rsync implementado.
-- **Próxima tarefa**: Visão de Linha do Tempo (Timeline) — Ideia aprovada.
+- **Rewrite nativo**: Sprint 0, Sprint 1, Sprint 2 e Sprint 3 entregues em 2026-04-25. Ver `AGENTS.md` e `native/README.md` para o estado mais novo.
+- **Última sessão**: 2026-04-25 — Sprint 3.3 nativa: jobs com erro recuperável + entrada externa URL/texto.
+- **Próxima tarefa**: Sprint 4 — Organização e Zettelkasten. Timeline segue como ideia aprovada para o app legado/web.
 
 ### Deps externas necessárias (além do `uv sync`)
 | Ferramenta | Uso | Instalação |

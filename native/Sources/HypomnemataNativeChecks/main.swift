@@ -70,6 +70,17 @@ struct HypomnemataNativeChecks {
             // Expected: capture source must be unambiguous.
         }
 
+        let missingDependencyError = JobDependencyResolver(
+            doctor: DependencyDoctor(environment: ["PATH": "/tmp/hypomnemata-no-tools"])
+        ).missingDependencyError(for: .scrapeArticle)
+        precondition(missingDependencyError?.contains("trafilatura") == true)
+        precondition(missingDependencyError?.contains("brew install trafilatura") == true)
+
+        let nativeOCRDependencyError = JobDependencyResolver(
+            doctor: DependencyDoctor(environment: ["PATH": "/tmp/hypomnemata-no-tools"])
+        ).missingDependencyError(for: .runOCR)
+        precondition(nativeOCRDependencyError == nil)
+
         let text = "Veja [[018f73ba-9f9d-7a0d-8ac2-f28f82cf1296|Nome atual]] e texto"
         precondition(LinkParser.references(in: text) == [
             ItemLinkReference(targetID: "018f73ba-9f9d-7a0d-8ac2-f28f82cf1296", displayText: "Nome atual"),
@@ -150,6 +161,32 @@ struct HypomnemataNativeChecks {
         let kindCounts = try repository.itemCountsByKind()
         let tagCounts = try repository.tagCounts()
         let totalItemCount = try repository.totalItemCount()
+        let jobTime = ClockTimestamp.nowISO8601()
+        let plannedJobs = [
+            Job(
+                id: "job-a",
+                itemID: article.id,
+                kind: .scrapeArticle,
+                payloadJSON: #"{"source_url":"https://example.com/platao"}"#,
+                createdAt: jobTime,
+                updatedAt: jobTime
+            ),
+            Job(
+                id: "job-b",
+                itemID: article.id,
+                kind: .summarize,
+                payloadJSON: #"{"source_url":"https://example.com/platao"}"#,
+                createdAt: jobTime,
+                updatedAt: jobTime
+            ),
+        ]
+        try repository.insertJobs(plannedJobs)
+        try repository.updateJobStatus(
+            id: "job-b",
+            status: .failed,
+            error: "Dependência ausente: trafilatura. Rode `brew install trafilatura`."
+        )
+        let storedJobs = try repository.jobs(forItemID: article.id)
         precondition(storedItem.tags == ["filosofia", "grega"])
         precondition(bookmark.kind == .bookmark)
         precondition(noteItems.count == 1)
@@ -169,6 +206,26 @@ struct HypomnemataNativeChecks {
             TagCount(name: "grega", count: 1),
             TagCount(name: "platao", count: 1),
         ])
+        precondition(storedJobs.count == 2)
+        precondition(storedJobs[0] == plannedJobs[0])
+        precondition(storedJobs[1].id == "job-b")
+        precondition(storedJobs[1].status == .failed)
+        precondition(storedJobs[1].error?.contains("brew install trafilatura") == true)
+
+        let cascadeJobItem = try repository.createItem(
+            kind: .article,
+            sourceURL: "https://example.com/cascade",
+            title: "Cascade job",
+            note: nil,
+            bodyText: nil,
+            tags: []
+        )
+        try repository.insertJobs([Job(id: "job-cascade", itemID: cascadeJobItem.id, kind: .scrapeArticle)])
+        let cascadeJobsBeforeDelete = try repository.jobs(forItemID: cascadeJobItem.id)
+        precondition(cascadeJobsBeforeDelete.count == 1)
+        try repository.deleteItems(ids: [cascadeJobItem.id])
+        let cascadeJobsAfterDelete = try repository.jobs(forItemID: cascadeJobItem.id)
+        precondition(cascadeJobsAfterDelete.isEmpty)
 
         let patchedItem = try repository.patchItem(
             id: item.id,

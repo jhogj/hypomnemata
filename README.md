@@ -2,9 +2,10 @@
 
 Repositório local-first de mídia e ideias — captura de tweets, vídeos, artigos, prints e notas em um único lugar, sem depender de APIs externas.
 
-Estado atual: **Onda 1 (MVP)**. Captura via extensão ou modal ⌘K, biblioteca masonry, busca FTS5 com sensibilidade a diacríticos. Sem OCR/IA/yt-dlp ainda.
+Estado atual: o app legado FastAPI/React já passou das Ondas 1, 2 e 3; a trilha principal agora é o rewrite nativo em `native/`. No nativo, as Sprints 0, 1, 2 e 3 estão concluídas em 2026-04-25; próxima etapa: Sprint 4 — Organização e Zettelkasten.
 
 > **Antes de trabalhar nesta pasta**, leia `CLAUDE.md` — ele tem o status atual, decisões e próximos passos. O plano completo está em `PLANO.md`.
+> Para o rewrite nativo, leia também `AGENTS.md` e `native/README.md`.
 
 ## Arquitetura
 

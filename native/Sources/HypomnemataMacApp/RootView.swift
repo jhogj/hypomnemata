@@ -155,7 +155,7 @@ struct SidebarView: View {
                     .lineLimit(1)
 
                 Button {
-                    model.showCapture = true
+                    model.openCapture()
                 } label: {
                     Label("Nova captura", systemImage: "plus")
                 }
@@ -285,7 +285,7 @@ struct SearchHeaderView: View {
                 Label("Buscar", systemImage: "magnifyingglass")
             }
             Button {
-                model.showCapture = true
+                model.openCapture()
             } label: {
                 Label("Nova captura", systemImage: "plus")
             }

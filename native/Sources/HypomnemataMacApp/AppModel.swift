@@ -58,6 +58,7 @@ final class AppModel: ObservableObject {
     @Published var selectedItemIDs: Set<String> = []
     @Published var showCapture = false
     @Published var showChangePassword = false
+    @Published var capturePrefill: CaptureDraft?
     @Published var dependencyStatuses: [DependencyStatus] = []
     @Published var kindCounts: [ItemKind: Int] = Dictionary(uniqueKeysWithValues: ItemKind.allCases.map { ($0, 0) })
     @Published var tagCounts: [TagCount] = []
@@ -72,6 +73,7 @@ final class AppModel: ObservableObject {
     private var localEventMonitor: Any?
     private var securityObservers: [NSObjectProtocol] = []
     private var autoLockTimer: Timer?
+    private var servicesProvider: CaptureServicesProvider?
     private let autoLockInterval: TimeInterval = 15 * 60
 
     var isUnlocked: Bool {
@@ -93,6 +95,7 @@ final class AppModel: ObservableObject {
         refreshDependencies()
         installActivityMonitor()
         installSecurityObservers()
+        installCaptureServicesProvider()
     }
 
     func refreshDependencies() {
@@ -189,6 +192,7 @@ final class AppModel: ObservableObject {
         storageBytes = 0
         showCapture = false
         showChangePassword = false
+        capturePrefill = nil
     }
 
     func recordUserActivity() {
@@ -328,6 +332,16 @@ final class AppModel: ObservableObject {
         recordUserActivity()
     }
 
+    func openCapture(prefill: CaptureDraft? = nil) {
+        capturePrefill = prefill
+        showCapture = true
+        recordUserActivity()
+    }
+
+    func clearCapturePrefill() {
+        capturePrefill = nil
+    }
+
     func saveItem(
         id: String,
         title: String,
@@ -401,16 +415,6 @@ final class AppModel: ObservableObject {
         do {
             let (validatedDraft, plan) = try CapturePlanner.validateAndPlan(draft)
             let filePayload = try validatedDraft.fileURL.map(readCaptureFile)
-            let metadataJSON: String?
-            if plan.jobs.isEmpty {
-                metadataJSON = nil
-            } else {
-                let data = try JSONSerialization.data(
-                    withJSONObject: ["planned_jobs": plan.jobs.map(\.rawValue)],
-                    options: [.sortedKeys]
-                )
-                metadataJSON = String(data: data, encoding: .utf8)
-            }
             let createdItem = try repository.createItem(
                 kind: plan.kind,
                 sourceURL: validatedDraft.sourceURL,
@@ -418,9 +422,10 @@ final class AppModel: ObservableObject {
                 note: validatedDraft.note,
                 bodyText: validatedDraft.bodyText,
                 summary: nil,
-                metadataJSON: metadataJSON,
+                metadataJSON: nil,
                 tags: validatedDraft.tags
             )
+            var assetID: String?
             if let filePayload {
                 guard let assetStore else {
                     try? repository.deleteItems(ids: [createdItem.id])
@@ -435,12 +440,21 @@ final class AppModel: ObservableObject {
                 )
                 do {
                     try repository.insertAsset(stored.record)
+                    assetID = stored.record.id
                 } catch {
                     try? assetStore.remove(record: stored.record)
                     try? repository.deleteItems(ids: [createdItem.id])
                     throw error
                 }
             }
+            let jobs = try makeJobs(
+                kinds: plan.jobs,
+                itemID: createdItem.id,
+                sourceURL: validatedDraft.sourceURL,
+                assetID: assetID
+            )
+            try repository.insertJobs(jobs)
+            capturePrefill = nil
             showCapture = false
             refreshLibrary()
             recordUserActivity()
@@ -448,6 +462,98 @@ final class AppModel: ObservableObject {
         } catch {
             return error.localizedDescription
         }
+    }
+
+    private func makeJobs(kinds: [JobKind], itemID: String, sourceURL: String?, assetID: String?) throws -> [Job] {
+        let resolver = JobDependencyResolver()
+        return try kinds.map { kind in
+            let missingDependencyError = resolver.missingDependencyError(for: kind)
+            return Job(
+                itemID: itemID,
+                kind: kind,
+                status: missingDependencyError == nil ? .pending : .failed,
+                error: missingDependencyError,
+                payloadJSON: try jobPayloadJSON(sourceURL: sourceURL, assetID: assetID)
+            )
+        }
+    }
+
+    @discardableResult
+    func openExternalCapture(_ url: URL) -> Bool {
+        guard isUnlocked else {
+            state = .failed("Desbloqueie o vault antes de receber uma captura externa.")
+            return false
+        }
+        guard let draft = captureDraft(from: url) else {
+            return false
+        }
+        openCapture(prefill: draft)
+        return true
+    }
+
+    func openExternalCaptureText(_ text: String) -> Bool {
+        guard isUnlocked else {
+            state = .failed("Desbloqueie o vault antes de receber uma captura externa.")
+            return false
+        }
+        guard let bodyText = text.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty else {
+            return false
+        }
+        openCapture(prefill: CaptureDraft(bodyText: bodyText))
+        return true
+    }
+
+    private func captureDraft(from url: URL) -> CaptureDraft? {
+        if url.scheme == "http" || url.scheme == "https" {
+            return CaptureDraft(sourceURL: url.absoluteString)
+        }
+
+        guard url.scheme == "hypomnemata", url.host == "capture" else {
+            return nil
+        }
+
+        let components = URLComponents(url: url, resolvingAgainstBaseURL: false)
+        let queryItems = components?.queryItems ?? []
+        func value(_ name: String) -> String? {
+            queryItems.first(where: { $0.name == name })?.value?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+        }
+
+        let tags = value("tags")?
+            .split(separator: ",")
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) } ?? []
+
+        if let sourceURL = value("url") {
+            return CaptureDraft(
+                sourceURL: sourceURL,
+                title: value("title"),
+                note: value("note"),
+                tags: tags
+            )
+        }
+        if let bodyText = value("text") {
+            return CaptureDraft(
+                title: value("title"),
+                note: value("note"),
+                bodyText: bodyText,
+                tags: tags
+            )
+        }
+        return nil
+    }
+
+    private func jobPayloadJSON(sourceURL: String?, assetID: String?) throws -> String? {
+        var payload: [String: String] = [:]
+        if let sourceURL {
+            payload["source_url"] = sourceURL
+        }
+        if let assetID {
+            payload["asset_id"] = assetID
+        }
+        guard !payload.isEmpty else {
+            return nil
+        }
+        let data = try JSONSerialization.data(withJSONObject: payload, options: [.sortedKeys])
+        return String(data: data, encoding: .utf8)
     }
 
     private func refreshSidebarData() {
@@ -556,6 +662,13 @@ final class AppModel: ObservableObject {
         }
     }
 
+    private func installCaptureServicesProvider() {
+        let provider = CaptureServicesProvider(model: self)
+        NSApplication.shared.servicesProvider = provider
+        NSUpdateDynamicServices()
+        servicesProvider = provider
+    }
+
     private func resetAutoLockTimer() {
         autoLockTimer?.invalidate()
         guard isUnlocked else {
@@ -581,6 +694,12 @@ final class AppModel: ObservableObject {
             return "Não foi possível abrir o vault existente. Verifique a senha; se ela estiver correta, o banco pode estar corrompido ou inacessível."
         }
         return error.localizedDescription
+    }
+}
+
+private extension String {
+    var nilIfEmpty: String? {
+        isEmpty ? nil : self
     }
 }
 
