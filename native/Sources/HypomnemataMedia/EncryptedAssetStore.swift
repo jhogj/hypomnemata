@@ -110,7 +110,9 @@ public final class EncryptedAssetStore: @unchecked Sendable {
         let filename = record.originalFilename?.isEmpty == false
             ? record.originalFilename!
             : "\(record.id).asset"
-        let itemCache = cacheDirectory.appendingPathComponent(record.itemID, isDirectory: true)
+        let itemCache = cacheDirectory
+            .appendingPathComponent(record.itemID, isDirectory: true)
+            .appendingPathComponent(record.id, isDirectory: true)
         try fileManager.createDirectory(at: itemCache, withIntermediateDirectories: true)
         let targetURL = itemCache.appendingPathComponent(filename)
         try data.write(to: targetURL, options: .atomic)

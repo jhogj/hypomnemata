@@ -1,4 +1,6 @@
 import HypomnemataCore
+import AVKit
+import PDFKit
 import SwiftUI
 
 struct RootView: View {
@@ -975,6 +977,8 @@ struct ItemDetailSheet: View {
     @State private var itemFolders: [Folder] = []
     @State private var linkedItems: [ItemSummary] = []
     @State private var backlinks: [ItemSummary] = []
+    @State private var assetPreviews: [AssetPreview] = []
+    @State private var selectedAssetPreviewID: String?
     @State private var showFolderPicker = false
     @State private var linkPickerTarget: LinkInsertionTarget?
     @State private var errorMessage: String?
@@ -1008,6 +1012,13 @@ struct ItemDetailSheet: View {
 
             ScrollView {
                 VStack(alignment: .leading, spacing: 14) {
+                    if !assetPreviews.isEmpty {
+                        AssetPreviewPanel(
+                            previews: assetPreviews,
+                            selectedID: $selectedAssetPreviewID
+                        )
+                    }
+
                     DetailFieldLabel("Título")
                     TextField("Sem título", text: $title)
                         .textFieldStyle(.roundedBorder)
@@ -1209,6 +1220,7 @@ struct ItemDetailSheet: View {
     }
 
     private func loadOrganization() {
+        loadAssetPreviews()
         loadFolders()
         let linkedResult = model.linkedItems(from: item)
         linkedItems = linkedResult.0
@@ -1218,6 +1230,17 @@ struct ItemDetailSheet: View {
         let backlinkResult = model.backlinks(to: item)
         backlinks = backlinkResult.0
         if let message = backlinkResult.1 {
+            errorMessage = message
+        }
+    }
+
+    private func loadAssetPreviews() {
+        let result = model.assetPreviews(for: item)
+        assetPreviews = result.0
+        if selectedAssetPreviewID == nil {
+            selectedAssetPreviewID = assetPreviews.first?.id
+        }
+        if let message = result.1 {
             errorMessage = message
         }
     }
@@ -1244,6 +1267,134 @@ enum LinkInsertionTarget: String, Identifiable {
     case bodyText
 
     var id: String { rawValue }
+}
+
+struct AssetPreviewPanel: View {
+    var previews: [AssetPreview]
+    @Binding var selectedID: String?
+
+    private var selectedPreview: AssetPreview? {
+        previews.first { $0.id == selectedID } ?? previews.first
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            DetailFieldLabel("Preview")
+
+            if previews.count > 1 {
+                Picker("Asset", selection: Binding(
+                    get: { selectedPreview?.id ?? previews[0].id },
+                    set: { selectedID = $0 }
+                )) {
+                    ForEach(previews) { preview in
+                        Text(preview.displayName).tag(preview.id)
+                    }
+                }
+                .pickerStyle(.menu)
+            }
+
+            if let selectedPreview {
+                AssetPreviewView(preview: selectedPreview)
+                    .frame(maxWidth: .infinity)
+            }
+        }
+    }
+}
+
+struct AssetPreviewView: View {
+    var preview: AssetPreview
+
+    var body: some View {
+        switch preview.kind {
+        case .image:
+            ImagePreview(url: preview.temporaryURL, displayName: preview.displayName)
+        case .pdf:
+            PDFPreview(url: preview.temporaryURL)
+                .frame(height: 360)
+                .clipShape(RoundedRectangle(cornerRadius: 8))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 8)
+                        .stroke(.quaternary)
+                }
+        case .video:
+            VideoPlayer(player: AVPlayer(url: preview.temporaryURL))
+                .frame(height: 320)
+                .clipShape(RoundedRectangle(cornerRadius: 8))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 8)
+                        .stroke(.quaternary)
+                }
+        case .file:
+            FilePreview(preview: preview)
+        }
+    }
+}
+
+struct ImagePreview: View {
+    var url: URL
+    var displayName: String
+
+    var body: some View {
+        if let image = NSImage(contentsOf: url) {
+            Image(nsImage: image)
+                .resizable()
+                .scaledToFit()
+                .frame(maxHeight: 360)
+                .frame(maxWidth: .infinity)
+                .background(.quaternary.opacity(0.4), in: RoundedRectangle(cornerRadius: 8))
+        } else {
+            HStack {
+                Image(systemName: "photo")
+                Text(displayName)
+                    .lineLimit(1)
+                Spacer()
+            }
+            .padding(12)
+            .background(.quaternary.opacity(0.4), in: RoundedRectangle(cornerRadius: 8))
+        }
+    }
+}
+
+struct PDFPreview: NSViewRepresentable {
+    var url: URL
+
+    func makeNSView(context: Context) -> PDFView {
+        let view = PDFView()
+        view.autoScales = true
+        view.displayMode = .singlePageContinuous
+        view.displaysPageBreaks = true
+        return view
+    }
+
+    func updateNSView(_ nsView: PDFView, context: Context) {
+        nsView.document = PDFDocument(url: url)
+    }
+}
+
+struct FilePreview: View {
+    var preview: AssetPreview
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "doc")
+                .font(.title2)
+                .foregroundStyle(.secondary)
+            VStack(alignment: .leading, spacing: 4) {
+                Text(preview.displayName)
+                    .font(.headline)
+                    .lineLimit(1)
+                Text(preview.record.mimeType ?? "Arquivo")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Text(ByteCountFormatter.string(fromByteCount: preview.record.byteCount, countStyle: .file))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            Spacer()
+        }
+        .padding(12)
+        .background(.quaternary.opacity(0.4), in: RoundedRectangle(cornerRadius: 8))
+    }
 }
 
 struct DetailFieldLabel: View {

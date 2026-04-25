@@ -38,6 +38,21 @@ private struct CaptureFilePayload {
     var defaultTitle: String
 }
 
+struct AssetPreview: Identifiable, Equatable {
+    enum Kind: Equatable {
+        case image
+        case pdf
+        case video
+        case file
+    }
+
+    var id: String { record.id }
+    var record: AssetRecord
+    var temporaryURL: URL
+    var kind: Kind
+    var displayName: String
+}
+
 @MainActor
 final class AppModel: ObservableObject {
     enum VaultState: Equatable {
@@ -447,6 +462,27 @@ final class AppModel: ObservableObject {
         }
     }
 
+    func assetPreviews(for item: Item) -> ([AssetPreview], String?) {
+        guard let repository, let assetStore else {
+            return ([], "Vault não está desbloqueado.")
+        }
+        do {
+            let records = try repository.assets(forItemID: item.id)
+            let previews = try records.map { record in
+                let url = try assetStore.decryptToTemporaryFile(record: record)
+                return AssetPreview(
+                    record: record,
+                    temporaryURL: url,
+                    kind: previewKind(for: record, url: url),
+                    displayName: record.originalFilename?.isEmpty == false ? record.originalFilename! : record.id
+                )
+            }
+            return (previews, nil)
+        } catch {
+            return ([], error.localizedDescription)
+        }
+    }
+
     func linkedItems(from item: Item) -> ([ItemSummary], String?) {
         guard let repository else {
             return ([], "Vault não está desbloqueado.")
@@ -753,6 +789,21 @@ final class AppModel: ObservableObject {
             }
         }
         return total
+    }
+
+    private func previewKind(for record: AssetRecord, url: URL) -> AssetPreview.Kind {
+        let mimeType = record.mimeType?.lowercased() ?? ""
+        let pathExtension = url.pathExtension.lowercased()
+        if mimeType.hasPrefix("image/") || ["png", "jpg", "jpeg", "gif", "webp", "heic", "bmp"].contains(pathExtension) {
+            return .image
+        }
+        if mimeType == "application/pdf" || pathExtension == "pdf" {
+            return .pdf
+        }
+        if mimeType.hasPrefix("video/") || ["mp4", "mov", "m4v", "webm", "mkv", "avi"].contains(pathExtension) {
+            return .video
+        }
+        return .file
     }
 
     private func readCaptureFile(_ fileURL: URL) throws -> CaptureFilePayload {

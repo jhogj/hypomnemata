@@ -20,9 +20,9 @@
 ## Status atual
 
 - **Onda**: 1 (MVP), 2, 3 entregues. Onda 4 (busca semântica) adiada. Onda 5 (Polimento) em andamento.
-- **Rewrite nativo**: Sprint 0, Sprint 1, Sprint 2, Sprint 3 e Sprint 4 entregues em 2026-04-25.
-- **Última sessão**: 2026-04-25 — Sprint 4.3: links clicáveis, backlinks e inserção de links no detalhe.
-- **Próxima tarefa**: Sprint 5 — Mídia, PDF, OCR e thumbnails. Timeline segue como ideia aprovada para o app legado/web.
+- **Rewrite nativo**: Sprint 0, Sprint 1, Sprint 2, Sprint 3, Sprint 4 e Sprint 5.1 entregues em 2026-04-25.
+- **Última sessão**: 2026-04-25 — Sprint 5.1: previews de assets criptografados no detalhe.
+- **Próxima tarefa**: Sprint 5.2 — thumbnails e play inline. Timeline segue como ideia aprovada para o app legado/web.
 
 ### Deps externas necessárias (além do `uv sync`)
 | Ferramenta | Uso | Instalação |
@@ -360,6 +360,24 @@ python3.12 -m mlx_lm server --model mlx-community/gemma-4-e2b-it-4bit --port 808
   - `swift build --disable-sandbox --product HypomnemataMacApp` — passou.
   - `swift run --disable-sandbox HypomnemataNativeChecks` — passou.
 - **Status**: Sprint 4 concluída. Próxima etapa: Sprint 5 — Mídia, PDF, OCR e thumbnails.
+
+### 2026-04-25 — Sprint 5.1: previews e cache descriptografado
+- **Implementado em `EncryptedAssetStore`**:
+  - `decryptToTemporaryFile(record:)` agora usa subdiretório por asset em `TemporaryCache/{itemID}/{assetID}/`, evitando colisão quando múltiplos assets do mesmo item têm o mesmo nome original.
+- **Implementado em `AppModel`**:
+  - `AssetPreview` representa asset descriptografado para UI com kind `.image`, `.pdf`, `.video` ou `.file`;
+  - `assetPreviews(for:)` lista assets do item, descriptografa sob demanda para cache temporário e infere o tipo de preview por MIME/extensão.
+- **Implementado em SwiftUI**:
+  - detalhe do item ganhou `AssetPreviewPanel`;
+  - previews básicos para imagem (`NSImage`), PDF (`PDFKit/PDFView`), vídeo (`AVKit/VideoPlayer`) e fallback de arquivo;
+  - picker de asset quando há múltiplos assets no item.
+- **Fora deste recorte**:
+  - geração de thumbnails, play inline em lista/grid e continuidade de vídeo ficam para Sprint 5.2;
+  - OCR nativo fica para Sprint 5.3.
+- **Validação rodada**:
+  - `swift run --disable-sandbox HypomnemataNativeChecks` — passou.
+  - `swift build --disable-sandbox --product HypomnemataMacApp` — passou.
+- **Status**: Sprint 5.1 concluída. Próxima rodada: Sprint 5.2 — thumbnails e play inline.
 
 ### 2026-04-21 — Bun não instalado; usando npm por ora
 - Decisão 9 (`bun`) permanece, mas no momento da primeira sessão o `bun` não estava instalado no sistema (só `npm 11.12.1` e `node 25.9.0`).

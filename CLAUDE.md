@@ -18,9 +18,9 @@
 ## Status atual
 
 - **Onda**: 1 (MVP), 2, 3 entregues. Onda 4 (busca semântica) adiada. Onda 5 (Polimento) em andamento.
-- **Rewrite nativo**: Sprint 0, Sprint 1, Sprint 2, Sprint 3 e Sprint 4 entregues em 2026-04-25. Ver `AGENTS.md` e `native/README.md` para o estado mais novo.
-- **Última sessão**: 2026-04-25 — Sprint 4.3 nativa: links clicáveis, backlinks e inserção de links no detalhe.
-- **Próxima tarefa**: Sprint 5 — Mídia, PDF, OCR e thumbnails. Timeline segue como ideia aprovada para o app legado/web.
+- **Rewrite nativo**: Sprint 0, Sprint 1, Sprint 2, Sprint 3, Sprint 4 e Sprint 5.1 entregues em 2026-04-25. Ver `AGENTS.md` e `native/README.md` para o estado mais novo.
+- **Última sessão**: 2026-04-25 — Sprint 5.1 nativa: previews de assets criptografados no detalhe.
+- **Próxima tarefa**: Sprint 5.2 — thumbnails e play inline. Timeline segue como ideia aprovada para o app legado/web.
 
 ### Deps externas necessárias (além do `uv sync`)
 | Ferramenta | Uso | Instalação |
