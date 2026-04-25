@@ -1,30 +1,40 @@
 import Foundation
 import HypomnemataCore
+import HypomnemataIngestion
 
 public enum JobAutomationOutcome: Sendable, Equatable {
     case skipped(reason: String)
     case summarized(summary: String)
     case taggedAutomatically(tags: [String])
+    case articleScraped(ArticleScrapeResult)
 }
 
 public enum JobAutomationError: LocalizedError, Equatable, Sendable {
     case unsupportedJobKind(JobKind)
+    case missingExecutor(JobKind)
+    case missingSourceURL
 
     public var errorDescription: String? {
         switch self {
         case let .unsupportedJobKind(kind):
             "Job sem executor nesta versão: \(kind.rawValue)."
+        case let .missingExecutor(kind):
+            "Executor de \(kind.rawValue) não está configurado."
+        case .missingSourceURL:
+            "Item sem URL não pode rodar este job."
         }
     }
 }
 
 public struct JobAutomation: Sendable {
-    public static let supportedKinds: Set<JobKind> = [.summarize, .autotag]
+    public static let supportedKinds: Set<JobKind> = [.summarize, .autotag, .scrapeArticle]
 
     private let service: ItemAIService
+    private let articleScraper: (any ArticleScraper)?
 
-    public init(service: ItemAIService) {
+    public init(service: ItemAIService, articleScraper: (any ArticleScraper)? = nil) {
         self.service = service
+        self.articleScraper = articleScraper
     }
 
     public static func canRun(_ kind: JobKind) -> Bool {
@@ -32,13 +42,9 @@ public struct JobAutomation: Sendable {
     }
 
     public func run(_ kind: JobKind, on item: Item) async throws -> JobAutomationOutcome {
-        let context = LLMItemContext(
-            title: item.title,
-            note: item.note,
-            bodyText: item.bodyText
-        )
         switch kind {
         case .summarize:
+            let context = LLMItemContext(title: item.title, note: item.note, bodyText: item.bodyText)
             do {
                 let summary = try await service.summarize(context: context)
                 return .summarized(summary: summary)
@@ -49,13 +55,24 @@ public struct JobAutomation: Sendable {
             guard item.tags.isEmpty else {
                 return .skipped(reason: "Item já possui etiquetas; autotag automático foi preservado.")
             }
+            let context = LLMItemContext(title: item.title, note: item.note, bodyText: item.bodyText)
             do {
                 let tags = try await service.autotags(context: context, existingTags: item.tags)
                 return .taggedAutomatically(tags: tags)
             } catch LLMClientError.emptyContent {
                 return .skipped(reason: "Item sem conteúdo suficiente para autotag.")
             }
-        case .scrapeArticle, .downloadMedia, .generateThumbnail, .runOCR:
+        case .scrapeArticle:
+            guard let articleScraper else {
+                throw JobAutomationError.missingExecutor(kind)
+            }
+            let trimmedURL = item.sourceURL?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            guard !trimmedURL.isEmpty else {
+                throw JobAutomationError.missingSourceURL
+            }
+            let result = try await articleScraper.scrape(url: trimmedURL)
+            return .articleScraped(result)
+        case .downloadMedia, .generateThumbnail, .runOCR:
             throw JobAutomationError.unsupportedJobKind(kind)
         }
     }

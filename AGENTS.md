@@ -20,9 +20,9 @@
 ## Status atual
 
 - **App legado** (FastAPI/React): Ondas 1, 2, 3 entregues. Onda 4 adiada. Ver `CLAUDE.md` para detalhes.
-- **Rewrite nativo**: Sprints 0–5 entregues; Sprint 6 só nas frentes de IA (6.1/6.2/6.3) — ingestão web/vídeo planejada no `PLAN-completo.md` original ficou pra trás. Sprint 7 (7.1/7.2/7.3) fechado.
-- **Última sessão**: 2026-04-25 — Sprint 7.3: resumo na sheet de detalhe agora chega via streaming (`ItemAIService.streamSummary` + `AppModel.streamSummary` + UI populando o campo conforme os chunks). Em seguida, captura real (URL de artigo, vídeo do YouTube) revelou que `scrapeArticle`/`downloadMedia`/`generateThumbnail` não têm executor; jobs ficam `pending` para sempre.
-- **Próxima tarefa**: Sprint 6.4 — runner de `scrapeArticle` (trafilatura subprocess + fallback WKWebView + hero image criptografada). Em seguida 6.5 (downloadMedia) e 6.6 (thumbnails de mídia baixada / tweets via gallery-dl + oEmbed). Sprint 8 (backup) vai depois desse bloco.
+- **Rewrite nativo**: Sprints 0–5 entregues; Sprint 6 tem IA (6.1/6.2/6.3) e ingestão web reaberta. Sprint 6.4 (`scrapeArticle`) entregue; Sprint 7 (7.1/7.2/7.3) fechado.
+- **Última sessão**: 2026-04-25 — Sprint 6.4: `scrapeArticle` agora tem runner via `TrafilaturaArticleScraper`, fallback opcional `WKWebViewPageRenderer` para SPA, metadata do artigo persistida, imagem principal criptografada como asset `heroImage`, e checks cobrindo parsing JSON, fallback renderizado, erro de binário, URL ausente e `JobAutomation.canRun(.scrapeArticle)`.
+- **Próxima tarefa**: Sprint 6.5 — runner de `downloadMedia` (`yt-dlp` + `ffmpeg`, legendas pt/en, asset criptografado e status do job). Depois 6.6 (thumbnails de mídia baixada / tweets via gallery-dl + oEmbed). Sprint 8 (backup) vai depois desse bloco.
 
 ### Comandos (nativo)
 
@@ -50,8 +50,8 @@ CLANG_MODULE_CACHE_PATH=/tmp/hypo-clang-cache SWIFTPM_HOME=/tmp/hypo-swiftpm-cac
 | 7.1 | Settings de IA: `LLMSettingsStore` no vault SQLCipher; `LLMConfiguration.resolve(overrides:env:)` em camadas (vault > env > default); UI em "IA local" com salvar/limpar e validação |
 | 7.2 | Chat com documento: `ItemChatService` (gate de 300 chars + system prompt em pt), métodos `chatHistory/appendChatMessage/clearChatHistory` no repositório, `AppModel.sendChatMessage` com streaming, painel de chat no detalhe com bubbles, cursor piscante e limpar conversa |
 | 7.3 | Resumo em streaming: `ItemAIService.streamSummary` (mesmo prompt do `summarize`, mas via `streamChat`), `AppModel.streamSummary` com `onChunk`, campo "Resumo" do detalhe é zerado e preenchido em tempo real conforme os chunks chegam |
-| **6.4** | **Próximo**: runner de `scrapeArticle` — subprocess `trafilatura` (JSON), fallback WKWebView para SPA, hero image criptografada, status do job amarrado ao item |
-| 6.5 | Runner de `downloadMedia` — `yt-dlp` + `ffmpeg` para merge, legendas pt/en, asset criptografado via `EncryptedAssetStore`, polling/erros recuperáveis |
+| 6.4 | Runner de `scrapeArticle`: subprocess `trafilatura` (JSON), fallback WKWebView para SPA, metadata persistida e hero image criptografada |
+| **6.5** | **Próximo**: runner de `downloadMedia` — `yt-dlp` + `ffmpeg` para merge, legendas pt/en, asset criptografado via `EncryptedAssetStore`, polling/erros recuperáveis |
 | 6.6 | Runner de `generateThumbnail` para mídia baixada e tweets — `gallery-dl` + fallback oEmbed, thumb encriptada compartilhada com a lib |
 | 8+ | Backup, exportação e restore (originalmente Sprint 8) — só depois do bloco 6.4–6.6 |
 
@@ -102,6 +102,13 @@ CLANG_MODULE_CACHE_PATH=/tmp/hypo-clang-cache SWIFTPM_HOME=/tmp/hypo-swiftpm-cac
   - **6.6** — runner de `generateThumbnail` para mídia baixada e fotos de tweets: `yt-dlp` info-thumb + ffmpeg fallback para vídeos; `gallery-dl` para tweets com foto + fallback oEmbed (`publish.twitter.com/oembed`). Thumb sai encriptada e alimenta lista/grid e detalhe.
 - **Sprint 8 (backup) só depois disso**: ingestão é coração da captura; sem ela o nativo não substitui o legado, então prioridade > backup.
 - **Não-objetivo**: não vamos migrar dados antigos do app legado nesse bloco (continua fora do v1).
+
+### 2026-04-25 — Runner de artigo entregue (Sprint 6.4)
+- **Decisão**: `scrapeArticle` saiu de `unsupportedJobKind` e entrou em `JobAutomation.supportedKinds`; sem scraper configurado falha com `missingExecutor`, e item sem URL falha com `missingSourceURL`.
+- **Implementação**: `TrafilaturaArticleScraper` roda `trafilatura --json --URL <url>`, parseia `title/text/description/author/sitename/date/image`, baixa hero image quando houver bytes válidos e usa `WKWebViewPageRenderer` como fallback quando o texto extraído fica abaixo de 200 caracteres.
+- **App**: `AppModel` instancia `JobAutomation` com `TrafilaturaArticleScraper(renderer: WKWebViewPageRenderer())`; `.articleScraped` atualiza título quando o item não tem título manual, `bodyText`, `meta_json` e grava a hero image criptografada como asset `heroImage`.
+- **Validação**: `HypomnemataNativeChecks` cobre runner configurado, runner ausente, URL vazia, JSON do trafilatura, falha de subprocesso, conteúdo curto e fallback via HTML renderizado. `swift build --product HypomnemataMacApp` e `swift run HypomnemataNativeChecks` passaram em 2026-04-25.
+- **Pendente**: 6.5 (`downloadMedia`) e 6.6 (`generateThumbnail` de mídia/tweets) ainda não têm executor.
 
 ### 2026-04-25 — Resumo em streaming na sheet de detalhe (Sprint 7.3)
 - **Decisão**: `ItemAIService` ganha `streamSummary(context:)` que retorna `AsyncThrowingStream<String, Error>` reaproveitando exatamente os mesmos `summaryMessages(for:)` do `summarize` síncrono — só muda o transporte (`streamChat` no lugar de `complete`). Isso garante que o resumo gerado pelo botão e o resumo gerado pelos jobs de background convergem para o mesmo prompt.

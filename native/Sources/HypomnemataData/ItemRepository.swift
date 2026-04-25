@@ -23,13 +23,22 @@ public struct ItemPatch: Sendable, Equatable {
     public var note: String?
     public var bodyText: String?
     public var summary: String?
+    public var metadataJSON: String?
     public var tags: [String]?
 
-    public init(title: String? = nil, note: String? = nil, bodyText: String? = nil, summary: String? = nil, tags: [String]? = nil) {
+    public init(
+        title: String? = nil,
+        note: String? = nil,
+        bodyText: String? = nil,
+        summary: String? = nil,
+        metadataJSON: String? = nil,
+        tags: [String]? = nil
+    ) {
         self.title = title
         self.note = note
         self.bodyText = bodyText
         self.summary = summary
+        self.metadataJSON = metadataJSON
         self.tags = tags
     }
 }
@@ -204,12 +213,15 @@ public final class SQLiteItemRepository: ItemRepository, @unchecked Sendable {
             if patch.summary != nil {
                 existing.summary = patch.summary ?? nil
             }
+            if patch.metadataJSON != nil {
+                existing.metadataJSON = patch.metadataJSON ?? nil
+            }
             existing.updatedAt = ClockTimestamp.nowISO8601()
 
             try db.execute(
                 sql: """
                     UPDATE items
-                    SET title = ?, note = ?, body_text = ?, summary = ?, updated_at = ?
+                    SET title = ?, note = ?, body_text = ?, summary = ?, meta_json = ?, updated_at = ?
                     WHERE id = ?
                     """,
                 arguments: [
@@ -217,6 +229,7 @@ public final class SQLiteItemRepository: ItemRepository, @unchecked Sendable {
                     existing.note,
                     existing.bodyText,
                     existing.summary,
+                    existing.metadataJSON,
                     existing.updatedAt,
                     id,
                 ]

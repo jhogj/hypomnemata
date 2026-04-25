@@ -193,7 +193,7 @@ struct HypomnemataNativeChecks {
 
         precondition(JobAutomation.canRun(.summarize))
         precondition(JobAutomation.canRun(.autotag))
-        precondition(!JobAutomation.canRun(.scrapeArticle))
+        precondition(JobAutomation.canRun(.scrapeArticle))
         precondition(!JobAutomation.canRun(.downloadMedia))
         precondition(!JobAutomation.canRun(.generateThumbnail))
         precondition(!JobAutomation.canRun(.runOCR))
@@ -247,10 +247,141 @@ struct HypomnemataNativeChecks {
 
         do {
             _ = try await summaryAutomation.run(.scrapeArticle, on: articleItem)
-            preconditionFailure("scrapeArticle should not have an automation runner")
-        } catch JobAutomationError.unsupportedJobKind {
-            // Expected: subprocess-backed jobs are not in the IA automation surface.
+            preconditionFailure("scrapeArticle without configured scraper should fail.")
+        } catch JobAutomationError.missingExecutor(.scrapeArticle) {
+            // Expected: sem ArticleScraper configurado, o job falha de forma identificável.
         }
+
+        do {
+            _ = try await summaryAutomation.run(.downloadMedia, on: articleItem)
+            preconditionFailure("downloadMedia ainda não tem executor.")
+        } catch JobAutomationError.unsupportedJobKind(.downloadMedia) {
+            // Expected: 6.5 ainda não foi entregue.
+        }
+
+        let scrapedFixture = ArticleScrapeResult(
+            title: "Título extraído",
+            bodyText: String(repeating: "Texto razoável de artigo. ", count: 12),
+            description: "Resumo curto do artigo.",
+            author: "Autor X",
+            sitename: "Site Y",
+            publishedAt: "2026-04-25",
+            heroImageURL: "https://example.com/hero.jpg",
+            heroImage: ArticleHeroImage(
+                data: Data([0xFF, 0xD8, 0xFF, 0xE0]),
+                mimeType: "image/jpeg",
+                originalFilename: "hero.jpg"
+            )
+        )
+        let scraperAutomation = JobAutomation(
+            service: ItemAIService(
+                client: FakeLLMClient(response: "Resumo automático"),
+                configuration: configured
+            ),
+            articleScraper: FakeArticleScraper(result: scrapedFixture, expectedURL: "https://example.com/post")
+        )
+        let articleURLItem = Item(
+            kind: .article,
+            sourceURL: "https://example.com/post",
+            title: nil,
+            bodyText: nil,
+            tags: []
+        )
+        let scrapedOutcome = try await scraperAutomation.run(.scrapeArticle, on: articleURLItem)
+        guard case let .articleScraped(scraped) = scrapedOutcome else {
+            preconditionFailure("scrapeArticle outcome deve ser .articleScraped.")
+        }
+        precondition(scraped.title == "Título extraído")
+        precondition((scraped.bodyText ?? "").count >= 200)
+        precondition(scraped.heroImage?.data == Data([0xFF, 0xD8, 0xFF, 0xE0]))
+        precondition(scraped.heroImage?.mimeType == "image/jpeg")
+
+        let articleURLEmpty = Item(
+            kind: .article,
+            sourceURL: "  ",
+            title: nil,
+            bodyText: nil,
+            tags: []
+        )
+        do {
+            _ = try await scraperAutomation.run(.scrapeArticle, on: articleURLEmpty)
+            preconditionFailure("scrapeArticle deve falhar quando o item não tem URL.")
+        } catch JobAutomationError.missingSourceURL {
+            // Expected.
+        }
+
+        let scrapeStub = TrafilaturaArticleScraper(
+            trafilaturaPath: "/usr/bin/false",
+            renderer: nil,
+            imageDownloader: { _ in (Data(), nil) },
+            runProcess: { _, _, _ in
+                let json = #"{"title":"Stub","text":"\#(String(repeating: "Conteudo. ", count: 30))","image":"https://example.com/stub.jpg"}"#
+                return (0, Data(json.utf8), Data())
+            }
+        )
+        let parsedResult = try await scrapeStub.scrape(url: "https://example.com/stub")
+        precondition(parsedResult.title == "Stub")
+        precondition((parsedResult.bodyText ?? "").count >= 200)
+        precondition(parsedResult.heroImageURL == "https://example.com/stub.jpg")
+        precondition(parsedResult.heroImage == nil)
+
+        let scrapeFail = TrafilaturaArticleScraper(
+            trafilaturaPath: "/usr/bin/false",
+            renderer: nil,
+            imageDownloader: { _ in (Data(), nil) },
+            runProcess: { _, _, _ in
+                (1, Data(), Data("erro fake".utf8))
+            }
+        )
+        do {
+            _ = try await scrapeFail.scrape(url: "https://example.com/x")
+            preconditionFailure("Saída não-zero do trafilatura deve virar erro.")
+        } catch ArticleScrapeError.binaryFailed {
+            // Expected.
+        }
+
+        let scrapeEmpty = TrafilaturaArticleScraper(
+            trafilaturaPath: "/usr/bin/false",
+            renderer: nil,
+            imageDownloader: { _ in (Data(), nil) },
+            runProcess: { _, _, _ in
+                let json = #"{"title":"X","text":"curto"}"#
+                return (0, Data(json.utf8), Data())
+            }
+        )
+        do {
+            _ = try await scrapeEmpty.scrape(url: "https://example.com/y")
+            preconditionFailure("Texto curto sem fallback deve virar emptyContent.")
+        } catch ArticleScrapeError.emptyContent {
+            // Expected.
+        }
+
+        let renderedHTML = "<html><body>" + String(repeating: "<p>SPA payload</p>", count: 30) + "</body></html>"
+        actor StdinCapture {
+            var seen: Data = Data()
+            func record(_ data: Data?) { if let data { seen = data } }
+            func snapshot() -> Data { seen }
+        }
+        let stdinCapture = StdinCapture()
+        let scrapeFallback = TrafilaturaArticleScraper(
+            trafilaturaPath: "/usr/bin/false",
+            renderer: FakePageRenderer(html: renderedHTML),
+            imageDownloader: { _ in (Data(), nil) },
+            runProcess: { _, args, stdin in
+                Task { await stdinCapture.record(stdin) }
+                if args.contains("--URL") {
+                    let json = #"{"title":"shell","text":"curto"}"#
+                    return (0, Data(json.utf8), Data())
+                }
+                let json = #"{"title":"final","text":"\#(String(repeating: "fallback ok. ", count: 40))"}"#
+                return (0, Data(json.utf8), Data())
+            }
+        )
+        let fallbackResult = try await scrapeFallback.scrape(url: "https://spa.example.com")
+        precondition(fallbackResult.title == "final")
+        precondition((fallbackResult.bodyText ?? "").count >= 200)
+        let capturedStdin = await stdinCapture.snapshot()
+        precondition(String(data: capturedStdin, encoding: .utf8)?.contains("SPA payload") == true)
 
         let envOnly = try LLMConfiguration.resolve(
             overrides: LLMOverrides(),
@@ -1012,5 +1143,23 @@ private final class FakeLLMClient: LLMClient, @unchecked Sendable {
             continuation.yield(response)
             continuation.finish()
         }
+    }
+}
+
+private struct FakeArticleScraper: ArticleScraper {
+    var result: ArticleScrapeResult
+    var expectedURL: String
+
+    func scrape(url: String) async throws -> ArticleScrapeResult {
+        precondition(url == expectedURL)
+        return result
+    }
+}
+
+private struct FakePageRenderer: JSPageRenderer {
+    var html: String
+
+    func renderHTML(url: String) async throws -> String {
+        html
     }
 }

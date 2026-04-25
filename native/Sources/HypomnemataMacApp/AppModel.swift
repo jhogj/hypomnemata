@@ -840,7 +840,10 @@ final class AppModel: ObservableObject {
 
         let automation: JobAutomation
         do {
-            automation = JobAutomation(service: try makeItemAIService())
+            automation = JobAutomation(
+                service: try makeItemAIService(),
+                articleScraper: TrafilaturaArticleScraper(renderer: WKWebViewPageRenderer())
+            )
         } catch {
             let message = LLMRecoverableErrorMapper().jobErrorMessage(for: error)
             for job in pendingJobs {
@@ -903,7 +906,71 @@ final class AppModel: ObservableObject {
             _ = try repository.patchItem(id: item.id, patch: ItemPatch(tags: tags))
         case .taggedAutomatically:
             return
+        case let .articleScraped(result):
+            try applyArticleScrapeResult(result, to: item)
         }
+    }
+
+    private func applyArticleScrapeResult(_ result: ArticleScrapeResult, to item: Item) throws {
+        guard let repository else {
+            return
+        }
+        let currentTitle = item.title?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+        let metadata = try articleMetadataJSON(from: result)
+        _ = try repository.patchItem(
+            id: item.id,
+            patch: ItemPatch(
+                title: currentTitle ?? result.title,
+                bodyText: result.bodyText,
+                metadataJSON: metadata
+            )
+        )
+        if let heroImage = result.heroImage {
+            try storeArticleHeroImage(heroImage, itemID: item.id)
+        }
+    }
+
+    private func storeArticleHeroImage(_ heroImage: ArticleHeroImage, itemID: String) throws {
+        guard let repository, let assetStore else {
+            return
+        }
+        let stored = try assetStore.write(
+            data: heroImage.data,
+            itemID: itemID,
+            role: .heroImage,
+            originalFilename: heroImage.originalFilename ?? "hero-image",
+            mimeType: heroImage.mimeType
+        )
+        do {
+            try repository.insertAsset(stored.record)
+        } catch {
+            try? assetStore.remove(record: stored.record)
+            throw error
+        }
+    }
+
+    private func articleMetadataJSON(from result: ArticleScrapeResult) throws -> String? {
+        var metadata: [String: String] = [:]
+        if let description = result.description {
+            metadata["description"] = description
+        }
+        if let author = result.author {
+            metadata["author"] = author
+        }
+        if let sitename = result.sitename {
+            metadata["sitename"] = sitename
+        }
+        if let publishedAt = result.publishedAt {
+            metadata["published_at"] = publishedAt
+        }
+        if let heroImageURL = result.heroImageURL {
+            metadata["hero_image_url"] = heroImageURL
+        }
+        guard !metadata.isEmpty else {
+            return nil
+        }
+        let data = try JSONSerialization.data(withJSONObject: metadata, options: [.sortedKeys])
+        return String(data: data, encoding: .utf8)
     }
 
     private func refreshOpenedItemIfMatches(_ itemID: String) {

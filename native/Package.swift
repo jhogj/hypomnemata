@@ -39,7 +39,7 @@ let package = Package(
         ),
         .target(
             name: "HypomnemataAI",
-            dependencies: ["HypomnemataCore"]
+            dependencies: ["HypomnemataCore", "HypomnemataIngestion"]
         ),
         .target(
             name: "HypomnemataBackup",

@@ -3,8 +3,9 @@
 This is the native macOS rewrite track for Hypomnemata.
 
 Current status: Sprint 7 of the native rewrite is complete (7.1, 7.2 and 7.3
-landed on 2026-04-25). The existing FastAPI/React app remains untouched and
-can keep serving as behavioral reference while the native app is built out.
+landed on 2026-04-25), and the reopened Sprint 6.4 article ingestion runner is
+complete. The existing FastAPI/React app remains untouched and can keep serving
+as behavioral reference while the native app is built out.
 
 ## Target
 
@@ -52,6 +53,7 @@ can keep serving as behavioral reference while the native app is built out.
 - `ItemChatService` builds a Portuguese-grounded system prompt that limits replies to the stored content and reuses existing message history
 - Detail sheet exposes a chat toggle with streaming bubbles, blinking cursor, auto-scroll, and a destructive "clear conversation" action
 - "Gerar resumo" in the detail sheet streams the summary into the field as chunks arrive, sharing the same prompt as the synchronous summarize used by background jobs
+- `scrapeArticle` jobs run through `trafilatura --json --URL`, fall back to WKWebView-rendered HTML for short/SPA extraction, update item title/body/metadata, and store the article hero image as an encrypted `heroImage` asset when available
 
 ## External commands expected in product builds
 
@@ -76,7 +78,8 @@ folder rename/remove/delete flows, linked items and backlinks, link insertion UI
 native thumbnail generation, native OCR extraction, encrypted asset removal, decrypted preview cache, batch delete, a synthetic 10k-item performance
 scenario, recoverable job failures for missing dependencies, `JobAutomation`
 running summary/autotag with the IA fake client (including conservative
-autotag and `unsupportedJobKind` for subprocess-backed jobs), job retry via
+autotag), `scrapeArticle` execution with fake and trafilatura-backed scrapers,
+fallback from rendered HTML, subprocess failures and missing URL handling, job retry via
 `incrementJobAttempts` + status reset, vault-backed LLM settings round-trip
 plus vault-vs-env-vs-default precedence, `ItemChatService` streaming with
 the system prompt grounding, history replay and rejection of empty content
@@ -117,15 +120,15 @@ its Info.plist during packaging so macOS exposes it in the Services/Share UI.
   - 6.1: complete as of 2026-04-25. LLM contracts and infrastructure, with fake-client checks and no required live network call.
   - 6.2: complete as of 2026-04-25. Item summary and autotags in the detail sheet.
   - 6.3: complete as of 2026-04-25. `JobAutomation` runs `summarize`/`autotag` automatically after capture; conservative autotag only when the item has no manual tags; manual retry of failed jobs; "Tarefas" section in the detail sheet with colored status and inline retry.
-- Sprint 6: complete as of 2026-04-25.
+- Sprint 6 IA slice: complete as of 2026-04-25.
 - Sprint 7 plan:
   - 7.1: complete as of 2026-04-25. `LLMSettingsStore` persists overrides inside the SQLCipher vault; `LLMConfiguration.resolve(overrides:env:)` resolves URL/model/context limit independently with vault > env > default precedence; "IA local" section in Settings with save/clear and validation.
   - 7.2: complete as of 2026-04-25. `ItemChatService` streams replies grounded in the stored content; `chat_messages` table-backed history exposed by the repository; detail sheet toggle with streaming bubbles, cursor, auto-scroll and clear-conversation.
   - 7.3: complete as of 2026-04-25. `ItemAIService.streamSummary` and `AppModel.streamSummary` push chunks straight into the detail sheet's summary field, sharing the prompt with the synchronous `summarize` used by background jobs.
 - Sprint 7: complete as of 2026-04-25.
 - Sprint 6 reopened on 2026-04-25 — the IA work shipped as 6.1/6.2/6.3 was the only part of the original Sprint 6 plan that landed; web/video ingestion runners were never written, so URL captures stay stuck on `pending`. Three follow-up sub-sprints are queued before Sprint 8:
-  - 6.4 (next): `scrapeArticle` runner via `trafilatura` subprocess with WKWebView fallback for SPA pages, plus encrypted hero image asset.
-  - 6.5: `downloadMedia` runner via `yt-dlp` + `ffmpeg`, with subtitle preference (pt/en) and recoverable failures.
+  - 6.4: complete as of 2026-04-25. `scrapeArticle` runner via `trafilatura` subprocess with WKWebView fallback for SPA pages, metadata persistence, plus encrypted hero image asset.
+  - 6.5 (next): `downloadMedia` runner via `yt-dlp` + `ffmpeg`, with subtitle preference (pt/en) and recoverable failures.
   - 6.6: `generateThumbnail` runner for downloaded media and tweet photos (`gallery-dl` + oEmbed fallback), wiring encrypted thumbnails into the library list/grid.
 - Sprint 8 (backup, export, restore) follows once 6.4–6.6 close.
-- Next step: Sprint 6.4.
+- Next step: Sprint 6.5.
