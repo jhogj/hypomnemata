@@ -56,6 +56,7 @@ public protocol ItemRepository: Sendable {
     func insertJobs(_ jobs: [Job]) throws
     func jobs(forItemID itemID: String) throws -> [Job]
     func updateJobStatus(id: String, status: JobStatus, error: String?) throws
+    func incrementJobAttempts(id: String) throws
     func assets(forItemID itemID: String) throws -> [AssetRecord]
     func assets(forItemIDs itemIDs: [String]) throws -> [AssetRecord]
     func totalItemCount() throws -> Int
@@ -322,6 +323,19 @@ public final class SQLiteItemRepository: ItemRepository, @unchecked Sendable {
                     ClockTimestamp.nowISO8601(),
                     id,
                 ]
+            )
+        }
+    }
+
+    public func incrementJobAttempts(id: String) throws {
+        try database.writer.write { db in
+            try db.execute(
+                sql: """
+                    UPDATE jobs
+                    SET attempts = attempts + 1, updated_at = ?
+                    WHERE id = ?
+                    """,
+                arguments: [ClockTimestamp.nowISO8601(), id]
             )
         }
     }

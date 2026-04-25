@@ -167,6 +167,67 @@ struct HypomnemataNativeChecks {
 
         let looseTags = ItemAIService.normalizedTags(from: " #Swift,\nIA local, swift ", existingTags: ["Mac"])
         precondition(looseTags == ["mac", "swift", "ia local"])
+
+        precondition(JobAutomation.canRun(.summarize))
+        precondition(JobAutomation.canRun(.autotag))
+        precondition(!JobAutomation.canRun(.scrapeArticle))
+        precondition(!JobAutomation.canRun(.downloadMedia))
+        precondition(!JobAutomation.canRun(.generateThumbnail))
+        precondition(!JobAutomation.canRun(.runOCR))
+
+        let summaryAutomation = JobAutomation(
+            service: ItemAIService(
+                client: FakeLLMClient(response: "Resumo automático"),
+                configuration: configured
+            )
+        )
+        let articleItem = Item(
+            kind: .article,
+            title: "Artigo",
+            bodyText: "Conteúdo razoável para resumo automático.",
+            tags: []
+        )
+        let summaryOutcome = try await summaryAutomation.run(.summarize, on: articleItem)
+        guard case let .summarized(summaryText) = summaryOutcome else {
+            preconditionFailure("Summarize outcome should be .summarized")
+        }
+        precondition(summaryText == "Resumo automático")
+
+        let autotagAutomation = JobAutomation(
+            service: ItemAIService(
+                client: FakeLLMClient(response: #"["politica","etica"]"#),
+                configuration: configured
+            )
+        )
+        let autotagOutcome = try await autotagAutomation.run(.autotag, on: articleItem)
+        guard case let .taggedAutomatically(autoTags) = autotagOutcome else {
+            preconditionFailure("Autotag outcome should be .taggedAutomatically")
+        }
+        precondition(autoTags == ["politica", "etica"])
+
+        let itemWithTags = Item(
+            kind: .article,
+            title: "Já tem tag",
+            bodyText: "Conteúdo qualquer",
+            tags: ["existente"]
+        )
+        let conservativeOutcome = try await autotagAutomation.run(.autotag, on: itemWithTags)
+        guard case .skipped = conservativeOutcome else {
+            preconditionFailure("Autotag should skip when item already has tags")
+        }
+
+        let emptyContextItem = Item(kind: .note, title: nil, bodyText: nil, tags: [])
+        let emptyOutcome = try await summaryAutomation.run(.summarize, on: emptyContextItem)
+        guard case .skipped = emptyOutcome else {
+            preconditionFailure("Summarize should skip when there is no content")
+        }
+
+        do {
+            _ = try await summaryAutomation.run(.scrapeArticle, on: articleItem)
+            preconditionFailure("scrapeArticle should not have an automation runner")
+        } catch JobAutomationError.unsupportedJobKind {
+            // Expected: subprocess-backed jobs are not in the IA automation surface.
+        }
     }
 
     private static func checkData() throws {
@@ -302,6 +363,14 @@ struct HypomnemataNativeChecks {
         precondition(storedJobs[1].id == "job-b")
         precondition(storedJobs[1].status == .failed)
         precondition(storedJobs[1].error?.contains("brew install trafilatura") == true)
+
+        try repository.incrementJobAttempts(id: "job-b")
+        try repository.updateJobStatus(id: "job-b", status: .pending, error: nil)
+        let retriedJobs = try repository.jobs(forItemID: article.id)
+        let retriedB = retriedJobs.first { $0.id == "job-b" }!
+        precondition(retriedB.status == .pending)
+        precondition(retriedB.error == nil)
+        precondition(retriedB.attempts == 1)
 
         let cascadeJobItem = try repository.createItem(
             kind: .article,

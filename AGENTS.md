@@ -20,9 +20,9 @@
 ## Status atual
 
 - **App legado** (FastAPI/React): Ondas 1, 2, 3 entregues. Onda 4 adiada. Ver `CLAUDE.md` para detalhes.
-- **Rewrite nativo**: Sprints 0–5 + 6.1 + 6.2 concluídas em 2026-04-25.
-- **Última sessão**: 2026-04-25 — Sprint 6.2: resumo e autotags no detalhe nativo.
-- **Próxima tarefa**: Sprint 6.3 — automação pós-captura, retry de jobs falhos, checks finais.
+- **Rewrite nativo**: Sprints 0–6 concluídas em 2026-04-25.
+- **Última sessão**: 2026-04-25 — Sprint 6.3: automação pós-captura de IA, retry de jobs, indicadores no detalhe.
+- **Próxima tarefa**: Sprint 7 — runners reais para `scrapeArticle`/`downloadMedia`/`generateThumbnail` (subprocessos Homebrew) ou início da Sprint 8 (backup/restore).
 
 ### Comandos (nativo)
 
@@ -46,7 +46,7 @@ CLANG_MODULE_CACHE_PATH=/tmp/hypo-clang-cache SWIFTPM_HOME=/tmp/hypo-swiftpm-cac
 | 5 | Mídia: previews descriptografados (imagem/PDF/vídeo), thumbnails AES-GCM, play inline com continuidade de timestamp, OCR nativo Vision/PDFKit |
 | 6.1 | IA infraestrutura: `LLMClient` (protocolo), `OpenAICompatibleClient`, `LLMConfiguration`, erros recuperáveis, checks com `FakeLLMClient` |
 | 6.2 | IA funcional: resumo (`summarize`), autotags conservadoras (preserva tags existentes), campo editável no detalhe |
-| **6.3** | **Próximo**: automação pós-captura, retry/reprocess de jobs, checks finais da Sprint 6 |
+| 6.3 | Automação: `JobAutomation` roda `summarize`/`autotag` em background pós-captura; autotag automático só se `tags.isEmpty`; retry manual de jobs falhos; seção "Tarefas" no detalhe com status colorido |
 
 ---
 
@@ -77,6 +77,14 @@ CLANG_MODULE_CACHE_PATH=/tmp/hypo-clang-cache SWIFTPM_HOME=/tmp/hypo-swiftpm-cac
 - **Decisão**: `LLMClient` é protocolo. `OpenAICompatibleClient` consome `/v1/chat/completions`. Configuração via `HYPO_LLM_URL`, `HYPO_LLM_MODEL`, `HYPO_LLM_CONTEXT_LIMIT`.
 - **Motivo**: mesmo design do app legado; permite trocar provider sem mudar lógica de produto.
 - **Falha de IA**: indisponibilidade do servidor não quebra captura — vira job recuperável.
+
+### 2026-04-25 — Automação de jobs (Sprint 6.3)
+- **Decisão**: `JobAutomation` roda apenas `summarize` e `autotag` por enquanto. `scrapeArticle`/`downloadMedia`/`generateThumbnail` continuam sendo criados como `pending` (ou `failed` se faltar binário) mas ficam aguardando o runner de Sprint 7+.
+- **Dispatch**: após `createCapture`, `Task` em background processa jobs pendentes do item. Captura nunca é bloqueada.
+- **Autotag conservador**: roda automaticamente só quando `item.tags.isEmpty`. Se já há tags manuais, vira `.skipped` com `status = done`. Botão manual no detalhe mantém comportamento de preservação (passa `existingTags`).
+- **Retry**: incrementa `attempts`, marca `pending` e re-dispara. Sem limite de tentativas — usuário decide.
+- **Concorrência**: `runningJobIDs: Set<String>` no `AppModel` evita dispatch duplicado do mesmo job.
+- **UI**: seção "Tarefas" no detalhe lista cada job com status colorido (`pending`/`running`/`done`/`failed`), erro inline e botão "Tentar novamente". Polling de 1s enquanto há `pending`/`running`.
 
 ---
 

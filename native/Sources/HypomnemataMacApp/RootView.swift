@@ -1109,6 +1109,8 @@ struct ItemDetailSheet: View {
     @State private var errorMessage: String?
     @State private var aiBusy = false
     @State private var showDeleteConfirmation = false
+    @State private var itemJobs: [Job] = []
+    @State private var jobRefreshTimer: Timer?
 
     init(item: Item) {
         self.item = item
@@ -1227,6 +1229,16 @@ struct ItemDetailSheet: View {
                         .disabled(aiBusy)
                     }
 
+                    if !itemJobs.isEmpty {
+                        DetailFieldLabel("Tarefas")
+                        JobStatusList(
+                            jobs: itemJobs,
+                            runningJobIDs: model.runningJobIDs
+                        ) { job in
+                            retryJob(job)
+                        }
+                    }
+
                     HStack {
                         DetailFieldLabel("Nota")
                         Spacer()
@@ -1295,6 +1307,20 @@ struct ItemDetailSheet: View {
         .onAppear {
             detailVideoStartTime = model.consumeDetailVideoStartTime(for: item)
             loadOrganization()
+            startJobRefreshIfNeeded()
+        }
+        .onDisappear {
+            stopJobRefresh()
+        }
+        .onChange(of: itemJobs) { _, jobs in
+            if jobs.contains(where: { $0.status == .running || $0.status == .pending }) {
+                startJobRefreshIfNeeded()
+            } else {
+                stopJobRefresh()
+            }
+        }
+        .onChange(of: model.runningJobIDs) { _, _ in
+            loadJobs()
         }
         .sheet(isPresented: $showFolderPicker) {
             FolderPickerSheet(
@@ -1428,6 +1454,41 @@ struct ItemDetailSheet: View {
         if let message = backlinkResult.1 {
             errorMessage = message
         }
+        loadJobs()
+    }
+
+    private func loadJobs() {
+        let result = model.jobs(for: item)
+        itemJobs = result.0
+        if let message = result.1 {
+            errorMessage = message
+        }
+    }
+
+    private func retryJob(_ job: Job) {
+        if let message = model.retryJob(job) {
+            errorMessage = message
+        }
+        loadJobs()
+        startJobRefreshIfNeeded()
+    }
+
+    private func startJobRefreshIfNeeded() {
+        guard jobRefreshTimer == nil else {
+            return
+        }
+        let timer = Timer(timeInterval: 1.0, repeats: true) { _ in
+            Task { @MainActor in
+                loadJobs()
+            }
+        }
+        jobRefreshTimer = timer
+        RunLoop.main.add(timer, forMode: .common)
+    }
+
+    private func stopJobRefresh() {
+        jobRefreshTimer?.invalidate()
+        jobRefreshTimer = nil
     }
 
     private func loadAssetPreviews() {
@@ -1463,6 +1524,133 @@ enum LinkInsertionTarget: String, Identifiable {
     case bodyText
 
     var id: String { rawValue }
+}
+
+struct JobStatusList: View {
+    var jobs: [Job]
+    var runningJobIDs: Set<String>
+    var onRetry: (Job) -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            ForEach(jobs) { job in
+                JobStatusRow(
+                    job: effectiveJob(for: job),
+                    onRetry: onRetry
+                )
+            }
+        }
+    }
+
+    private func effectiveJob(for job: Job) -> Job {
+        if runningJobIDs.contains(job.id), job.status != .running {
+            var copy = job
+            copy.status = .running
+            return copy
+        }
+        return job
+    }
+}
+
+struct JobStatusRow: View {
+    var job: Job
+    var onRetry: (Job) -> Void
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 8) {
+            statusIcon
+                .frame(width: 16, alignment: .center)
+            VStack(alignment: .leading, spacing: 2) {
+                HStack(spacing: 6) {
+                    Text(displayName(for: job.kind))
+                        .font(.callout.weight(.medium))
+                    Text("•")
+                        .foregroundStyle(.tertiary)
+                    Text(displayStatus(for: job.status))
+                        .font(.caption)
+                        .foregroundStyle(statusColor)
+                    if job.attempts > 0 {
+                        Text("· tentativas: \(job.attempts)")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                if let error = job.error, job.status == .failed {
+                    Text(error)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            Spacer()
+            if job.status == .failed {
+                Button {
+                    onRetry(job)
+                } label: {
+                    Label("Tentar novamente", systemImage: "arrow.clockwise")
+                        .labelStyle(.titleAndIcon)
+                }
+                .buttonStyle(.borderless)
+                .controlSize(.small)
+            }
+        }
+        .padding(8)
+        .background(
+            RoundedRectangle(cornerRadius: 6)
+                .fill(.quaternary.opacity(0.4))
+        )
+    }
+
+    @ViewBuilder
+    private var statusIcon: some View {
+        switch job.status {
+        case .pending:
+            Image(systemName: "clock")
+                .foregroundStyle(.secondary)
+        case .running:
+            ProgressView()
+                .controlSize(.small)
+        case .done:
+            Image(systemName: "checkmark.circle.fill")
+                .foregroundStyle(.green)
+        case .failed:
+            Image(systemName: "exclamationmark.triangle.fill")
+                .foregroundStyle(.orange)
+        }
+    }
+
+    private var statusColor: Color {
+        switch job.status {
+        case .pending:
+            .secondary
+        case .running:
+            .blue
+        case .done:
+            .green
+        case .failed:
+            .orange
+        }
+    }
+
+    private func displayName(for kind: JobKind) -> String {
+        switch kind {
+        case .scrapeArticle: "Extrair artigo"
+        case .downloadMedia: "Baixar mídia"
+        case .generateThumbnail: "Gerar miniatura"
+        case .runOCR: "Extrair texto (OCR)"
+        case .summarize: "Gerar resumo (IA)"
+        case .autotag: "Sugerir etiquetas (IA)"
+        }
+    }
+
+    private func displayStatus(for status: JobStatus) -> String {
+        switch status {
+        case .pending: "pendente"
+        case .running: "em execução"
+        case .done: "concluída"
+        case .failed: "falhou"
+        }
+    }
 }
 
 struct AssetPreviewPanel: View {

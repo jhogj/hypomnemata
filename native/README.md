@@ -2,7 +2,7 @@
 
 This is the native macOS rewrite track for Hypomnemata.
 
-Current status: Sprint 5 of the native rewrite is complete. The existing
+Current status: Sprint 6 of the native rewrite is complete. The existing
 FastAPI/React app remains untouched and can keep serving as behavioral
 reference while the native app is built out.
 
@@ -44,6 +44,9 @@ reference while the native app is built out.
 - Individual delete removes encrypted asset files associated with the item
 - Batch selection and batch delete for visible library items
 - Synthetic 10k-item check for list, FTS5 search, and batch delete
+- `JobAutomation` runs `summarize`/`autotag` automatically after capture, with conservative autotag (skipped when manual tags exist)
+- Manual retry of failed AI jobs from the detail sheet, incrementing `attempts`
+- Detail sheet exposes per-job status with colored indicators (`pending`/`running`/`done`/`failed`) and inline retry
 
 ## External commands expected in product builds
 
@@ -66,9 +69,12 @@ CLANG_MODULE_CACHE_PATH=/tmp/hypo-clang-cache SWIFTPM_HOME=/tmp/hypo-swiftpm-cac
 FTS5, edit/delete flows, dependency checks, combined filters, folder queries,
 folder rename/remove/delete flows, linked items and backlinks, link insertion UI, persistent asset keys, asset table registration, AES-GCM asset encryption,
 native thumbnail generation, native OCR extraction, encrypted asset removal, decrypted preview cache, batch delete, a synthetic 10k-item performance
-scenario, recoverable job failures for missing dependencies, temporary cache
-cleanup, SQLCipher rekey, old-passphrase rejection, and then verifies that
-system `sqlite3` cannot read the vault. The app path
+scenario, recoverable job failures for missing dependencies, `JobAutomation`
+running summary/autotag with the IA fake client (including conservative
+autotag and `unsupportedJobKind` for subprocess-backed jobs), job retry via
+`incrementJobAttempts` + status reset, temporary cache cleanup, SQLCipher
+rekey, old-passphrase rejection, and then verifies that system `sqlite3`
+cannot read the vault. The app path
 requires SQLCipher by default and fails closed when it is unavailable.
 
 The SwiftPM app target installs the AppKit Services handler in code. A
@@ -99,5 +105,6 @@ its Info.plist during packaging so macOS exposes it in the Services/Share UI.
 - Sprint 6 plan:
   - 6.1: complete as of 2026-04-25. LLM contracts and infrastructure, with fake-client checks and no required live network call.
   - 6.2: complete as of 2026-04-25. Item summary and autotags in the detail sheet.
-  - 6.3: capture/job automation, retry/reprocess controls, final checks.
-- Next step: Sprint 6.3.
+  - 6.3: complete as of 2026-04-25. `JobAutomation` runs `summarize`/`autotag` automatically after capture; conservative autotag only when the item has no manual tags; manual retry of failed jobs; "Tarefas" section in the detail sheet with colored status and inline retry.
+- Sprint 6: complete as of 2026-04-25.
+- Next step: Sprint 7 (subprocess runners for `scrapeArticle`/`downloadMedia`/`generateThumbnail`) or Sprint 8 (backup/restore), per `PLAN-completo.md`.

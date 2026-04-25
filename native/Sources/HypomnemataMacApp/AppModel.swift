@@ -82,6 +82,7 @@ final class AppModel: ObservableObject {
     @Published var totalItemCount = 0
     @Published var storageBytes: Int64 = 0
     @Published var itemThumbnailURLs: [String: URL] = [:]
+    @Published var runningJobIDs: Set<String> = []
 
     private var database: NativeDatabase?
     private var repository: SQLiteItemRepository?
@@ -209,6 +210,7 @@ final class AppModel: ObservableObject {
         totalItemCount = 0
         storageBytes = 0
         itemThumbnailURLs = [:]
+        runningJobIDs = []
         detailVideoStartTimes = [:]
         showCapture = false
         showChangePassword = false
@@ -733,9 +735,149 @@ final class AppModel: ObservableObject {
             showCapture = false
             refreshLibrary()
             recordUserActivity()
+            scheduleAutomatedJobs(for: createdItem.id)
             return nil
         } catch {
             return error.localizedDescription
+        }
+    }
+
+    func jobs(for item: Item) -> ([Job], String?) {
+        guard let repository else {
+            return ([], "Vault não está desbloqueado.")
+        }
+        do {
+            return (try repository.jobs(forItemID: item.id), nil)
+        } catch {
+            return ([], error.localizedDescription)
+        }
+    }
+
+    func retryJob(_ job: Job) -> String? {
+        guard let repository, let itemID = job.itemID else {
+            return "Vault não está desbloqueado."
+        }
+        guard JobAutomation.canRun(job.kind) else {
+            return "Esta tarefa não tem executor disponível ainda."
+        }
+        guard !runningJobIDs.contains(job.id) else {
+            return nil
+        }
+        do {
+            try repository.incrementJobAttempts(id: job.id)
+            try repository.updateJobStatus(id: job.id, status: .pending, error: nil)
+            recordUserActivity()
+            scheduleAutomatedJobs(for: itemID)
+            return nil
+        } catch {
+            return error.localizedDescription
+        }
+    }
+
+    private func scheduleAutomatedJobs(for itemID: String) {
+        Task { [weak self] in
+            await self?.runAutomatedJobs(for: itemID)
+        }
+    }
+
+    private func runAutomatedJobs(for itemID: String) async {
+        guard let repository else {
+            return
+        }
+        let pendingJobs: [Job]
+        do {
+            pendingJobs = try repository.jobs(forItemID: itemID).filter { job in
+                job.status == .pending
+                    && JobAutomation.canRun(job.kind)
+                    && !runningJobIDs.contains(job.id)
+            }
+        } catch {
+            return
+        }
+        guard !pendingJobs.isEmpty else {
+            return
+        }
+
+        let automation: JobAutomation
+        do {
+            automation = JobAutomation(service: try makeItemAIService())
+        } catch {
+            let message = LLMRecoverableErrorMapper().jobErrorMessage(for: error)
+            for job in pendingJobs {
+                try? repository.updateJobStatus(id: job.id, status: .failed, error: message)
+            }
+            refreshOpenedItemIfMatches(itemID)
+            return
+        }
+
+        for job in pendingJobs {
+            await runSingleJob(job, itemID: itemID, automation: automation)
+        }
+    }
+
+    private func runSingleJob(_ job: Job, itemID: String, automation: JobAutomation) async {
+        guard let repository else {
+            return
+        }
+        runningJobIDs.insert(job.id)
+        defer {
+            runningJobIDs.remove(job.id)
+        }
+        do {
+            try repository.updateJobStatus(id: job.id, status: .running, error: nil)
+        } catch {
+            return
+        }
+        refreshOpenedItemIfMatches(itemID)
+
+        let snapshot: Item
+        do {
+            snapshot = try repository.item(id: itemID)
+        } catch {
+            try? repository.updateJobStatus(id: job.id, status: .failed, error: error.localizedDescription)
+            refreshOpenedItemIfMatches(itemID)
+            return
+        }
+
+        do {
+            let outcome = try await automation.run(job.kind, on: snapshot)
+            try applyOutcome(outcome, to: snapshot)
+            try repository.updateJobStatus(id: job.id, status: .done, error: nil)
+        } catch {
+            let message = LLMRecoverableErrorMapper().jobErrorMessage(for: error)
+            try? repository.updateJobStatus(id: job.id, status: .failed, error: message)
+        }
+        refreshOpenedItemIfMatches(itemID)
+    }
+
+    private func applyOutcome(_ outcome: JobAutomationOutcome, to item: Item) throws {
+        guard let repository else {
+            return
+        }
+        switch outcome {
+        case .skipped:
+            return
+        case let .summarized(summary):
+            _ = try repository.patchItem(id: item.id, patch: ItemPatch(summary: summary))
+        case let .taggedAutomatically(tags) where !tags.isEmpty:
+            _ = try repository.patchItem(id: item.id, patch: ItemPatch(tags: tags))
+        case .taggedAutomatically:
+            return
+        }
+    }
+
+    private func refreshOpenedItemIfMatches(_ itemID: String) {
+        guard let repository else {
+            return
+        }
+        if selectedItem?.id == itemID {
+            if let refreshed = try? repository.item(id: itemID) {
+                selectedItem = refreshed
+            }
+        }
+        if items.contains(where: { $0.id == itemID }) {
+            refreshItems()
+            refreshSidebarData()
         }
     }
 
