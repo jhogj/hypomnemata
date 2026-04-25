@@ -332,6 +332,108 @@ final class AppModel: ObservableObject {
         recordUserActivity()
     }
 
+    func createFolder(name: String) -> (Folder?, String?) {
+        guard let repository else {
+            return (nil, "Vault não está desbloqueado.")
+        }
+        do {
+            let folder = try repository.createFolder(name: name)
+            refreshSidebarData()
+            recordUserActivity()
+            return (folder, nil)
+        } catch {
+            return (nil, error.localizedDescription)
+        }
+    }
+
+    func renameFolder(_ folder: Folder, name: String) -> String? {
+        guard let repository else {
+            return "Vault não está desbloqueado."
+        }
+        do {
+            _ = try repository.renameFolder(id: folder.id, name: name)
+            refreshLibrary()
+            recordUserActivity()
+            return nil
+        } catch {
+            return error.localizedDescription
+        }
+    }
+
+    func deleteFolder(_ folder: Folder) -> String? {
+        guard let repository else {
+            return "Vault não está desbloqueado."
+        }
+        do {
+            try repository.deleteFolder(id: folder.id)
+            if activeFolderID == folder.id {
+                activeFolderID = nil
+            }
+            refreshLibrary()
+            recordUserActivity()
+            return nil
+        } catch {
+            return error.localizedDescription
+        }
+    }
+
+    func addSelectedItems(to folder: Folder) -> String? {
+        guard let repository else {
+            return "Vault não está desbloqueado."
+        }
+        let ids = Array(selectedItemIDs)
+        guard !ids.isEmpty else {
+            return nil
+        }
+        do {
+            try repository.addItems(ids, toFolder: folder.id)
+            refreshLibrary()
+            recordUserActivity()
+            return nil
+        } catch {
+            return error.localizedDescription
+        }
+    }
+
+    func foldersForItem(_ item: Item) -> ([Folder], String?) {
+        guard let repository else {
+            return ([], "Vault não está desbloqueado.")
+        }
+        do {
+            return (try repository.folders(forItemID: item.id), nil)
+        } catch {
+            return ([], error.localizedDescription)
+        }
+    }
+
+    func addItem(_ item: Item, to folder: Folder) -> String? {
+        guard let repository else {
+            return "Vault não está desbloqueado."
+        }
+        do {
+            try repository.addItems([item.id], toFolder: folder.id)
+            refreshLibrary()
+            recordUserActivity()
+            return nil
+        } catch {
+            return error.localizedDescription
+        }
+    }
+
+    func removeItem(_ item: Item, from folder: Folder) -> String? {
+        guard let repository else {
+            return "Vault não está desbloqueado."
+        }
+        do {
+            try repository.removeItems([item.id], fromFolder: folder.id)
+            refreshLibrary()
+            recordUserActivity()
+            return nil
+        } catch {
+            return error.localizedDescription
+        }
+    }
+
     func openCapture(prefill: CaptureDraft? = nil) {
         capturePrefill = prefill
         showCapture = true

@@ -2,7 +2,7 @@
 
 This is the native macOS rewrite track for Hypomnemata.
 
-Current status: Sprint 4.1 of the native rewrite is complete. The existing
+Current status: Sprint 4.2 of the native rewrite is complete. The existing
 FastAPI/React app remains untouched and can keep serving as behavioral
 reference while the native app is built out.
 
@@ -33,6 +33,7 @@ reference while the native app is built out.
 - Jobs with missing executable dependencies are stored as recoverable `failed` rows with an actionable Homebrew command
 - External capture entry points accept `http/https`, `hypomnemata://capture?url=...`, `hypomnemata://capture?text=...`, and AppKit Services pasteboard text/URLs
 - Folder repository contracts support rename, delete, per-item listing, add, and remove
+- Native folder UI supports create, rename, delete, add selected items, and per-item folder chips
 - Zettelkasten repository contracts expose linked items and backlinks from `[[uuid|title]]` references
 - Individual delete removes encrypted asset files associated with the item
 - Batch selection and batch delete for visible library items
@@ -82,4 +83,5 @@ its Info.plist during packaging so macOS exposes it in the Services/Share UI.
 - Sprint 3.3: complete as of 2026-04-25.
 - Sprint 3: complete as of 2026-04-25.
 - Sprint 4.1: complete as of 2026-04-25.
-- Next step: Sprint 4.2, folder UI and organization operations.
+- Sprint 4.2: complete as of 2026-04-25.
+- Next step: Sprint 4.3, clickable links/basic autocomplete and backlinks in item detail.

@@ -90,6 +90,10 @@ struct LibraryShellView: View {
 
 struct SidebarView: View {
     @EnvironmentObject private var model: AppModel
+    @State private var showingCreateFolder = false
+    @State private var editingFolder: Folder?
+    @State private var deletingFolder: Folder?
+    @State private var folderError: String?
 
     var body: some View {
         List {
@@ -132,20 +136,88 @@ struct SidebarView: View {
                 }
             }
 
-            if !model.folders.isEmpty {
-                Section("Pastas") {
+            Section {
+                if model.folders.isEmpty {
+                    Text("Nenhuma pasta")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                } else {
                     ForEach(model.folders) { folder in
-                        SidebarFilterRow(
+                        FolderSidebarRow(
+                            folder: folder,
                             title: folder.name,
                             systemImage: "folder",
                             count: folder.itemCount,
                             isSelected: model.activeFolderID == folder.id
                         ) {
                             model.toggleFolderFilter(folder.id)
+                        } onRename: {
+                            editingFolder = folder
+                        } onDelete: {
+                            deletingFolder = folder
                         }
                     }
                 }
+            } header: {
+                HStack {
+                    Text("Pastas")
+                    Spacer()
+                    Button {
+                        showingCreateFolder = true
+                    } label: {
+                        Image(systemName: "plus")
+                    }
+                    .buttonStyle(.borderless)
+                    .help("Criar pasta")
+                }
             }
+        }
+        .sheet(isPresented: $showingCreateFolder) {
+            FolderNameSheet(title: "Nova pasta", initialName: "") { name in
+                let result = model.createFolder(name: name)
+                folderError = result.1
+                return result.1
+            }
+        }
+        .sheet(item: $editingFolder) { folder in
+            FolderNameSheet(title: "Renomear pasta", initialName: folder.name) { name in
+                let message = model.renameFolder(folder, name: name)
+                folderError = message
+                return message
+            }
+        }
+        .confirmationDialog(
+            "Excluir pasta?",
+            isPresented: Binding(
+                get: { deletingFolder != nil },
+                set: { if !$0 { deletingFolder = nil } }
+            ),
+            titleVisibility: .visible
+        ) {
+            Button("Excluir", role: .destructive) {
+                if let folder = deletingFolder {
+                    folderError = model.deleteFolder(folder)
+                }
+                deletingFolder = nil
+            }
+            Button("Cancelar", role: .cancel) {
+                deletingFolder = nil
+            }
+        } message: {
+            Text("Os itens não serão apagados, apenas removidos desta pasta.")
+        }
+        .alert(
+            "Pasta",
+            isPresented: Binding(
+                get: { folderError != nil },
+                set: { if !$0 { folderError = nil } }
+            )
+        ) {
+            Button("OK", role: .cancel) {
+                folderError = nil
+            }
+        } message: {
+            Text(folderError ?? "")
         }
         .safeAreaInset(edge: .bottom) {
             VStack(alignment: .leading, spacing: 8) {
@@ -174,6 +246,39 @@ struct SidebarView: View {
                 }
             }
             .padding()
+        }
+    }
+}
+
+struct FolderSidebarRow: View {
+    var folder: Folder
+    var title: String
+    var systemImage: String
+    var count: Int
+    var isSelected: Bool
+    var action: () -> Void
+    var onRename: () -> Void
+    var onDelete: () -> Void
+
+    var body: some View {
+        SidebarFilterRow(
+            title: title,
+            systemImage: systemImage,
+            count: count,
+            isSelected: isSelected,
+            action: action
+        )
+        .contextMenu {
+            Button {
+                onRename()
+            } label: {
+                Label("Renomear", systemImage: "pencil")
+            }
+            Button(role: .destructive) {
+                onDelete()
+            } label: {
+                Label("Excluir", systemImage: "trash")
+            }
         }
     }
 }
@@ -266,6 +371,147 @@ struct ChangePasswordSheet: View {
         }
         .padding(22)
         .frame(width: 440)
+    }
+}
+
+struct FolderNameSheet: View {
+    @Environment(\.dismiss) private var dismiss
+
+    var title: String
+    var initialName: String
+    var onSave: (String) -> String?
+
+    @State private var name: String
+    @State private var errorMessage: String?
+
+    init(title: String, initialName: String, onSave: @escaping (String) -> String?) {
+        self.title = title
+        self.initialName = initialName
+        self.onSave = onSave
+        _name = State(initialValue: initialName)
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text(title)
+                .font(.title2.bold())
+
+            TextField("Nome", text: $name)
+                .textFieldStyle(.roundedBorder)
+                .onSubmit(save)
+
+            if let errorMessage {
+                Text(errorMessage)
+                    .font(.callout)
+                    .foregroundStyle(.red)
+            }
+
+            HStack {
+                Spacer()
+                Button("Cancelar") {
+                    dismiss()
+                }
+                Button("Salvar") {
+                    save()
+                }
+                .keyboardShortcut(.defaultAction)
+                .disabled(name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            }
+        }
+        .padding(22)
+        .frame(width: 420)
+    }
+
+    private func save() {
+        let message = onSave(name)
+        if let message {
+            errorMessage = message
+        } else {
+            dismiss()
+        }
+    }
+}
+
+struct FolderPickerSheet: View {
+    @Environment(\.dismiss) private var dismiss
+
+    var title: String
+    var emptyMessage: String
+    var folders: [Folder]
+    var allowsCreate: Bool
+    var onSelect: (Folder) -> Void
+    var onCreate: (String) -> String?
+
+    @State private var newFolderName = ""
+    @State private var errorMessage: String?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Text(title)
+                .font(.title2.bold())
+
+            if folders.isEmpty {
+                ContentUnavailableView(
+                    "Nenhuma pasta disponível",
+                    systemImage: "folder",
+                    description: Text(emptyMessage)
+                )
+                .frame(minHeight: 120)
+            } else {
+                List(folders) { folder in
+                    Button {
+                        onSelect(folder)
+                    } label: {
+                        HStack {
+                            Label(folder.name, systemImage: "folder")
+                            Spacer()
+                            CountBadge(count: folder.itemCount)
+                        }
+                    }
+                    .buttonStyle(.plain)
+                }
+                .frame(minHeight: 180)
+            }
+
+            if allowsCreate {
+                Divider()
+                HStack(spacing: 8) {
+                    TextField("Nova pasta", text: $newFolderName)
+                        .textFieldStyle(.roundedBorder)
+                        .onSubmit(create)
+                    Button {
+                        create()
+                    } label: {
+                        Label("Criar", systemImage: "plus")
+                    }
+                    .disabled(newFolderName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                }
+            }
+
+            if let errorMessage {
+                Text(errorMessage)
+                    .font(.callout)
+                    .foregroundStyle(.red)
+            }
+
+            HStack {
+                Spacer()
+                Button("Fechar") {
+                    dismiss()
+                }
+            }
+        }
+        .padding(22)
+        .frame(width: 460, height: 380)
+    }
+
+    private func create() {
+        let message = onCreate(newFolderName)
+        if let message {
+            errorMessage = message
+        } else {
+            dismiss()
+        }
     }
 }
 
@@ -545,6 +791,7 @@ struct SelectionIndicator: View {
 struct SelectionToolbar: View {
     @EnvironmentObject private var model: AppModel
     @State private var showDeleteConfirmation = false
+    @State private var showFolderPicker = false
     @State private var errorMessage: String?
 
     var body: some View {
@@ -575,6 +822,13 @@ struct SelectionToolbar: View {
                 }
                 .disabled(model.selectedItemCount == 0)
 
+                Button {
+                    showFolderPicker = true
+                } label: {
+                    Label("Adicionar à pasta", systemImage: "folder.badge.plus")
+                }
+                .disabled(model.selectedItemCount == 0)
+
                 Button(role: .destructive) {
                     showDeleteConfirmation = true
                 } label: {
@@ -586,6 +840,30 @@ struct SelectionToolbar: View {
         .padding(.horizontal, 16)
         .padding(.vertical, 10)
         .background(.bar)
+        .sheet(isPresented: $showFolderPicker) {
+            FolderPickerSheet(
+                title: "Adicionar à pasta",
+                emptyMessage: "Crie uma pasta para organizar os itens selecionados.",
+                folders: model.folders,
+                allowsCreate: true
+            ) { folder in
+                errorMessage = model.addSelectedItems(to: folder)
+                if errorMessage == nil {
+                    showFolderPicker = false
+                }
+            } onCreate: { name in
+                let result = model.createFolder(name: name)
+                if let folder = result.0 {
+                    errorMessage = model.addSelectedItems(to: folder)
+                    if errorMessage == nil {
+                        showFolderPicker = false
+                    }
+                    return errorMessage
+                }
+                errorMessage = result.1
+                return result.1
+            }
+        }
         .confirmationDialog(
             "Excluir itens selecionados?",
             isPresented: $showDeleteConfirmation,
@@ -613,6 +891,8 @@ struct ItemDetailSheet: View {
     @State private var note: String
     @State private var bodyText: String
     @State private var tags: String
+    @State private var itemFolders: [Folder] = []
+    @State private var showFolderPicker = false
     @State private var errorMessage: String?
     @State private var showDeleteConfirmation = false
 
@@ -654,6 +934,24 @@ struct ItemDetailSheet: View {
                             .font(.callout)
                             .foregroundStyle(.secondary)
                             .textSelection(.enabled)
+                    }
+
+                    HStack {
+                        DetailFieldLabel("Pastas")
+                        Spacer()
+                        Button {
+                            showFolderPicker = true
+                        } label: {
+                            Label("Adicionar", systemImage: "folder.badge.plus")
+                        }
+                        .buttonStyle(.borderless)
+                    }
+                    FolderChipLine(folders: itemFolders) { folder in
+                        if let message = model.removeItem(item, from: folder) {
+                            errorMessage = message
+                        } else {
+                            loadFolders()
+                        }
                     }
 
                     DetailFieldLabel("Etiquetas")
@@ -707,6 +1005,37 @@ struct ItemDetailSheet: View {
             .padding(16)
         }
         .frame(width: 680, height: 640)
+        .onAppear(perform: loadFolders)
+        .sheet(isPresented: $showFolderPicker) {
+            FolderPickerSheet(
+                title: "Adicionar a pasta",
+                emptyMessage: "Crie uma pasta para organizar este item.",
+                folders: model.folders.filter { folder in
+                    !itemFolders.contains(where: { $0.id == folder.id })
+                },
+                allowsCreate: true
+            ) { folder in
+                if let message = model.addItem(item, to: folder) {
+                    errorMessage = message
+                } else {
+                    loadFolders()
+                    showFolderPicker = false
+                }
+            } onCreate: { name in
+                let result = model.createFolder(name: name)
+                guard let folder = result.0 else {
+                    errorMessage = result.1
+                    return result.1
+                }
+                if let message = model.addItem(item, to: folder) {
+                    errorMessage = message
+                    return message
+                }
+                loadFolders()
+                showFolderPicker = false
+                return nil
+            }
+        }
         .confirmationDialog(
             "Excluir este item?",
             isPresented: $showDeleteConfirmation,
@@ -743,6 +1072,14 @@ struct ItemDetailSheet: View {
             errorMessage = message
         } else {
             dismiss()
+        }
+    }
+
+    private func loadFolders() {
+        let result = model.foldersForItem(item)
+        itemFolders = result.0
+        if let message = result.1 {
+            errorMessage = message
         }
     }
 }
@@ -782,6 +1119,83 @@ struct TagLine: View {
                 .font(.caption)
                 .foregroundStyle(.tertiary)
                 .lineLimit(2)
+        }
+    }
+}
+
+struct FolderChipLine: View {
+    var folders: [Folder]
+    var onRemove: (Folder) -> Void
+
+    var body: some View {
+        if folders.isEmpty {
+            Text("Nenhuma pasta")
+                .font(.callout)
+                .foregroundStyle(.secondary)
+        } else {
+            FlowLayout(spacing: 8) {
+                ForEach(folders) { folder in
+                    Button {
+                        onRemove(folder)
+                    } label: {
+                        HStack(spacing: 6) {
+                            Image(systemName: "folder")
+                            Text(folder.name)
+                                .lineLimit(1)
+                            Image(systemName: "xmark")
+                                .font(.caption2)
+                        }
+                        .font(.caption)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 5)
+                        .background(.quaternary, in: Capsule())
+                    }
+                    .buttonStyle(.plain)
+                    .help("Remover desta pasta")
+                }
+            }
+        }
+    }
+}
+
+struct FlowLayout: Layout {
+    var spacing: CGFloat = 8
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let maxWidth = proposal.width ?? 480
+        var x: CGFloat = 0
+        var y: CGFloat = 0
+        var rowHeight: CGFloat = 0
+
+        for subview in subviews {
+            let size = subview.sizeThatFits(.unspecified)
+            if x > 0, x + size.width > maxWidth {
+                x = 0
+                y += rowHeight + spacing
+                rowHeight = 0
+            }
+            x += size.width + spacing
+            rowHeight = max(rowHeight, size.height)
+        }
+
+        return CGSize(width: maxWidth, height: y + rowHeight)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        var x = bounds.minX
+        var y = bounds.minY
+        var rowHeight: CGFloat = 0
+
+        for subview in subviews {
+            let size = subview.sizeThatFits(.unspecified)
+            if x > bounds.minX, x + size.width > bounds.maxX {
+                x = bounds.minX
+                y += rowHeight + spacing
+                rowHeight = 0
+            }
+            subview.place(at: CGPoint(x: x, y: y), proposal: ProposedViewSize(size))
+            x += size.width + spacing
+            rowHeight = max(rowHeight, size.height)
         }
     }
 }

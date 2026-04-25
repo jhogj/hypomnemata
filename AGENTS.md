@@ -20,9 +20,9 @@
 ## Status atual
 
 - **Onda**: 1 (MVP), 2, 3 entregues. Onda 4 (busca semântica) adiada. Onda 5 (Polimento) em andamento.
-- **Rewrite nativo**: Sprint 0, Sprint 1, Sprint 2, Sprint 3 e Sprint 4.1 entregues em 2026-04-25.
-- **Última sessão**: 2026-04-25 — Sprint 4.1: contratos nativos de pastas, links e backlinks.
-- **Próxima tarefa**: Sprint 4.2 — UI de pastas e operações de organização. Timeline segue como ideia aprovada para o app legado/web.
+- **Rewrite nativo**: Sprint 0, Sprint 1, Sprint 2, Sprint 3, Sprint 4.1 e Sprint 4.2 entregues em 2026-04-25.
+- **Última sessão**: 2026-04-25 — Sprint 4.2: UI de pastas e operações de organização.
+- **Próxima tarefa**: Sprint 4.3 — Zettelkasten no detalhe: links clicáveis/autocomplete básico e backlinks. Timeline segue como ideia aprovada para o app legado/web.
 
 ### Deps externas necessárias (além do `uv sync`)
 | Ferramenta | Uso | Instalação |
@@ -322,6 +322,22 @@ python3.12 -m mlx_lm server --model mlx-community/gemma-4-e2b-it-4bit --port 808
   - `swift run --disable-sandbox HypomnemataNativeChecks` — passou.
   - `swift build --disable-sandbox --product HypomnemataMacApp` — passou.
 - **Status**: Sprint 4.1 concluída. Próxima rodada: Sprint 4.2 — UI de pastas e operações.
+
+### 2026-04-25 — Sprint 4.2: UI de pastas e operações
+- **Implementado em `AppModel`**:
+  - wrappers de UI para `createFolder`, `renameFolder`, `deleteFolder`, `addSelectedItems(to:)`, `foldersForItem(_:)`, `addItem(_:to:)` e `removeItem(_:from:)`;
+  - operações atualizam sidebar/biblioteca e preservam auto-lock de atividade.
+- **Implementado em SwiftUI**:
+  - seção "Pastas" sempre visível na sidebar, com botão `+` para criar pasta;
+  - menu contextual de pasta com "Renomear" e "Excluir";
+  - sheets reutilizáveis `FolderNameSheet` e `FolderPickerSheet`;
+  - toolbar de seleção ganhou "Adicionar à pasta", com criação de pasta inline quando necessário;
+  - detalhe do item mostra chips de pastas, permite adicionar a pasta e remover item de uma pasta;
+  - `FlowLayout` simples para chips de pasta no detalhe.
+- **Validação rodada**:
+  - `swift build --disable-sandbox --product HypomnemataMacApp` — passou.
+  - `swift run --disable-sandbox HypomnemataNativeChecks` — passou.
+- **Status**: Sprint 4.2 concluída. Próxima rodada: Sprint 4.3 — links clicáveis/autocomplete básico e backlinks no detalhe.
 
 ### 2026-04-21 — Bun não instalado; usando npm por ora
 - Decisão 9 (`bun`) permanece, mas no momento da primeira sessão o `bun` não estava instalado no sistema (só `npm 11.12.1` e `node 25.9.0`).
