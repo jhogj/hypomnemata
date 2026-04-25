@@ -71,6 +71,9 @@ public protocol ItemRepository: Sendable {
     func removeItems(_ itemIDs: [String], fromFolder folderID: String) throws
     func linkedItems(from itemID: String) throws -> [ItemSummary]
     func backlinks(to itemID: String) throws -> [ItemSummary]
+    func chatHistory(forItemID itemID: String) throws -> [ChatMessage]
+    func appendChatMessage(_ message: ChatMessage) throws
+    func clearChatHistory(forItemID itemID: String) throws
 }
 
 public final class SQLiteItemRepository: ItemRepository, @unchecked Sendable {
@@ -525,6 +528,48 @@ public final class SQLiteItemRepository: ItemRepository, @unchecked Sendable {
         }
     }
 
+    public func chatHistory(forItemID itemID: String) throws -> [ChatMessage] {
+        try database.writer.read { db in
+            try Row.fetchAll(
+                db,
+                sql: """
+                    SELECT id, item_id, role, content, created_at
+                    FROM chat_messages
+                    WHERE item_id = ?
+                    ORDER BY created_at, id
+                    """,
+                arguments: [itemID]
+            ).compactMap(Self.chatMessage(from:))
+        }
+    }
+
+    public func appendChatMessage(_ message: ChatMessage) throws {
+        try database.writer.write { db in
+            try db.execute(
+                sql: """
+                    INSERT INTO chat_messages(id, item_id, role, content, created_at)
+                    VALUES (?, ?, ?, ?, ?)
+                    """,
+                arguments: [
+                    message.id,
+                    message.itemID,
+                    message.role.rawValue,
+                    message.content,
+                    message.createdAt,
+                ]
+            )
+        }
+    }
+
+    public func clearChatHistory(forItemID itemID: String) throws {
+        try database.writer.write { db in
+            try db.execute(
+                sql: "DELETE FROM chat_messages WHERE item_id = ?",
+                arguments: [itemID]
+            )
+        }
+    }
+
     public func backlinks(to itemID: String) throws -> [ItemSummary] {
         try database.writer.read { db in
             try Row.fetchAll(
@@ -687,6 +732,19 @@ public final class SQLiteItemRepository: ItemRepository, @unchecked Sendable {
             durationSeconds: row["duration_seconds"],
             width: row["width"],
             height: row["height"],
+            createdAt: row["created_at"]
+        )
+    }
+
+    private static func chatMessage(from row: Row) -> ChatMessage? {
+        guard let role = ChatMessage.Role(rawValue: row["role"]) else {
+            return nil
+        }
+        return ChatMessage(
+            id: row["id"],
+            itemID: row["item_id"],
+            role: role,
+            content: row["content"],
             createdAt: row["created_at"]
         )
     }

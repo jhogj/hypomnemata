@@ -1111,6 +1111,12 @@ struct ItemDetailSheet: View {
     @State private var showDeleteConfirmation = false
     @State private var itemJobs: [Job] = []
     @State private var jobRefreshTimer: Timer?
+    @State private var chatMode = false
+    @State private var chatMessages: [ChatMessage] = []
+    @State private var chatInput = ""
+    @State private var chatStreamingText = ""
+    @State private var chatBusy = false
+    @State private var showClearChatConfirmation = false
 
     init(item: Item) {
         self.item = item
@@ -1126,20 +1132,155 @@ struct ItemDetailSheet: View {
             HStack(spacing: 10) {
                 KindIcon(kind: item.kind)
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("Detalhe")
+                    Text(chatMode ? "Chat com documento" : "Detalhe")
                         .font(.title2.bold())
                     Text(item.id)
                         .font(.caption.monospaced())
                         .foregroundStyle(.secondary)
                 }
                 Spacer()
+                if model.chatAvailable(for: item) {
+                    Button {
+                        toggleChatMode()
+                    } label: {
+                        Label(
+                            chatMode ? "Voltar à edição" : "Chat com documento",
+                            systemImage: chatMode ? "doc.text" : "bubble.left.and.bubble.right"
+                        )
+                        .labelStyle(.iconOnly)
+                    }
+                    .help(chatMode ? "Voltar à edição" : "Chat com documento")
+                    .buttonStyle(.borderless)
+                    .controlSize(.large)
+                }
             }
             .padding([.horizontal, .top], 22)
             .padding(.bottom, 14)
 
             Divider()
 
-            ScrollView {
+            if chatMode {
+                ChatPanel(
+                    messages: chatMessages,
+                    streamingText: chatStreamingText,
+                    input: $chatInput,
+                    busy: chatBusy,
+                    onSend: { sendChatMessage() },
+                    onClear: { showClearChatConfirmation = true }
+                )
+            } else {
+                detailScrollView
+            }
+
+            Divider()
+
+            HStack {
+                Button(role: .destructive) {
+                    showDeleteConfirmation = true
+                } label: {
+                    Label("Excluir", systemImage: "trash")
+                }
+
+                Spacer()
+
+                Button("Fechar") {
+                    dismiss()
+                }
+                if !chatMode {
+                    Button {
+                        save()
+                    } label: {
+                        Label("Salvar", systemImage: "checkmark")
+                    }
+                    .keyboardShortcut(.defaultAction)
+                }
+            }
+            .padding(16)
+        }
+        .frame(width: 680, height: 640)
+        .onAppear {
+            detailVideoStartTime = model.consumeDetailVideoStartTime(for: item)
+            loadOrganization()
+            loadChatHistory()
+            startJobRefreshIfNeeded()
+        }
+        .onDisappear {
+            stopJobRefresh()
+        }
+        .onChange(of: itemJobs) { _, jobs in
+            if jobs.contains(where: { $0.status == .running || $0.status == .pending }) {
+                startJobRefreshIfNeeded()
+            } else {
+                stopJobRefresh()
+            }
+        }
+        .onChange(of: model.runningJobIDs) { _, _ in
+            loadJobs()
+        }
+        .confirmationDialog(
+            "Limpar a conversa deste item?",
+            isPresented: $showClearChatConfirmation,
+            titleVisibility: .visible
+        ) {
+            Button("Limpar", role: .destructive) {
+                clearChat()
+            }
+            Button("Cancelar", role: .cancel) {}
+        } message: {
+            Text("Todas as mensagens trocadas serão removidas.")
+        }
+        .sheet(isPresented: $showFolderPicker) {
+            FolderPickerSheet(
+                title: "Adicionar a pasta",
+                emptyMessage: "Crie uma pasta para organizar este item.",
+                folders: model.folders.filter { folder in
+                    !itemFolders.contains(where: { $0.id == folder.id })
+                },
+                allowsCreate: true
+            ) { folder in
+                if let message = model.addItem(item, to: folder) {
+                    errorMessage = message
+                } else {
+                    loadFolders()
+                    showFolderPicker = false
+                }
+            } onCreate: { name in
+                let result = model.createFolder(name: name)
+                guard let folder = result.0 else {
+                    errorMessage = result.1
+                    return result.1
+                }
+                if let message = model.addItem(item, to: folder) {
+                    errorMessage = message
+                    return message
+                }
+                loadFolders()
+                showFolderPicker = false
+                return nil
+            }
+        }
+        .sheet(item: $linkPickerTarget) { target in
+            LinkPickerSheet(currentItemID: item.id) { summary in
+                insertLink(to: summary, target: target)
+                linkPickerTarget = nil
+            }
+        }
+        .confirmationDialog(
+            "Excluir este item?",
+            isPresented: $showDeleteConfirmation,
+            titleVisibility: .visible
+        ) {
+            Button("Excluir", role: .destructive) {
+                delete()
+            }
+            Button("Cancelar", role: .cancel) {}
+        } message: {
+            Text("Esta ação remove o item da biblioteca.")
+        }
+    }
+
+    private var detailScrollView: some View {
+        ScrollView {
                 VStack(alignment: .leading, spacing: 14) {
                     if !assetPreviews.isEmpty {
                         AssetPreviewPanel(
@@ -1279,97 +1420,6 @@ struct ItemDetailSheet: View {
                 }
                 .padding(22)
             }
-
-            Divider()
-
-            HStack {
-                Button(role: .destructive) {
-                    showDeleteConfirmation = true
-                } label: {
-                    Label("Excluir", systemImage: "trash")
-                }
-
-                Spacer()
-
-                Button("Cancelar") {
-                    dismiss()
-                }
-                Button {
-                    save()
-                } label: {
-                    Label("Salvar", systemImage: "checkmark")
-                }
-                .keyboardShortcut(.defaultAction)
-            }
-            .padding(16)
-        }
-        .frame(width: 680, height: 640)
-        .onAppear {
-            detailVideoStartTime = model.consumeDetailVideoStartTime(for: item)
-            loadOrganization()
-            startJobRefreshIfNeeded()
-        }
-        .onDisappear {
-            stopJobRefresh()
-        }
-        .onChange(of: itemJobs) { _, jobs in
-            if jobs.contains(where: { $0.status == .running || $0.status == .pending }) {
-                startJobRefreshIfNeeded()
-            } else {
-                stopJobRefresh()
-            }
-        }
-        .onChange(of: model.runningJobIDs) { _, _ in
-            loadJobs()
-        }
-        .sheet(isPresented: $showFolderPicker) {
-            FolderPickerSheet(
-                title: "Adicionar a pasta",
-                emptyMessage: "Crie uma pasta para organizar este item.",
-                folders: model.folders.filter { folder in
-                    !itemFolders.contains(where: { $0.id == folder.id })
-                },
-                allowsCreate: true
-            ) { folder in
-                if let message = model.addItem(item, to: folder) {
-                    errorMessage = message
-                } else {
-                    loadFolders()
-                    showFolderPicker = false
-                }
-            } onCreate: { name in
-                let result = model.createFolder(name: name)
-                guard let folder = result.0 else {
-                    errorMessage = result.1
-                    return result.1
-                }
-                if let message = model.addItem(item, to: folder) {
-                    errorMessage = message
-                    return message
-                }
-                loadFolders()
-                showFolderPicker = false
-                return nil
-            }
-        }
-        .sheet(item: $linkPickerTarget) { target in
-            LinkPickerSheet(currentItemID: item.id) { summary in
-                insertLink(to: summary, target: target)
-                linkPickerTarget = nil
-            }
-        }
-        .confirmationDialog(
-            "Excluir este item?",
-            isPresented: $showDeleteConfirmation,
-            titleVisibility: .visible
-        ) {
-            Button("Excluir", role: .destructive) {
-                delete()
-            }
-            Button("Cancelar", role: .cancel) {}
-        } message: {
-            Text("Esta ação remove o item da biblioteca.")
-        }
     }
 
     private func save() {
@@ -1473,6 +1523,51 @@ struct ItemDetailSheet: View {
         startJobRefreshIfNeeded()
     }
 
+    private func toggleChatMode() {
+        chatMode.toggle()
+        if chatMode {
+            loadChatHistory()
+        }
+    }
+
+    private func loadChatHistory() {
+        let result = model.chatHistory(for: item)
+        chatMessages = result.0
+        if let message = result.1 {
+            errorMessage = message
+        }
+    }
+
+    private func sendChatMessage() {
+        let trimmed = chatInput.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, !chatBusy else {
+            return
+        }
+        chatInput = ""
+        chatStreamingText = ""
+        chatBusy = true
+        errorMessage = nil
+        let snapshot = item
+        Task {
+            let message = await model.sendChatMessage(item: snapshot, userContent: trimmed) { chunk in
+                chatStreamingText += chunk
+            }
+            if let message {
+                errorMessage = message
+            }
+            chatStreamingText = ""
+            chatBusy = false
+            loadChatHistory()
+        }
+    }
+
+    private func clearChat() {
+        if let message = model.clearChatHistory(for: item) {
+            errorMessage = message
+        }
+        loadChatHistory()
+    }
+
     private func startJobRefreshIfNeeded() {
         guard jobRefreshTimer == nil else {
             return
@@ -1524,6 +1619,130 @@ enum LinkInsertionTarget: String, Identifiable {
     case bodyText
 
     var id: String { rawValue }
+}
+
+struct ChatPanel: View {
+    var messages: [ChatMessage]
+    var streamingText: String
+    @Binding var input: String
+    var busy: Bool
+    var onSend: () -> Void
+    var onClear: () -> Void
+
+    @State private var cursorVisible = true
+    private let cursorTimer = Timer.publish(every: 0.5, on: .main, in: .common).autoconnect()
+
+    var body: some View {
+        VStack(spacing: 0) {
+            ScrollViewReader { proxy in
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 12) {
+                        if messages.isEmpty && streamingText.isEmpty {
+                            Text("Faça uma pergunta sobre este item. As respostas usam apenas o conteúdo armazenado.")
+                                .font(.callout)
+                                .foregroundStyle(.secondary)
+                                .padding(.top, 12)
+                        }
+                        ForEach(messages) { message in
+                            ChatBubble(role: message.role, content: message.content)
+                                .id(message.id)
+                        }
+                        if !streamingText.isEmpty || busy {
+                            ChatBubble(
+                                role: .assistant,
+                                content: displayedStreamingText
+                            )
+                            .id("streaming")
+                        }
+                    }
+                    .padding(.horizontal, 22)
+                    .padding(.vertical, 16)
+                }
+                .onChange(of: messages.count) { _, _ in
+                    scrollToEnd(proxy)
+                }
+                .onChange(of: streamingText) { _, _ in
+                    scrollToEnd(proxy)
+                }
+            }
+
+            Divider()
+
+            HStack(spacing: 8) {
+                TextField("Pergunte algo sobre o documento", text: $input, axis: .vertical)
+                    .textFieldStyle(.roundedBorder)
+                    .lineLimit(1...4)
+                    .disabled(busy)
+                    .onSubmit { onSend() }
+                Button {
+                    onSend()
+                } label: {
+                    Label("Enviar", systemImage: "paperplane.fill")
+                        .labelStyle(.iconOnly)
+                }
+                .keyboardShortcut(.return)
+                .disabled(busy || input.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                Button(role: .destructive) {
+                    onClear()
+                } label: {
+                    Label("Limpar", systemImage: "trash")
+                        .labelStyle(.iconOnly)
+                }
+                .help("Limpar conversa")
+                .disabled(busy || (messages.isEmpty && streamingText.isEmpty))
+            }
+            .padding(12)
+        }
+        .onReceive(cursorTimer) { _ in
+            cursorVisible.toggle()
+        }
+    }
+
+    private var displayedStreamingText: String {
+        if streamingText.isEmpty {
+            return cursorVisible ? "▌" : " "
+        }
+        return streamingText + (cursorVisible ? "▌" : " ")
+    }
+
+    private func scrollToEnd(_ proxy: ScrollViewProxy) {
+        if !streamingText.isEmpty || busy {
+            proxy.scrollTo("streaming", anchor: .bottom)
+        } else if let last = messages.last {
+            proxy.scrollTo(last.id, anchor: .bottom)
+        }
+    }
+}
+
+struct ChatBubble: View {
+    var role: ChatMessage.Role
+    var content: String
+
+    var body: some View {
+        HStack(alignment: .top) {
+            if role == .user {
+                Spacer(minLength: 40)
+            }
+            VStack(alignment: .leading, spacing: 4) {
+                Text(role == .user ? "Você" : "Assistente")
+                    .font(.caption2.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                Text(content)
+                    .font(.callout)
+                    .textSelection(.enabled)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 10)
+            .background(
+                RoundedRectangle(cornerRadius: 10)
+                    .fill(role == .user ? Color.accentColor.opacity(0.18) : Color.gray.opacity(0.18))
+            )
+            if role == .assistant {
+                Spacer(minLength: 40)
+            }
+        }
+    }
 }
 
 struct JobStatusList: View {

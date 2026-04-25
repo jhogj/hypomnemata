@@ -2,7 +2,7 @@
 
 This is the native macOS rewrite track for Hypomnemata.
 
-Current status: Sprint 6 of the native rewrite is complete. The existing
+Current status: Sprint 7.2 of the native rewrite is complete. The existing
 FastAPI/React app remains untouched and can keep serving as behavioral
 reference while the native app is built out.
 
@@ -48,6 +48,9 @@ reference while the native app is built out.
 - Manual retry of failed AI jobs from the detail sheet, incrementing `attempts`
 - Detail sheet exposes per-job status with colored indicators (`pending`/`running`/`done`/`failed`) and inline retry
 - LLM settings (URL / model / context limit) persisted inside the SQLCipher vault, with vault > env > default precedence resolved per field
+- Persistent chat with the document via the `chat_messages` table, available when the item has at least 300 characters of body text
+- `ItemChatService` builds a Portuguese-grounded system prompt that limits replies to the stored content and reuses existing message history
+- Detail sheet exposes a chat toggle with streaming bubbles, blinking cursor, auto-scroll, and a destructive "clear conversation" action
 
 ## External commands expected in product builds
 
@@ -74,7 +77,10 @@ scenario, recoverable job failures for missing dependencies, `JobAutomation`
 running summary/autotag with the IA fake client (including conservative
 autotag and `unsupportedJobKind` for subprocess-backed jobs), job retry via
 `incrementJobAttempts` + status reset, vault-backed LLM settings round-trip
-plus vault-vs-env-vs-default precedence, temporary cache cleanup, SQLCipher
+plus vault-vs-env-vs-default precedence, `ItemChatService` streaming with
+the system prompt grounding, history replay and rejection of empty content
+or items below the 300-character threshold, plus `chat_messages`
+append/history/clear and `ON DELETE CASCADE` from the item, temporary cache cleanup, SQLCipher
 rekey, old-passphrase rejection, and then verifies that system `sqlite3`
 cannot read the vault. The app path
 requires SQLCipher by default and fails closed when it is unavailable.
@@ -111,6 +117,6 @@ its Info.plist during packaging so macOS exposes it in the Services/Share UI.
 - Sprint 6: complete as of 2026-04-25.
 - Sprint 7 plan:
   - 7.1: complete as of 2026-04-25. `LLMSettingsStore` persists overrides inside the SQLCipher vault; `LLMConfiguration.resolve(overrides:env:)` resolves URL/model/context limit independently with vault > env > default precedence; "IA local" section in Settings with save/clear and validation.
-  - 7.2: persistent chat with the document (`chat_messages` table + detail UI + streaming).
+  - 7.2: complete as of 2026-04-25. `ItemChatService` streams replies grounded in the stored content; `chat_messages` table-backed history exposed by the repository; detail sheet toggle with streaming bubbles, cursor, auto-scroll and clear-conversation.
   - 7.3: streaming summary in the detail sheet.
-- Next step: Sprint 7.2.
+- Next step: Sprint 7.3.

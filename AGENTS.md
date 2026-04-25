@@ -20,9 +20,9 @@
 ## Status atual
 
 - **App legado** (FastAPI/React): Ondas 1, 2, 3 entregues. Onda 4 adiada. Ver `CLAUDE.md` para detalhes.
-- **Rewrite nativo**: Sprints 0–6 + 7.1 concluídas em 2026-04-25.
-- **Última sessão**: 2026-04-25 — Sprint 7.1: settings de IA persistidas no vault, com prioridade `vault > env > default`.
-- **Próxima tarefa**: Sprint 7.2 — chat persistente com documento (tabela `chat_messages` + UI no detalhe + streaming).
+- **Rewrite nativo**: Sprints 0–6 + 7.1 + 7.2 concluídas em 2026-04-25.
+- **Última sessão**: 2026-04-25 — Sprint 7.2: chat persistente com documento (tabela `chat_messages` + `ItemChatService` + UI no detalhe com streaming).
+- **Próxima tarefa**: Sprint 7.3 — streaming do resumo na sheet de detalhe.
 
 ### Comandos (nativo)
 
@@ -48,7 +48,8 @@ CLANG_MODULE_CACHE_PATH=/tmp/hypo-clang-cache SWIFTPM_HOME=/tmp/hypo-swiftpm-cac
 | 6.2 | IA funcional: resumo (`summarize`), autotags conservadoras (preserva tags existentes), campo editável no detalhe |
 | 6.3 | Automação: `JobAutomation` roda `summarize`/`autotag` em background pós-captura; autotag automático só se `tags.isEmpty`; retry manual de jobs falhos; seção "Tarefas" no detalhe com status colorido |
 | 7.1 | Settings de IA: `LLMSettingsStore` no vault SQLCipher; `LLMConfiguration.resolve(overrides:env:)` em camadas (vault > env > default); UI em "IA local" com salvar/limpar e validação |
-| **7.2** | **Próximo**: chat persistente com documento (tabela `chat_messages` + UI no detalhe + streaming) |
+| 7.2 | Chat com documento: `ItemChatService` (gate de 300 chars + system prompt em pt), métodos `chatHistory/appendChatMessage/clearChatHistory` no repositório, `AppModel.sendChatMessage` com streaming, painel de chat no detalhe com bubbles, cursor piscante e limpar conversa |
+| **7.3** | **Próximo**: streaming do resumo na sheet de detalhe |
 
 ---
 
@@ -86,6 +87,13 @@ CLANG_MODULE_CACHE_PATH=/tmp/hypo-clang-cache SWIFTPM_HOME=/tmp/hypo-swiftpm-cac
 - **Prioridade**: `LLMConfiguration.resolve(overrides:env:)` resolve campo por campo — vault > env > default. Vault é fonte de verdade do app; env vira fallback global do shell.
 - **Validação**: `saveLLMSettings` chama `resolve(...)` antes de gravar; URL/modelo/limite inválidos não são persistidos.
 - **UI**: nova seção "IA local" em `SettingsView` com placeholders mostrando o valor atualmente em uso (env ou default), botões salvar/limpar overrides, e linha de resumo "Em uso: <url> · <modelo> · <limite>".
+
+### 2026-04-25 — Chat persistente com documento (Sprint 7.2)
+- **Decisão**: `ItemChatService` (módulo `HypomnemataAI`) monta system prompt em português que restringe a resposta ao conteúdo do item; histórico vai para a tabela `chat_messages` (já existente desde Sprint 0) via `appendChatMessage`/`chatHistory`/`clearChatHistory` no `ItemRepository`.
+- **Gate de disponibilidade**: chat só aparece quando `bodyText` tem ≥ 300 caracteres (`ItemChatService.isAvailable(for:)`). `LLMClientError.emptyContent` é lançado para mensagem em branco ou item sem conteúdo suficiente — UI nem inicia o stream.
+- **Streaming**: `AppModel.sendChatMessage(item:userContent:onChunk:)` resolve a configuração de IA pela mesma camada do Sprint 7.1 (`LLMConfiguration.resolve(overrides:env:)`), persiste a mensagem do usuário antes do stream e a resposta final só depois de coletada (resposta vazia vira erro recuperável e não polui o histórico).
+- **UI**: botão de toggle no header do detalhe (visível só quando o chat está disponível); `ChatPanel` com bubbles distintas para usuário/assistente, cursor piscante durante streaming, scroll-to-end automático, confirmação de limpeza e desabilitação de envio enquanto há resposta em andamento. O botão "Salvar" some no modo chat para evitar gravar nota acidentalmente.
+- **Cascade**: delete do item remove `chat_messages` via `ON DELETE CASCADE` (validado nos checks).
 
 ### 2026-04-25 — Automação de jobs (Sprint 6.3)
 - **Decisão**: `JobAutomation` roda apenas `summarize` e `autotag` por enquanto. `scrapeArticle`/`downloadMedia`/`generateThumbnail` continuam sendo criados como `pending` (ou `failed` se faltar binário) mas ficam aguardando o runner de Sprint 7+.

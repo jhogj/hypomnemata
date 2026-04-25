@@ -1047,6 +1047,114 @@ final class AppModel: ObservableObject {
         }
     }
 
+    func chatAvailable(for item: Item) -> Bool {
+        ItemChatService.isAvailable(for: item)
+    }
+
+    func chatHistory(for item: Item) -> ([ChatMessage], String?) {
+        guard let repository else {
+            return ([], "Vault não está desbloqueado.")
+        }
+        do {
+            return (try repository.chatHistory(forItemID: item.id), nil)
+        } catch {
+            return ([], error.localizedDescription)
+        }
+    }
+
+    func clearChatHistory(for item: Item) -> String? {
+        guard let repository else {
+            return "Vault não está desbloqueado."
+        }
+        do {
+            try repository.clearChatHistory(forItemID: item.id)
+            recordUserActivity()
+            return nil
+        } catch {
+            return error.localizedDescription
+        }
+    }
+
+    func sendChatMessage(
+        item: Item,
+        userContent: String,
+        onChunk: @escaping @MainActor (String) -> Void
+    ) async -> String? {
+        guard let repository else {
+            return "Vault não está desbloqueado."
+        }
+        let trimmed = userContent.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            return "Digite uma mensagem antes de enviar."
+        }
+
+        let snapshot: Item
+        let history: [ChatMessage]
+        do {
+            snapshot = try repository.item(id: item.id)
+            history = try repository.chatHistory(forItemID: item.id)
+        } catch {
+            return error.localizedDescription
+        }
+
+        let userMessage = ChatMessage(
+            itemID: item.id,
+            role: .user,
+            content: trimmed
+        )
+        do {
+            try repository.appendChatMessage(userMessage)
+        } catch {
+            return error.localizedDescription
+        }
+
+        let configuration: LLMConfiguration
+        let service: ItemChatService
+        do {
+            configuration = try LLMConfiguration.resolve(overrides: currentLLMOverrides())
+            service = ItemChatService(
+                client: OpenAICompatibleClient(configuration: configuration),
+                configuration: configuration
+            )
+        } catch {
+            return LLMRecoverableErrorMapper().jobErrorMessage(for: error)
+        }
+
+        let conversation = ItemChatService.Conversation(
+            item: snapshot,
+            history: history,
+            newUserMessage: trimmed
+        )
+
+        var collected = ""
+        do {
+            let stream = try service.streamReply(conversation)
+            for try await chunk in stream {
+                collected += chunk
+                onChunk(chunk)
+            }
+        } catch {
+            return LLMRecoverableErrorMapper().jobErrorMessage(for: error)
+        }
+
+        let finalAnswer = collected.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !finalAnswer.isEmpty else {
+            return "Resposta vazia do provider de IA."
+        }
+        let assistantMessage = ChatMessage(
+            itemID: item.id,
+            role: .assistant,
+            content: finalAnswer
+        )
+        do {
+            try repository.appendChatMessage(assistantMessage)
+        } catch {
+            return error.localizedDescription
+        }
+        recordUserActivity()
+        return nil
+    }
+
     private func refreshSidebarData() {
         guard let repository else {
             return

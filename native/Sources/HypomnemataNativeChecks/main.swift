@@ -292,6 +292,62 @@ struct HypomnemataNativeChecks {
         } catch LLMConfigurationError.invalidContextLimit {
             // Expected.
         }
+
+        let longBody = String(repeating: "Documento histórico relevante. ", count: 30)
+        let chatItem = Item(
+            kind: .article,
+            title: "História antiga",
+            bodyText: longBody,
+            tags: []
+        )
+        precondition(ItemChatService.isAvailable(for: chatItem))
+        precondition(!ItemChatService.isAvailable(for: Item(kind: .note, bodyText: "curto", tags: [])))
+
+        let chatClient = FakeLLMClient(response: "Resposta baseada no documento.")
+        let chatService = ItemChatService(client: chatClient, configuration: configured)
+        let conversation = ItemChatService.Conversation(
+            item: chatItem,
+            history: [
+                ChatMessage(itemID: chatItem.id, role: .user, content: "Olá?"),
+                ChatMessage(itemID: chatItem.id, role: .assistant, content: "Olá! Em que posso ajudar?"),
+            ],
+            newUserMessage: "Quem escreveu o documento?"
+        )
+        let stream = try chatService.streamReply(conversation)
+        var collected = ""
+        for try await chunk in stream {
+            collected += chunk
+        }
+        precondition(collected == "Resposta baseada no documento.")
+        let lastMessages = chatClient.lastMessages ?? []
+        precondition(lastMessages.first?.role == "system")
+        precondition(lastMessages.first?.content.contains("História antiga") == true)
+        precondition(lastMessages.contains(where: { $0.role == "user" && $0.content == "Olá?" }))
+        precondition(lastMessages.contains(where: { $0.role == "assistant" && $0.content.contains("Em que posso ajudar") }))
+        precondition(lastMessages.last?.role == "user")
+        precondition(lastMessages.last?.content == "Quem escreveu o documento?")
+
+        do {
+            _ = try chatService.streamReply(ItemChatService.Conversation(
+                item: chatItem,
+                history: [],
+                newUserMessage: "  "
+            ))
+            preconditionFailure("Mensagem vazia não deveria abrir streaming.")
+        } catch LLMClientError.emptyContent {
+            // Expected: pergunta vazia é rejeitada.
+        }
+
+        do {
+            _ = try chatService.streamReply(ItemChatService.Conversation(
+                item: Item(kind: .note, bodyText: "curto", tags: []),
+                history: [],
+                newUserMessage: "Pergunta válida"
+            ))
+            preconditionFailure("Item sem conteúdo suficiente não deveria liberar chat.")
+        } catch LLMClientError.emptyContent {
+            // Expected: chat exige bodyText >= 300 chars.
+        }
     }
 
     private static func checkData() throws {
@@ -463,6 +519,52 @@ struct HypomnemataNativeChecks {
         try llmSettings.clear()
         let cleared = try llmSettings.read()
         precondition(cleared.isEmpty)
+
+        let chatTime0 = ClockTimestamp.nowISO8601()
+        try repository.appendChatMessage(ChatMessage(
+            id: "chat-1",
+            itemID: article.id,
+            role: .user,
+            content: "Sobre o que é o item?",
+            createdAt: chatTime0
+        ))
+        try repository.appendChatMessage(ChatMessage(
+            id: "chat-2",
+            itemID: article.id,
+            role: .assistant,
+            content: "Ele trata da Academia de Platão.",
+            createdAt: ClockTimestamp.nowISO8601()
+        ))
+        let chatHistoryArticle = try repository.chatHistory(forItemID: article.id)
+        precondition(chatHistoryArticle.count == 2)
+        precondition(chatHistoryArticle[0].id == "chat-1")
+        precondition(chatHistoryArticle[0].role == .user)
+        precondition(chatHistoryArticle[1].role == .assistant)
+        let bookmarkChatHistory = try repository.chatHistory(forItemID: bookmark.id)
+        precondition(bookmarkChatHistory.isEmpty)
+
+        try repository.clearChatHistory(forItemID: article.id)
+        let clearedChatHistory = try repository.chatHistory(forItemID: article.id)
+        precondition(clearedChatHistory.isEmpty)
+
+        let chatCascadeItem = try repository.createItem(
+            kind: .article,
+            sourceURL: nil,
+            title: "Cascade chat",
+            note: nil,
+            bodyText: nil,
+            tags: []
+        )
+        try repository.appendChatMessage(ChatMessage(
+            itemID: chatCascadeItem.id,
+            role: .user,
+            content: "ping"
+        ))
+        let chatCascadeBefore = try repository.chatHistory(forItemID: chatCascadeItem.id)
+        precondition(chatCascadeBefore.count == 1)
+        try repository.deleteItems(ids: [chatCascadeItem.id])
+        let chatCascadeAfter = try repository.chatHistory(forItemID: chatCascadeItem.id)
+        precondition(chatCascadeAfter.isEmpty)
 
         let cascadeJobItem = try repository.createItem(
             kind: .article,
