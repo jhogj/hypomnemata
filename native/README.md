@@ -98,6 +98,6 @@ its Info.plist during packaging so macOS exposes it in the Services/Share UI.
 - Sprint 5: complete as of 2026-04-25.
 - Sprint 6 plan:
   - 6.1: complete as of 2026-04-25. LLM contracts and infrastructure, with fake-client checks and no required live network call.
-  - 6.2: item summary and autotags.
+  - 6.2: complete as of 2026-04-25. Item summary and autotags in the detail sheet.
   - 6.3: capture/job automation, retry/reprocess controls, final checks.
-- Next step: Sprint 6.2.
+- Next step: Sprint 6.3.

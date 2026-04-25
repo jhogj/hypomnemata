@@ -152,6 +152,21 @@ struct HypomnemataNativeChecks {
         let message = mapper.jobErrorMessage(for: LLMClientError.providerStatus(503))
         precondition(message.contains("Falha recuperável de IA"))
         precondition(message.contains("HTTP 503"))
+
+        let summaryClient = FakeLLMClient(response: "Resumo controlado")
+        let summaryService = ItemAIService(client: summaryClient, configuration: configured)
+        let generatedSummary = try await summaryService.summarize(context: context)
+        precondition(generatedSummary == "Resumo controlado")
+        precondition(summaryClient.lastMessages?.first?.role == "system")
+        precondition(summaryClient.lastMessages?.last?.content.contains("abcabc") == true)
+
+        let tagClient = FakeLLMClient(response: #"["Filosofia", "Leitura", "dev"]"#)
+        let tagService = ItemAIService(client: tagClient, configuration: configured)
+        let generatedTags = try await tagService.autotags(context: context, existingTags: ["Dev"])
+        precondition(generatedTags == ["dev", "filosofia", "leitura"])
+
+        let looseTags = ItemAIService.normalizedTags(from: " #Swift,\nIA local, swift ", existingTags: ["Mac"])
+        precondition(looseTags == ["mac", "swift", "ia local"])
     }
 
     private static func checkData() throws {

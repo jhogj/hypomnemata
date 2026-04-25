@@ -22,7 +22,7 @@
 - **Onda**: 1 (MVP), 2, 3 entregues. Onda 4 (busca semântica) adiada. Onda 5 (Polimento) em andamento.
 - **Rewrite nativo**: Sprint 0, Sprint 1, Sprint 2, Sprint 3, Sprint 4 e Sprint 5 entregues em 2026-04-25.
 - **Última sessão**: 2026-04-25 — Sprint 5.3: OCR nativo de imagens/PDFs, texto extraído em `bodyText` e asset derivado criptografado.
-- **Próxima tarefa**: Sprint 6.2 — resumo e autotags. Timeline segue como ideia aprovada para o app legado/web.
+- **Próxima tarefa**: Sprint 6.3 — automação, reprocessamento e validação final de IA. Timeline segue como ideia aprovada para o app legado/web.
 
 ### Deps externas necessárias (além do `uv sync`)
 | Ferramenta | Uso | Instalação |
@@ -465,6 +465,29 @@ python3.12 -m mlx_lm server --model mlx-community/gemma-4-e2b-it-4bit --port 808
   - `swift run --disable-sandbox HypomnemataNativeChecks` — passou.
   - `swift build --disable-sandbox --product HypomnemataMacApp` — passou.
 - **Status**: Sprint 6.1 concluída. Próxima rodada: Sprint 6.2 — resumo e autotags.
+
+### 2026-04-25 — Sprint 6.2: resumo e autotags
+- **Implementado em `HypomnemataAI`**:
+  - `ItemAIService.summarize(context:)` monta prompt de resumo em português e usa `LLMClient.complete(...)`;
+  - `ItemAIService.autotags(context:existingTags:)` gera até 8 etiquetas curtas e preserva tags existentes;
+  - parser de tags aceita JSON array e fallback por vírgula/quebra de linha, normalizando para minúsculas e removendo duplicatas.
+- **Implementado em `AppModel`**:
+  - `generateSummary(...)` cria serviço LLM a partir de `HYPO_LLM_*` e retorna erro recuperável quando provider/configuração falha;
+  - `generateAutotags(...)` usa o mesmo caminho e preserva tags existentes em caso de erro;
+  - `saveItem(...)` agora persiste `summary` além de título, nota, texto e tags.
+- **Implementado em SwiftUI**:
+  - detalhe do item ganhou campo editável de resumo;
+  - botão "Gerar resumo" preenche o campo com IA;
+  - botão "Sugerir tags" atualiza o campo de etiquetas;
+  - estado de loading simples evita chamadas simultâneas.
+- **Checks ampliados**:
+  - `HypomnemataNativeChecks` valida resumo com `FakeLLMClient`;
+  - valida autotags via JSON e fallback solto, com deduplicação/preservação de tags existentes;
+  - segue sem depender de servidor LLM real.
+- **Validação rodada**:
+  - `swift run --disable-sandbox HypomnemataNativeChecks` — passou.
+  - `swift build --disable-sandbox --product HypomnemataMacApp` — passou.
+- **Status**: Sprint 6.2 concluída. Próxima rodada: Sprint 6.3 — automação, reprocessamento e validação final.
 
 ### 2026-04-21 — Bun não instalado; usando npm por ora
 - Decisão 9 (`bun`) permanece, mas no momento da primeira sessão o `bun` não estava instalado no sistema (só `npm 11.12.1` e `node 25.9.0`).

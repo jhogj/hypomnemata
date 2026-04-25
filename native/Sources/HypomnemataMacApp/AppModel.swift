@@ -1,5 +1,6 @@
 import AppKit
 import Foundation
+import HypomnemataAI
 import HypomnemataCore
 import HypomnemataData
 import HypomnemataIngestion
@@ -572,6 +573,7 @@ final class AppModel: ObservableObject {
     func saveItem(
         id: String,
         title: String,
+        summary: String,
         note: String,
         bodyText: String,
         tags: [String]
@@ -586,6 +588,7 @@ final class AppModel: ObservableObject {
                     title: title.trimmingCharacters(in: .whitespacesAndNewlines),
                     note: note.trimmingCharacters(in: .whitespacesAndNewlines),
                     bodyText: bodyText.trimmingCharacters(in: .whitespacesAndNewlines),
+                    summary: summary.trimmingCharacters(in: .whitespacesAndNewlines),
                     tags: tags
                 )
             )
@@ -595,6 +598,35 @@ final class AppModel: ObservableObject {
             return nil
         } catch {
             return error.localizedDescription
+        }
+    }
+
+    func generateSummary(title: String, note: String, bodyText: String) async -> (String?, String?) {
+        do {
+            let service = try makeItemAIService()
+            let summary = try await service.summarize(context: LLMItemContext(
+                title: title,
+                note: note,
+                bodyText: bodyText
+            ))
+            recordUserActivity()
+            return (summary, nil)
+        } catch {
+            return (nil, LLMRecoverableErrorMapper().jobErrorMessage(for: error))
+        }
+    }
+
+    func generateAutotags(title: String, note: String, bodyText: String, existingTags: [String]) async -> ([String], String?) {
+        do {
+            let service = try makeItemAIService()
+            let tags = try await service.autotags(
+                context: LLMItemContext(title: title, note: note, bodyText: bodyText),
+                existingTags: existingTags
+            )
+            recordUserActivity()
+            return (tags, nil)
+        } catch {
+            return (existingTags, LLMRecoverableErrorMapper().jobErrorMessage(for: error))
         }
     }
 
@@ -797,6 +829,14 @@ final class AppModel: ObservableObject {
         }
         let data = try JSONSerialization.data(withJSONObject: payload, options: [.sortedKeys])
         return String(data: data, encoding: .utf8)
+    }
+
+    private func makeItemAIService() throws -> ItemAIService {
+        let configuration = try LLMConfiguration.fromEnvironment()
+        return ItemAIService(
+            client: OpenAICompatibleClient(configuration: configuration),
+            configuration: configuration
+        )
     }
 
     private func refreshSidebarData() {

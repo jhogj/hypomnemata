@@ -1094,6 +1094,7 @@ struct ItemDetailSheet: View {
     var item: Item
 
     @State private var title: String
+    @State private var summary: String
     @State private var note: String
     @State private var bodyText: String
     @State private var tags: String
@@ -1106,11 +1107,13 @@ struct ItemDetailSheet: View {
     @State private var showFolderPicker = false
     @State private var linkPickerTarget: LinkInsertionTarget?
     @State private var errorMessage: String?
+    @State private var aiBusy = false
     @State private var showDeleteConfirmation = false
 
     init(item: Item) {
         self.item = item
         _title = State(initialValue: item.title ?? "")
+        _summary = State(initialValue: item.summary ?? "")
         _note = State(initialValue: item.note ?? "")
         _bodyText = State(initialValue: item.bodyText ?? "")
         _tags = State(initialValue: item.tags.joined(separator: ", "))
@@ -1157,6 +1160,27 @@ struct ItemDetailSheet: View {
                     }
 
                     HStack {
+                        DetailFieldLabel("Resumo")
+                        Spacer()
+                        if aiBusy {
+                            ProgressView()
+                                .controlSize(.small)
+                        }
+                        Button {
+                            generateSummary()
+                        } label: {
+                            Label("Gerar resumo", systemImage: "sparkles")
+                        }
+                        .buttonStyle(.borderless)
+                        .disabled(aiBusy)
+                    }
+                    TextEditor(text: $summary)
+                        .frame(minHeight: 90)
+                        .overlay {
+                            RoundedRectangle(cornerRadius: 6).stroke(.quaternary)
+                        }
+
+                    HStack {
                         DetailFieldLabel("Pastas")
                         Spacer()
                         Button {
@@ -1191,8 +1215,17 @@ struct ItemDetailSheet: View {
                     }
 
                     DetailFieldLabel("Etiquetas")
-                    TextField("separadas por vírgula", text: $tags)
-                        .textFieldStyle(.roundedBorder)
+                    HStack(spacing: 8) {
+                        TextField("separadas por vírgula", text: $tags)
+                            .textFieldStyle(.roundedBorder)
+                        Button {
+                            generateAutotags()
+                        } label: {
+                            Label("Sugerir tags", systemImage: "tag")
+                        }
+                        .buttonStyle(.borderless)
+                        .disabled(aiBusy)
+                    }
 
                     HStack {
                         DetailFieldLabel("Nota")
@@ -1314,21 +1347,56 @@ struct ItemDetailSheet: View {
     }
 
     private func save() {
-        let parsedTags = tags
-            .split(separator: ",")
-            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
         if let message = model.saveItem(
             id: item.id,
             title: title,
+            summary: summary,
             note: note,
             bodyText: bodyText,
-            tags: parsedTags
+            tags: parsedTags()
         ) {
             errorMessage = message
         } else {
             loadOrganization()
             dismiss()
         }
+    }
+
+    private func generateSummary() {
+        aiBusy = true
+        errorMessage = nil
+        Task {
+            let result = await model.generateSummary(title: title, note: note, bodyText: bodyText)
+            if let generated = result.0 {
+                summary = generated
+            }
+            errorMessage = result.1
+            aiBusy = false
+        }
+    }
+
+    private func generateAutotags() {
+        aiBusy = true
+        errorMessage = nil
+        let currentTags = parsedTags()
+        Task {
+            let result = await model.generateAutotags(
+                title: title,
+                note: note,
+                bodyText: bodyText,
+                existingTags: currentTags
+            )
+            tags = result.0.joined(separator: ", ")
+            errorMessage = result.1
+            aiBusy = false
+        }
+    }
+
+    private func parsedTags() -> [String] {
+        tags
+            .split(separator: ",")
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
     }
 
     private func delete() {
