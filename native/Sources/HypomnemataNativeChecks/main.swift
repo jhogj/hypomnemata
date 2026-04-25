@@ -156,6 +156,9 @@ struct HypomnemataNativeChecks {
         let message = mapper.jobErrorMessage(for: LLMClientError.providerStatus(503))
         precondition(message.contains("Falha recuperável de IA"))
         precondition(message.contains("HTTP 503"))
+        let ingestionMessage = mapper.jobErrorMessage(for: MediaDownloadError.binaryFailed(exitCode: 1, message: "HTTP 429"))
+        precondition(ingestionMessage.contains("Falha recuperável de ingestão"))
+        precondition(ingestionMessage.contains("HTTP 429"))
 
         let summaryClient = FakeLLMClient(response: "Resumo controlado")
         let summaryService = ItemAIService(client: summaryClient, configuration: configured)
@@ -446,11 +449,14 @@ struct HypomnemataNativeChecks {
                     let json = #"{"title":"Stub Video","duration":12.5,"webpage_url":"https://example.com/watch"}"#
                     return (0, Data(json.utf8), Data())
                 }
+                if args.contains("--skip-download") {
+                    try Data("WEBVTT\n".utf8).write(
+                        to: workingDirectory.appendingPathComponent("Stub Video [abc].pt.vtt")
+                    )
+                    return (0, Data(), Data())
+                }
                 try Data([0x00, 0x00, 0x00, 0x20, 0x66, 0x74, 0x79, 0x70]).write(
                     to: workingDirectory.appendingPathComponent("Stub Video [abc].mp4")
-                )
-                try Data("WEBVTT\n".utf8).write(
-                    to: workingDirectory.appendingPathComponent("Stub Video [abc].pt.vtt")
                 )
                 return (0, Data(), Data())
             }
@@ -463,6 +469,26 @@ struct HypomnemataNativeChecks {
         precondition(downloadedResult.originalFilename == "Stub Video [abc].mp4")
         precondition(downloadedResult.subtitles.count == 1)
         precondition(downloadedResult.subtitles[0].mimeType == "text/vtt; charset=utf-8")
+
+        let mediaSubtitle429 = YTDLPMediaDownloader(
+            ytDLPPath: "/usr/bin/false",
+            runProcess: { _, args, workingDirectory in
+                if args.contains("--dump-json") {
+                    let json = #"{"title":"Video Sem Legenda","duration":9}"#
+                    return (0, Data(json.utf8), Data())
+                }
+                if args.contains("--skip-download") {
+                    return (1, Data(), Data("HTTP Error 429: Too Many Requests".utf8))
+                }
+                try Data([0x00, 0x00, 0x00, 0x20, 0x66, 0x74, 0x79, 0x70]).write(
+                    to: workingDirectory.appendingPathComponent("Video Sem Legenda [xyz].mp4")
+                )
+                return (0, Data(), Data())
+            }
+        )
+        let noSubtitleResult = try await mediaSubtitle429.download(url: "https://example.com/no-subtitle")
+        precondition(noSubtitleResult.originalFilename == "Video Sem Legenda [xyz].mp4")
+        precondition(noSubtitleResult.subtitles.isEmpty)
 
         let mediaFail = YTDLPMediaDownloader(
             ytDLPPath: "/usr/bin/false",

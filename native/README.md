@@ -55,7 +55,7 @@ behavioral reference while the native app is built out.
 - Detail sheet exposes a chat toggle with streaming bubbles, blinking cursor, auto-scroll, and a destructive "clear conversation" action
 - "Gerar resumo" in the detail sheet streams the summary into the field as chunks arrive, sharing the same prompt as the synchronous summarize used by background jobs
 - `scrapeArticle` jobs run through `trafilatura --json --URL`, fall back to WKWebView-rendered HTML for short/SPA extraction, update item title/body/metadata, and store the article hero image as an encrypted `heroImage` asset when available
-- `downloadMedia` jobs run through `yt-dlp`, merge to MP4 through the system ffmpeg integration, prefer pt/en subtitles, store the video as an encrypted original asset, and store subtitles as encrypted subtitle assets
+- `downloadMedia` jobs run through `yt-dlp`, merge to MP4 through the system ffmpeg integration, try pt/en subtitles best-effort without blocking video download, store the video as an encrypted original asset, and store subtitles as encrypted subtitle assets when available
 - Downloaded videos get encrypted thumbnails automatically, and tweet URL thumbnail jobs use `gallery-dl` with a `publish.twitter.com/oembed` fallback for photo tweets
 
 ## External commands expected in product builds
@@ -135,7 +135,7 @@ its Info.plist during packaging so macOS exposes it in the Services/Share UI.
 - Sprint 7: complete as of 2026-04-25.
 - Sprint 6 reopened on 2026-04-25 — the IA work shipped as 6.1/6.2/6.3 was the only part of the original Sprint 6 plan that landed; web/video ingestion runners were never written, so URL captures stay stuck on `pending`. Three follow-up sub-sprints are queued before Sprint 8:
   - 6.4: complete as of 2026-04-25. `scrapeArticle` runner via `trafilatura` subprocess with WKWebView fallback for SPA pages, metadata persistence, plus encrypted hero image asset.
-  - 6.5: complete as of 2026-04-25. `downloadMedia` runner via `yt-dlp` + `ffmpeg`, with subtitle preference (pt/en), encrypted video/subtitle assets and recoverable failures.
+  - 6.5: complete as of 2026-04-25. `downloadMedia` runner via `yt-dlp` + `ffmpeg`, with subtitle preference (pt/en) in a non-blocking best-effort step, encrypted video/subtitle assets and recoverable failures.
   - 6.6: complete as of 2026-04-25. `generateThumbnail` runner for downloaded media and tweet photos (`gallery-dl` + oEmbed fallback), wiring encrypted thumbnails into the library list/grid.
 - Sprint 8 (backup, export, restore) follows next.
 - Next step: Sprint 8.

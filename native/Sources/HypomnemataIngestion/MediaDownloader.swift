@@ -93,6 +93,7 @@ public struct YTDLPMediaDownloader: MediaDownloader {
 
         let metadata = try loadMetadata(url: trimmed, workingDirectory: tempDirectory)
         try runDownload(url: trimmed, workingDirectory: tempDirectory)
+        try? runSubtitleDownload(url: trimmed, workingDirectory: tempDirectory)
         return try collectResult(metadata: metadata, sourceURL: trimmed, workingDirectory: tempDirectory)
     }
 
@@ -131,9 +132,6 @@ public struct YTDLPMediaDownloader: MediaDownloader {
             [
                 "--no-warnings",
                 "--merge-output-format", "mp4",
-                "--write-subs",
-                "--write-auto-subs",
-                "--sub-langs", "pt,en",
                 "-o", "%(title).200B [%(id)s].%(ext)s",
                 url,
             ],
@@ -142,6 +140,22 @@ public struct YTDLPMediaDownloader: MediaDownloader {
         guard exitCode == 0 else {
             throw MediaDownloadError.binaryFailed(exitCode: exitCode, message: stderrText(stderr))
         }
+    }
+
+    private func runSubtitleDownload(url: String, workingDirectory: URL) throws {
+        _ = try runProcess(
+            ytDLPPath,
+            [
+                "--no-warnings",
+                "--skip-download",
+                "--write-subs",
+                "--write-auto-subs",
+                "--sub-langs", "pt.*,pt,en.*,en",
+                "-o", "%(title).200B [%(id)s].%(ext)s",
+                url,
+            ],
+            workingDirectory
+        )
     }
 
     private func collectResult(metadata: Metadata, sourceURL: String, workingDirectory: URL) throws -> MediaDownloadResult {

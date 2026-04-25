@@ -112,11 +112,16 @@ CLANG_MODULE_CACHE_PATH=/tmp/hypo-clang-cache SWIFTPM_HOME=/tmp/hypo-swiftpm-cac
 
 ### 2026-04-25 — Runner de vídeo entregue (Sprint 6.5)
 - **Decisão**: `downloadMedia` entrou em `JobAutomation.supportedKinds`; sem downloader configurado falha com `missingExecutor`, e item sem URL falha com `missingSourceURL`.
-- **Implementação**: `YTDLPMediaDownloader` roda `yt-dlp --dump-json` para título/duração/webpage, depois baixa com `--merge-output-format mp4`, `--write-subs`, `--write-auto-subs` e `--sub-langs pt,en`. O maior arquivo de vídeo gerado vira o resultado principal; `.vtt/.srt/.ass` viram legendas.
+- **Implementação**: `YTDLPMediaDownloader` roda `yt-dlp --dump-json` para título/duração/webpage, depois baixa o vídeo com `--merge-output-format mp4`. Legendas rodam em segunda chamada best-effort (`--skip-download`, `--write-subs`, `--write-auto-subs`, `--sub-langs pt.*,pt,en.*,en`) para que erro de legenda/rate limit não derrube o download do vídeo. O maior arquivo de vídeo gerado vira o resultado principal; `.vtt/.srt/.ass` viram legendas quando existirem.
 - **App**: `AppModel` instancia `YTDLPMediaDownloader`; `.mediaDownloaded` grava vídeo como asset criptografado `.original`, legendas como `.subtitle`, preserva título manual quando existe e persiste `webpage_url`/`duration_seconds` em `meta_json`.
 - **Dependências**: `downloadMedia` agora exige `yt-dlp` e `ffmpeg`; captura sem algum deles continua criando job `failed` recuperável com comando Homebrew.
 - **Validação**: `HypomnemataNativeChecks` cobre runner configurado, runner ausente, URL vazia, subprocess fake criando vídeo+legenda, falha de subprocesso e download sem arquivo final. `swift build --product HypomnemataMacApp` e `swift run HypomnemataNativeChecks` passaram em 2026-04-25.
 - **Pendente**: 6.6 (`generateThumbnail` de mídia/tweets) ainda não tem executor.
+
+### 2026-04-25 — Legendas não bloqueiam vídeo
+- **Bug**: `yt-dlp` abortava `downloadMedia` quando a legenda em `en` ou `pt` falhava com HTTP 429, mesmo quando o vídeo podia baixar normalmente. A UI mostrava também "Falha recuperável de IA" para erro de ingestão.
+- **Correção**: download de vídeo e download de legenda foram separados. A etapa de legenda é opcional e ignorada se falhar; vídeos em português/inglês continuam baixando mesmo sem legenda. `LLMRecoverableErrorMapper` agora rotula erros de `ArticleScrapeError`/`MediaDownloadError`/`RemoteThumbnailError` como "Falha recuperável de ingestão".
+- **Validação**: check novo simula 429 apenas na chamada `--skip-download` de legenda e exige que o `.mp4` seja retornado sem legendas.
 
 ### 2026-04-25 — Runner de miniatura/tweet entregue (Sprint 6.6)
 - **Decisão**: `generateThumbnail` entrou em `JobAutomation.supportedKinds`. Para tweets por URL, o plano de captura agora cria `downloadMedia` e `generateThumbnail`; assim tweet com vídeo tenta baixar vídeo, e tweet com foto ainda tem caminho por `gallery-dl`/oEmbed.

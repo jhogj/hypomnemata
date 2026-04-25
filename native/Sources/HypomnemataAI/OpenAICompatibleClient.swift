@@ -1,4 +1,5 @@
 import Foundation
+import HypomnemataIngestion
 
 public enum LLMConfigurationError: LocalizedError, Equatable, Sendable {
     case invalidBaseURL(String)
@@ -171,6 +172,12 @@ public struct LLMRecoverableErrorMapper: Sendable {
     public init() {}
 
     public func jobErrorMessage(for error: Error) -> String {
+        if error is ArticleScrapeError || error is MediaDownloadError || error is RemoteThumbnailError {
+            if let localized = (error as? LocalizedError)?.errorDescription {
+                return "Falha recuperável de ingestão: \(localized)"
+            }
+            return "Falha recuperável de ingestão: \(error.localizedDescription)"
+        }
         if let localized = (error as? LocalizedError)?.errorDescription {
             return "Falha recuperável de IA: \(localized)"
         }
