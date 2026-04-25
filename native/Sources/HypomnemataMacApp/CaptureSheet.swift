@@ -15,6 +15,7 @@ struct CaptureSheet: View {
     @State private var tags = ""
     @State private var selectedFileURL: URL?
     @State private var showingFileImporter = false
+    @State private var errorMessage: String?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -65,13 +66,20 @@ struct CaptureSheet: View {
                     RoundedRectangle(cornerRadius: 6).stroke(.quaternary)
                 }
 
+            if let errorMessage {
+                Text(errorMessage)
+                    .font(.callout)
+                    .foregroundStyle(.red)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
             HStack {
                 Spacer()
                 Button("Cancelar") {
                     dismiss()
                 }
                 Button("Salvar") {
-                    model.createCapture(CaptureDraft(
+                    let message = model.createCapture(CaptureDraft(
                         sourceURL: selectedTab == 0 ? urlString.trimmedNonEmpty : nil,
                         title: title.trimmedNonEmpty,
                         note: note.trimmedNonEmpty,
@@ -79,6 +87,7 @@ struct CaptureSheet: View {
                         fileURL: selectedTab == 1 ? selectedFileURL : nil,
                         tags: tags.split(separator: ",").map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
                     ))
+                    errorMessage = message
                 }
                 .keyboardShortcut(.defaultAction)
                 .disabled(!canSave)
@@ -86,16 +95,23 @@ struct CaptureSheet: View {
         }
         .padding(22)
         .frame(width: 560)
+        .onChange(of: selectedTab) { _, _ in
+            errorMessage = nil
+        }
         .fileImporter(
             isPresented: $showingFileImporter,
             allowedContentTypes: [.item],
             allowsMultipleSelection: false
         ) { result in
-            if case let .success(urls) = result {
+            switch result {
+            case let .success(urls):
                 selectedFileURL = urls.first
                 if title.trimmedNonEmpty == nil {
                     title = urls.first?.deletingPathExtension().lastPathComponent ?? ""
                 }
+                errorMessage = nil
+            case let .failure(error):
+                errorMessage = error.localizedDescription
             }
         }
     }

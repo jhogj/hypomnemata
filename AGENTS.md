@@ -20,9 +20,9 @@
 ## Status atual
 
 - **Onda**: 1 (MVP), 2, 3 entregues. Onda 4 (busca semântica) adiada. Onda 5 (Polimento) em andamento.
-- **Rewrite nativo**: Sprint 0, Sprint 1 e Sprint 2 entregues em 2026-04-25.
-- **Última sessão**: 2026-04-25 — Sprint 2.5: seleção em lote, delete em lote e performance; Sprint 2 concluída.
-- **Próxima tarefa**: Sprint 3 — Captura Nativa. Timeline segue como ideia aprovada para o app legado/web.
+- **Rewrite nativo**: Sprint 0, Sprint 1, Sprint 2 e Sprint 3.1 entregues em 2026-04-25.
+- **Última sessão**: 2026-04-25 — Sprint 3.1: captura interna validada.
+- **Próxima tarefa**: Sprint 3.2 — criar registros reais em `jobs` após captura. Timeline segue como ideia aprovada para o app legado/web.
 
 ### Deps externas necessárias (além do `uv sync`)
 | Ferramenta | Uso | Instalação |
@@ -245,6 +245,28 @@ python3.12 -m mlx_lm server --model mlx-community/gemma-4-e2b-it-4bit --port 808
   - `swift run --disable-sandbox HypomnemataNativeChecks` — passou.
   - `swift build --disable-sandbox --product HypomnemataMacApp` — passou.
 - **Status**: Sprint 2 concluída. Próxima etapa: Sprint 3 — Captura Nativa.
+
+### 2026-04-25 — Sprint 3.1: captura interna validada
+- **Implementado em `HypomnemataIngestion`**:
+  - `CaptureValidationError`, com mensagens legíveis para entrada ausente, múltiplas origens, URL inválida e arquivo não local;
+  - `CapturePlanner.validate(_:)`, que normaliza URL/título/nota/texto/tags, rejeita captura ambígua e exige URL `http://` ou `https://` com domínio;
+  - `CapturePlanner.validateAndPlan(_:)`, usado pelo app antes de criar item e registrar jobs planejados em `metadataJSON`.
+- **Implementado em `AppModel`**:
+  - `createCapture(_:)` agora retorna mensagem de erro em vez de jogar o app para `.failed` em erro recuperável de captura;
+  - captura bem-sucedida continua criando item, registrando asset criptografado quando houver arquivo, fechando a sheet e atualizando biblioteca/sidebar;
+  - erros de validação, leitura de arquivo ou gravação de asset ficam no fluxo de captura sem bloquear o vault.
+- **Implementado em SwiftUI**:
+  - `CaptureSheet` mostra erro inline;
+  - falha do `fileImporter` aparece na própria sheet;
+  - trocar de aba limpa erro antigo.
+- **Checks ampliados**:
+  - valida normalização de URL/título/nota/tags;
+  - valida planejamento de URL de vídeo, PDF por arquivo e texto solto;
+  - rejeita URL sem `http/https`, captura vazia e captura com múltiplas origens.
+- **Validação rodada**:
+  - `swift run --disable-sandbox HypomnemataNativeChecks` — passou.
+  - `swift build --disable-sandbox --product HypomnemataMacApp` — passou.
+- **Status**: Sprint 3.1 concluída. Próxima rodada: Sprint 3.2 — criar registros reais em `jobs` após captura.
 
 ### 2026-04-21 — Bun não instalado; usando npm por ora
 - Decisão 9 (`bun`) permanece, mas no momento da primeira sessão o `bun` não estava instalado no sistema (só `npm 11.12.1` e `node 25.9.0`).

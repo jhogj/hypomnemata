@@ -2,6 +2,7 @@ import Foundation
 import GRDB
 import HypomnemataCore
 import HypomnemataData
+import HypomnemataIngestion
 import HypomnemataMedia
 
 @main
@@ -24,6 +25,50 @@ struct HypomnemataNativeChecks {
         precondition(KindInference.infer(urlString: "https://example.com/photo.webp") == .image)
         precondition(KindInference.infer(urlString: "https://example.com/news/story") == .article)
         precondition(KindInference.infer(urlString: nil, filename: "clip.mov") == .video)
+
+        let validURLDraft = try CapturePlanner.validate(CaptureDraft(
+            sourceURL: "  https://example.com/news/story  ",
+            title: "  Matéria  ",
+            note: "  nota  ",
+            tags: [" Dev ", "dev", "Leitura"]
+        ))
+        precondition(validURLDraft.sourceURL == "https://example.com/news/story")
+        precondition(validURLDraft.title == "Matéria")
+        precondition(validURLDraft.note == "nota")
+        precondition(validURLDraft.tags == ["dev", "leitura"])
+
+        let urlPlan = try CapturePlanner.validateAndPlan(CaptureDraft(sourceURL: "https://youtu.be/abc"))
+        precondition(urlPlan.1.kind == .video)
+        precondition(urlPlan.1.jobs == [.downloadMedia, .summarize, .autotag])
+
+        let pdfPlan = try CapturePlanner.validateAndPlan(CaptureDraft(fileURL: URL(fileURLWithPath: "/tmp/documento.pdf")))
+        precondition(pdfPlan.1.kind == .pdf)
+        precondition(pdfPlan.1.jobs == [.generateThumbnail, .runOCR, .summarize, .autotag])
+
+        let textPlan = try CapturePlanner.validateAndPlan(CaptureDraft(bodyText: "texto solto"))
+        precondition(textPlan.1.kind == .note)
+        precondition(textPlan.1.jobs.isEmpty)
+
+        do {
+            _ = try CapturePlanner.validate(CaptureDraft(sourceURL: "example.com/noticia"))
+            preconditionFailure("URL without http/https was accepted.")
+        } catch CaptureValidationError.invalidURL(_) {
+            // Expected: URL captures must be explicit web URLs.
+        }
+
+        do {
+            _ = try CapturePlanner.validate(CaptureDraft())
+            preconditionFailure("Empty capture was accepted.")
+        } catch CaptureValidationError.missingInput {
+            // Expected: capture needs one source.
+        }
+
+        do {
+            _ = try CapturePlanner.validate(CaptureDraft(sourceURL: "https://example.com", bodyText: "texto"))
+            preconditionFailure("Capture with multiple sources was accepted.")
+        } catch CaptureValidationError.multipleInputs {
+            // Expected: capture source must be unambiguous.
+        }
 
         let text = "Veja [[018f73ba-9f9d-7a0d-8ac2-f28f82cf1296|Nome atual]] e texto"
         precondition(LinkParser.references(in: text) == [

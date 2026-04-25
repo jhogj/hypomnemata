@@ -61,6 +61,7 @@ let package = Package(
             dependencies: [
                 "HypomnemataCore",
                 "HypomnemataData",
+                "HypomnemataIngestion",
                 "HypomnemataMedia",
                 .product(name: "GRDB", package: "GRDBSQLCipher"),
             ]

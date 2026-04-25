@@ -27,6 +27,7 @@ reference while the native app is built out.
 - Native list/grid switcher for library items
 - Basic item detail sheet with title, tags, note, body text editing, and individual delete
 - Capture sheet with URL, file, and text modes
+- Capture validation shared by app and checks: one source only, explicit http/https URL, local file URL, trimmed metadata and normalized tags
 - File capture writes AES-GCM encrypted assets and records them in SQLite
 - Individual delete removes encrypted asset files associated with the item
 - Batch selection and batch delete for visible library items
@@ -66,4 +67,5 @@ requires SQLCipher by default and fails closed when it is unavailable.
 - Sprint 2.4: complete as of 2026-04-25.
 - Sprint 2.5: complete as of 2026-04-25.
 - Sprint 2: complete as of 2026-04-25.
-- Next step: Sprint 3, native capture integrations.
+- Sprint 3.1: complete as of 2026-04-25.
+- Next step: Sprint 3.2, real job records after capture.

@@ -393,13 +393,14 @@ final class AppModel: ObservableObject {
         }
     }
 
-    func createCapture(_ draft: CaptureDraft) {
+    @discardableResult
+    func createCapture(_ draft: CaptureDraft) -> String? {
         guard let repository else {
-            return
+            return "Vault não está desbloqueado."
         }
         do {
-            let plan = CapturePlanner.plan(draft)
-            let filePayload = try draft.fileURL.map(readCaptureFile)
+            let (validatedDraft, plan) = try CapturePlanner.validateAndPlan(draft)
+            let filePayload = try validatedDraft.fileURL.map(readCaptureFile)
             let metadataJSON: String?
             if plan.jobs.isEmpty {
                 metadataJSON = nil
@@ -412,13 +413,13 @@ final class AppModel: ObservableObject {
             }
             let createdItem = try repository.createItem(
                 kind: plan.kind,
-                sourceURL: draft.sourceURL,
-                title: draft.title ?? filePayload?.defaultTitle,
-                note: draft.note,
-                bodyText: draft.bodyText,
+                sourceURL: validatedDraft.sourceURL,
+                title: validatedDraft.title ?? filePayload?.defaultTitle,
+                note: validatedDraft.note,
+                bodyText: validatedDraft.bodyText,
                 summary: nil,
                 metadataJSON: metadataJSON,
-                tags: draft.tags
+                tags: validatedDraft.tags
             )
             if let filePayload {
                 guard let assetStore else {
@@ -442,8 +443,10 @@ final class AppModel: ObservableObject {
             }
             showCapture = false
             refreshLibrary()
+            recordUserActivity()
+            return nil
         } catch {
-            state = .failed(error.localizedDescription)
+            return error.localizedDescription
         }
     }
 
