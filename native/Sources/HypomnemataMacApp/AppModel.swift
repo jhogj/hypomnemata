@@ -36,13 +36,13 @@ final class AppModel: ObservableObject {
         dependencyStatuses = DependencyDoctor().check()
     }
 
-    func unlock(passphrase: String, allowPlaintextDevelopmentMode: Bool = false) {
+    func unlock(passphrase: String) {
         do {
             let paths = try AppPaths.production()
             let db = try NativeDatabase(
                 appPaths: paths,
                 passphrase: passphrase,
-                requireSQLCipher: !allowPlaintextDevelopmentMode
+                requireSQLCipher: true
             )
             database = db
             repository = SQLiteItemRepository(database: db)

@@ -18,7 +18,7 @@ let package = Package(
         .library(name: "HypomnemataBackup", targets: ["HypomnemataBackup"]),
     ],
     dependencies: [
-        .package(url: "https://github.com/groue/GRDB.swift.git", from: "7.10.0"),
+        .package(path: "Vendor/GRDBSQLCipher"),
     ],
     targets: [
         .target(name: "HypomnemataCore"),
@@ -26,7 +26,7 @@ let package = Package(
             name: "HypomnemataData",
             dependencies: [
                 "HypomnemataCore",
-                .product(name: "GRDB", package: "GRDB.swift"),
+                .product(name: "GRDB", package: "GRDBSQLCipher"),
             ]
         ),
         .target(

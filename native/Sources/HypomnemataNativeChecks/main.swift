@@ -42,7 +42,7 @@ struct HypomnemataNativeChecks {
         let database = try NativeDatabase(
             appPaths: AppPaths(rootDirectory: root),
             passphrase: "test",
-            requireSQLCipher: false
+            requireSQLCipher: true
         )
         defer { try? database.close() }
 
@@ -72,6 +72,19 @@ struct HypomnemataNativeChecks {
 
         let tools = DependencyDoctor.productionRequirements.map(\.executable)
         precondition(tools == ["sqlcipher", "ffmpeg", "yt-dlp", "gallery-dl", "trafilatura"])
+
+        try database.close()
+        let sqliteRead = Process()
+        sqliteRead.executableURL = URL(fileURLWithPath: "/usr/bin/sqlite3")
+        sqliteRead.arguments = [
+            root.appendingPathComponent("Hypomnemata.sqlite").path,
+            "select count(*) from items;",
+        ]
+        sqliteRead.standardOutput = Pipe()
+        sqliteRead.standardError = Pipe()
+        try sqliteRead.run()
+        sqliteRead.waitUntilExit()
+        precondition(sqliteRead.terminationStatus != 0)
     }
 
     private static func checkMedia() throws {

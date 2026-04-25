@@ -11,7 +11,7 @@ reference while the native app is built out.
 - macOS 14+
 - Apple Silicon
 - SwiftUI/AppKit native app
-- SQLite via GRDB
+- SQLite via vendored GRDB 7.10.0 configured for SQLCipher.swift
 - SQLCipher required for production vaults
 - AES-GCM encrypted assets through CryptoKit
 
@@ -32,6 +32,6 @@ CLANG_MODULE_CACHE_PATH=/tmp/hypo-clang-cache SWIFTPM_HOME=/tmp/hypo-swiftpm-cac
 CLANG_MODULE_CACHE_PATH=/tmp/hypo-clang-cache SWIFTPM_HOME=/tmp/hypo-swiftpm-cache swift build --disable-sandbox --product HypomnemataMacApp
 ```
 
-`HypomnemataNativeChecks` opens databases with plaintext SQLite because
-SQLCipher is not available in every development environment. The app path
-requires SQLCipher by default and fails closed when it is unavailable.
+`HypomnemataNativeChecks` opens a real SQLCipher database, then verifies that
+system `sqlite3` cannot read it. The app path requires SQLCipher by default and
+fails closed when it is unavailable.

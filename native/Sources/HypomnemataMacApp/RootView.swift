@@ -22,7 +22,6 @@ struct RootView: View {
 struct VaultLockView: View {
     @EnvironmentObject private var model: AppModel
     @State private var passphrase = ""
-    @State private var allowPlaintextDevelopmentMode = false
     var errorMessage: String?
 
     var body: some View {
@@ -38,10 +37,6 @@ struct VaultLockView: View {
                 .textFieldStyle(.roundedBorder)
                 .frame(width: 360)
                 .onSubmit(open)
-
-            Toggle("Modo desenvolvimento sem SQLCipher", isOn: $allowPlaintextDevelopmentMode)
-                .toggleStyle(.checkbox)
-                .help("Apenas para testes locais quando SQLCipher ainda não está vinculado.")
 
             if let errorMessage {
                 Text(errorMessage)
@@ -61,10 +56,7 @@ struct VaultLockView: View {
     }
 
     private func open() {
-        model.unlock(
-            passphrase: passphrase,
-            allowPlaintextDevelopmentMode: allowPlaintextDevelopmentMode
-        )
+        model.unlock(passphrase: passphrase)
     }
 }
 

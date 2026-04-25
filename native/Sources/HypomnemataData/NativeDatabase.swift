@@ -21,7 +21,7 @@ public final class NativeDatabase: @unchecked Sendable {
         var configuration = Configuration()
         configuration.label = "HypomnemataNative"
         configuration.prepareDatabase { db in
-            try db.execute(sql: "PRAGMA key = \(Self.sqlLiteral(passphrase))")
+            try db.usePassphrase(passphrase)
 
             if requireSQLCipher {
                 let cipherVersion = try String.fetchOne(db, sql: "PRAGMA cipher_version") ?? ""
