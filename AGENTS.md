@@ -20,9 +20,9 @@
 ## Status atual
 
 - **Onda**: 1 (MVP), 2, 3 entregues. Onda 4 (busca semântica) adiada. Onda 5 (Polimento) em andamento.
-- **Rewrite nativo**: Sprint 0, Sprint 1, Sprint 2, Sprint 3, Sprint 4 e Sprint 5.1 entregues em 2026-04-25.
-- **Última sessão**: 2026-04-25 — Sprint 5.1: previews de assets criptografados no detalhe.
-- **Próxima tarefa**: Sprint 5.2 — thumbnails e play inline. Timeline segue como ideia aprovada para o app legado/web.
+- **Rewrite nativo**: Sprint 0, Sprint 1, Sprint 2, Sprint 3, Sprint 4, Sprint 5.1 e Sprint 5.2 entregues em 2026-04-25.
+- **Última sessão**: 2026-04-25 — Sprint 5.2: thumbnails nativos criptografados, lista/grid com thumbnails e play inline de vídeo.
+- **Próxima tarefa**: Sprint 5.3 — OCR nativo de imagens/PDFs. Timeline segue como ideia aprovada para o app legado/web.
 
 ### Deps externas necessárias (além do `uv sync`)
 | Ferramenta | Uso | Instalação |
@@ -378,6 +378,28 @@ python3.12 -m mlx_lm server --model mlx-community/gemma-4-e2b-it-4bit --port 808
   - `swift run --disable-sandbox HypomnemataNativeChecks` — passou.
   - `swift build --disable-sandbox --product HypomnemataMacApp` — passou.
 - **Status**: Sprint 5.1 concluída. Próxima rodada: Sprint 5.2 — thumbnails e play inline.
+
+### 2026-04-25 — Sprint 5.2: thumbnails e play inline
+- **Implementado em `HypomnemataMedia`**:
+  - `NativeThumbnailGenerator` gera JPEG nativo para imagens, primeira página de PDF (`PDFKit`) e frame de vídeo (`AVFoundation`);
+  - arquivos sem thumbnail suportado retornam erro recuperável (`unsupportedAsset`) em vez de quebrar a captura.
+- **Implementado em `AppModel`**:
+  - captura de arquivo gera thumbnail sincronamente quando suportado, grava como asset AES-GCM com `role = thumbnail` e registra em `assets`;
+  - quando o thumbnail é gerado com sucesso, o job `generateThumbnail` planejado não fica pendente;
+  - biblioteca mantém cache de URLs temporárias para thumbnails dos itens visíveis;
+  - `playableVideoURL(for:)` descriptografa o vídeo original sob demanda para reprodução inline;
+  - abertura do detalhe pode receber o tempo atual do vídeo inline para continuar a reprodução.
+- **Implementado em SwiftUI**:
+  - lista e grid exibem thumbnails quando existem, com fallback para ícone de tipo;
+  - vídeos podem tocar inline em lista/grid via `AVKit/VideoPlayer`;
+  - ao abrir o detalhe a partir de um vídeo inline, o player do detalhe faz seek para o tempo capturado e dá play.
+- **Checks ampliados**:
+  - `HypomnemataNativeChecks` valida geração de thumbnail JPEG para imagem real;
+  - valida que arquivo não suportado não gera thumbnail silenciosamente.
+- **Validação rodada**:
+  - `swift run --disable-sandbox HypomnemataNativeChecks` — passou.
+  - `swift build --disable-sandbox --product HypomnemataMacApp` — passou.
+- **Status**: Sprint 5.2 concluída. Próxima rodada: Sprint 5.3 — OCR nativo de imagens/PDFs.
 
 ### 2026-04-21 — Bun não instalado; usando npm por ora
 - Decisão 9 (`bun`) permanece, mas no momento da primeira sessão o `bun` não estava instalado no sistema (só `npm 11.12.1` e `node 25.9.0`).

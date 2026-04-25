@@ -2,7 +2,7 @@
 
 This is the native macOS rewrite track for Hypomnemata.
 
-Current status: Sprint 5.1 of the native rewrite is complete. The existing
+Current status: Sprint 5.2 of the native rewrite is complete. The existing
 FastAPI/React app remains untouched and can keep serving as behavioral
 reference while the native app is built out.
 
@@ -37,6 +37,9 @@ reference while the native app is built out.
 - Zettelkasten repository contracts expose linked items and backlinks from `[[uuid|title]]` references
 - Item detail shows links/backlinks and can insert `[[uuid|title]]` links with a basic search picker
 - Item detail decrypts assets into `TemporaryCache` and previews images, PDFs, videos, and generic files
+- Native thumbnail generation creates encrypted JPEG thumbnail assets for supported file captures
+- Library list/grid displays thumbnails when available
+- Videos can play inline from list/grid and continue from the same timestamp when opened in detail
 - Individual delete removes encrypted asset files associated with the item
 - Batch selection and batch delete for visible library items
 - Synthetic 10k-item check for list, FTS5 search, and batch delete
@@ -61,7 +64,7 @@ CLANG_MODULE_CACHE_PATH=/tmp/hypo-clang-cache SWIFTPM_HOME=/tmp/hypo-swiftpm-cac
 `HypomnemataNativeChecks` opens a real SQLCipher database, exercises CRUD,
 FTS5, edit/delete flows, dependency checks, combined filters, folder queries,
 folder rename/remove/delete flows, linked items and backlinks, link insertion UI, persistent asset keys, asset table registration, AES-GCM asset encryption,
-encrypted asset removal, decrypted preview cache, batch delete, a synthetic 10k-item performance
+native thumbnail generation, encrypted asset removal, decrypted preview cache, batch delete, a synthetic 10k-item performance
 scenario, recoverable job failures for missing dependencies, temporary cache
 cleanup, SQLCipher rekey, old-passphrase rejection, and then verifies that
 system `sqlite3` cannot read the vault. The app path
@@ -89,4 +92,5 @@ its Info.plist during packaging so macOS exposes it in the Services/Share UI.
 - Sprint 4.3: complete as of 2026-04-25.
 - Sprint 4: complete as of 2026-04-25.
 - Sprint 5.1: complete as of 2026-04-25.
-- Next step: Sprint 5.2, thumbnails and inline video playback.
+- Sprint 5.2: complete as of 2026-04-25.
+- Next step: Sprint 5.3, native OCR for images/PDFs.

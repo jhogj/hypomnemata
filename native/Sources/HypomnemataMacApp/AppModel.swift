@@ -80,6 +80,7 @@ final class AppModel: ObservableObject {
     @Published var folders: [Folder] = []
     @Published var totalItemCount = 0
     @Published var storageBytes: Int64 = 0
+    @Published var itemThumbnailURLs: [String: URL] = [:]
 
     private var database: NativeDatabase?
     private var repository: SQLiteItemRepository?
@@ -89,6 +90,7 @@ final class AppModel: ObservableObject {
     private var securityObservers: [NSObjectProtocol] = []
     private var autoLockTimer: Timer?
     private var servicesProvider: CaptureServicesProvider?
+    private var detailVideoStartTimes: [String: Double] = [:]
     private let autoLockInterval: TimeInterval = 15 * 60
 
     var isUnlocked: Bool {
@@ -205,6 +207,8 @@ final class AppModel: ObservableObject {
         folders = []
         totalItemCount = 0
         storageBytes = 0
+        itemThumbnailURLs = [:]
+        detailVideoStartTimes = [:]
         showCapture = false
         showChangePassword = false
         capturePrefill = nil
@@ -271,6 +275,7 @@ final class AppModel: ObservableObject {
                 items = try repository.search(query, filter: filter)
             }
             selectedItemIDs.formIntersection(Set(items.map(\.id)))
+            refreshItemThumbnails(for: items)
         } catch {
             state = .failed(error.localizedDescription)
         }
@@ -306,10 +311,15 @@ final class AppModel: ObservableObject {
         kindCounts[kind, default: 0]
     }
 
-    func openDetail(_ item: Item) {
+    func openDetail(_ item: Item, videoStartTime: Double? = nil) {
         guard !selectionMode else {
             toggleItemSelection(item)
             return
+        }
+        if let videoStartTime, videoStartTime > 0 {
+            detailVideoStartTimes[item.id] = videoStartTime
+        } else {
+            detailVideoStartTimes[item.id] = nil
         }
         selectedItem = item
         recordUserActivity()
@@ -321,6 +331,7 @@ final class AppModel: ObservableObject {
         }
         do {
             selectedItem = try repository.item(id: id)
+            detailVideoStartTimes[id] = nil
             recordUserActivity()
             return nil
         } catch {
@@ -483,6 +494,28 @@ final class AppModel: ObservableObject {
         }
     }
 
+    func thumbnailURL(for item: Item) -> URL? {
+        itemThumbnailURLs[item.id]
+    }
+
+    func playableVideoURL(for item: Item) -> (URL?, String?) {
+        guard let repository, let assetStore else {
+            return (nil, "Vault não está desbloqueado.")
+        }
+        do {
+            guard let record = try repository.assets(forItemID: item.id).first(where: isPlayableVideoAsset) else {
+                return (nil, "Este item não tem vídeo local para reproduzir.")
+            }
+            return (try assetStore.decryptToTemporaryFile(record: record), nil)
+        } catch {
+            return (nil, error.localizedDescription)
+        }
+    }
+
+    func consumeDetailVideoStartTime(for item: Item) -> Double? {
+        detailVideoStartTimes.removeValue(forKey: item.id)
+    }
+
     func linkedItems(from item: Item) -> ([ItemSummary], String?) {
         guard let repository else {
             return ([], "Vault não está desbloqueado.")
@@ -620,6 +653,7 @@ final class AppModel: ObservableObject {
                 tags: validatedDraft.tags
             )
             var assetID: String?
+            var completedJobKinds = Set<JobKind>()
             if let filePayload {
                 guard let assetStore else {
                     try? repository.deleteItems(ids: [createdItem.id])
@@ -635,6 +669,13 @@ final class AppModel: ObservableObject {
                 do {
                     try repository.insertAsset(stored.record)
                     assetID = stored.record.id
+                    if try createThumbnailIfSupported(
+                        for: stored.record,
+                        itemID: createdItem.id,
+                        originalFilename: filePayload.originalFilename
+                    ) {
+                        completedJobKinds.insert(.generateThumbnail)
+                    }
                 } catch {
                     try? assetStore.remove(record: stored.record)
                     try? repository.deleteItems(ids: [createdItem.id])
@@ -642,7 +683,7 @@ final class AppModel: ObservableObject {
                 }
             }
             let jobs = try makeJobs(
-                kinds: plan.jobs,
+                kinds: plan.jobs.filter { !completedJobKinds.contains($0) },
                 itemID: createdItem.id,
                 sourceURL: validatedDraft.sourceURL,
                 assetID: assetID
@@ -791,6 +832,87 @@ final class AppModel: ObservableObject {
         return total
     }
 
+    private func refreshItemThumbnails(for items: [Item]) {
+        guard let repository, let assetStore else {
+            itemThumbnailURLs = [:]
+            return
+        }
+        let visibleIDs = Set(items.map(\.id))
+        do {
+            let records = try repository.assets(forItemIDs: Array(visibleIDs))
+            var grouped: [String: [AssetRecord]] = [:]
+            for record in records {
+                grouped[record.itemID, default: []].append(record)
+            }
+
+            var urls: [String: URL] = [:]
+            for item in items {
+                guard let record = preferredThumbnailAsset(in: grouped[item.id] ?? []) else {
+                    continue
+                }
+                urls[item.id] = try? assetStore.decryptToTemporaryFile(record: record)
+            }
+            itemThumbnailURLs = urls
+        } catch {
+            itemThumbnailURLs = itemThumbnailURLs.filter { visibleIDs.contains($0.key) }
+        }
+    }
+
+    private func createThumbnailIfSupported(
+        for originalRecord: AssetRecord,
+        itemID: String,
+        originalFilename: String
+    ) throws -> Bool {
+        guard let repository, let assetStore else {
+            return false
+        }
+        let sourceURL = try assetStore.decryptToTemporaryFile(record: originalRecord)
+        let thumbnailData: Data
+        do {
+            thumbnailData = try NativeThumbnailGenerator().makeJPEGThumbnailData(
+                for: sourceURL,
+                mimeType: originalRecord.mimeType
+            )
+        } catch is ThumbnailGenerationError {
+            return false
+        }
+
+        let baseName = (originalFilename as NSString).deletingPathExtension
+        let storedThumbnail = try assetStore.write(
+            data: thumbnailData,
+            itemID: itemID,
+            role: .thumbnail,
+            originalFilename: "\(baseName)-thumbnail.jpg",
+            mimeType: "image/jpeg"
+        )
+        do {
+            try repository.insertAsset(storedThumbnail.record)
+            return true
+        } catch {
+            try? assetStore.remove(record: storedThumbnail.record)
+            throw error
+        }
+    }
+
+    private func preferredThumbnailAsset(in records: [AssetRecord]) -> AssetRecord? {
+        records.first { $0.role == .thumbnail }
+            ?? records.first { isImageAsset($0) }
+    }
+
+    private func isPlayableVideoAsset(_ record: AssetRecord) -> Bool {
+        record.role == .original && isVideoAsset(record)
+    }
+
+    private func isImageAsset(_ record: AssetRecord) -> Bool {
+        record.mimeType?.lowercased().hasPrefix("image/") == true
+            || ["png", "jpg", "jpeg", "gif", "webp", "heic", "bmp", "tiff"].contains(record.originalFilename?.pathExtensionLowercased ?? "")
+    }
+
+    private func isVideoAsset(_ record: AssetRecord) -> Bool {
+        record.mimeType?.lowercased().hasPrefix("video/") == true
+            || ["mp4", "mov", "m4v", "webm", "mkv", "avi"].contains(record.originalFilename?.pathExtensionLowercased ?? "")
+    }
+
     private func previewKind(for record: AssetRecord, url: URL) -> AssetPreview.Kind {
         let mimeType = record.mimeType?.lowercased() ?? ""
         let pathExtension = url.pathExtension.lowercased()
@@ -909,6 +1031,10 @@ final class AppModel: ObservableObject {
 private extension String {
     var nilIfEmpty: String? {
         isEmpty ? nil : self
+    }
+
+    var pathExtensionLowercased: String {
+        (self as NSString).pathExtension.lowercased()
     }
 }
 

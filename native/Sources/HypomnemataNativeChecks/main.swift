@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import GRDB
 import HypomnemataCore
@@ -477,6 +478,23 @@ struct HypomnemataNativeChecks {
         try TemporaryCacheCleaner().clear(at: missingCache)
         precondition(FileManager.default.fileExists(atPath: missingCache.path))
 
+        let imageURL = root.appendingPathComponent("thumbnail-source.png")
+        try makePNG(width: 320, height: 180).write(to: imageURL)
+        let thumbnailData = try NativeThumbnailGenerator(maxPixelSize: 128)
+            .makeJPEGThumbnailData(for: imageURL, mimeType: "image/png")
+        precondition(thumbnailData.count > 0)
+        let thumbnailImage = NSImage(data: thumbnailData)
+        precondition(thumbnailImage != nil)
+
+        let unsupportedURL = root.appendingPathComponent("unsupported.txt")
+        try Data("sem thumbnail".utf8).write(to: unsupportedURL)
+        do {
+            _ = try NativeThumbnailGenerator().makeJPEGThumbnailData(for: unsupportedURL, mimeType: "text/plain")
+            preconditionFailure("Text file generated a thumbnail.")
+        } catch ThumbnailGenerationError.unsupportedAsset {
+            // Expected: only images, PDFs and videos have native thumbnails here.
+        }
+
         try store.remove(record: stored.record)
         precondition(!FileManager.default.fileExists(atPath: stored.absoluteURL.path))
         do {
@@ -485,6 +503,24 @@ struct HypomnemataNativeChecks {
         } catch MediaError.assetNotFound {
             // Expected: removed encrypted assets are no longer readable.
         }
+    }
+
+    private static func makePNG(width: Int, height: Int) throws -> Data {
+        let image = NSImage(size: CGSize(width: width, height: height))
+        image.lockFocus()
+        NSColor.systemBlue.setFill()
+        NSRect(x: 0, y: 0, width: width, height: height).fill()
+        NSColor.white.setFill()
+        NSRect(x: width / 4, y: height / 4, width: width / 2, height: height / 2).fill()
+        image.unlockFocus()
+        guard
+            let tiffData = image.tiffRepresentation,
+            let bitmap = NSBitmapImageRep(data: tiffData),
+            let data = bitmap.representation(using: .png, properties: [:])
+        else {
+            throw ThumbnailGenerationError.encodingFailed
+        }
+        return data
     }
 
     private static func checkPerformance() throws {

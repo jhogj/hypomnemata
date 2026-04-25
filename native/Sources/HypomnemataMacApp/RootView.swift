@@ -755,15 +755,16 @@ struct ItemRowView: View {
     @EnvironmentObject private var model: AppModel
     var item: Item
 
+    @State private var player: AVPlayer?
+    @State private var videoError: String?
+
     var body: some View {
-        Button {
-            model.openDetail(item)
-        } label: {
+        VStack(alignment: .leading, spacing: 8) {
             HStack(alignment: .top, spacing: 12) {
                 if model.selectionMode {
                     SelectionIndicator(isSelected: model.isSelected(item))
                 }
-                KindIcon(kind: item.kind)
+                ThumbnailOrKindView(item: item, size: CGSize(width: 64, height: 48))
                 VStack(alignment: .leading, spacing: 6) {
                     HStack(alignment: .firstTextBaseline) {
                         Text(item.displayTitle)
@@ -792,12 +793,58 @@ struct ItemRowView: View {
                     }
                     TagLine(tags: item.tags)
                 }
+                if item.kind == .video {
+                    Button {
+                        toggleInlinePlayback()
+                    } label: {
+                        Image(systemName: player == nil ? "play.circle.fill" : "stop.circle")
+                            .font(.title3)
+                    }
+                    .buttonStyle(.borderless)
+                    .help(player == nil ? "Reproduzir vídeo" : "Parar vídeo")
+                }
             }
             .padding(.vertical, 6)
             .contentShape(Rectangle())
+            .onTapGesture {
+                openDetail()
+            }
+
+            if let player {
+                VideoPlayer(player: player)
+                    .frame(height: 220)
+                    .clipShape(RoundedRectangle(cornerRadius: 8))
+            }
+            if let videoError {
+                Text(videoError)
+                    .font(.caption)
+                    .foregroundStyle(.red)
+            }
         }
-        .buttonStyle(.plain)
         .listRowBackground(model.isSelected(item) ? Color.accentColor.opacity(0.12) : Color.clear)
+    }
+
+    private func toggleInlinePlayback() {
+        if let player {
+            player.pause()
+            self.player = nil
+            return
+        }
+        let result = model.playableVideoURL(for: item)
+        if let url = result.0 {
+            let player = AVPlayer(url: url)
+            self.player = player
+            videoError = nil
+            player.play()
+        } else {
+            videoError = result.1
+        }
+    }
+
+    private func openDetail() {
+        let seconds = player?.currentTime().seconds
+        player?.pause()
+        model.openDetail(item, videoStartTime: seconds?.isFinite == true ? seconds : nil)
     }
 }
 
@@ -805,10 +852,19 @@ struct ItemGridCardView: View {
     @EnvironmentObject private var model: AppModel
     var item: Item
 
+    @State private var player: AVPlayer?
+    @State private var videoError: String?
+
     var body: some View {
-        Button {
-            model.openDetail(item)
-        } label: {
+        VStack(alignment: .leading, spacing: 10) {
+            if let player {
+                VideoPlayer(player: player)
+                    .frame(height: 160)
+                    .clipShape(RoundedRectangle(cornerRadius: 6))
+            } else if model.thumbnailURL(for: item) != nil {
+                ThumbnailOrKindView(item: item, size: CGSize(width: 0, height: 160))
+            }
+
             VStack(alignment: .leading, spacing: 10) {
                 HStack {
                     if model.selectionMode {
@@ -819,6 +875,16 @@ struct ItemGridCardView: View {
                     Text(item.kind.rawValue)
                         .font(.caption)
                         .foregroundStyle(.secondary)
+                    if item.kind == .video {
+                        Button {
+                            toggleInlinePlayback()
+                        } label: {
+                            Image(systemName: player == nil ? "play.circle.fill" : "stop.circle")
+                                .font(.title3)
+                        }
+                        .buttonStyle(.borderless)
+                        .help(player == nil ? "Reproduzir vídeo" : "Parar vídeo")
+                    }
                 }
                 Text(item.displayTitle)
                     .font(.headline)
@@ -845,17 +911,74 @@ struct ItemGridCardView: View {
 
                 Spacer(minLength: 0)
                 TagLine(tags: item.tags)
+                if let videoError {
+                    Text(videoError)
+                        .font(.caption)
+                        .foregroundStyle(.red)
+                        .lineLimit(2)
+                }
             }
             .padding(12)
-            .frame(minHeight: 150, alignment: .topLeading)
-            .background(.background, in: RoundedRectangle(cornerRadius: 8))
-            .overlay {
-                RoundedRectangle(cornerRadius: 8)
-                    .stroke(model.isSelected(item) ? Color.accentColor : Color.secondary.opacity(0.2), lineWidth: model.isSelected(item) ? 2 : 1)
-            }
-            .contentShape(RoundedRectangle(cornerRadius: 8))
         }
-        .buttonStyle(.plain)
+        .frame(minHeight: 170, alignment: .topLeading)
+        .background(.background, in: RoundedRectangle(cornerRadius: 8))
+        .overlay {
+            RoundedRectangle(cornerRadius: 8)
+                .stroke(model.isSelected(item) ? Color.accentColor : Color.secondary.opacity(0.2), lineWidth: model.isSelected(item) ? 2 : 1)
+        }
+        .contentShape(RoundedRectangle(cornerRadius: 8))
+        .onTapGesture {
+            openDetail()
+        }
+    }
+
+    private func toggleInlinePlayback() {
+        if let player {
+            player.pause()
+            self.player = nil
+            return
+        }
+        let result = model.playableVideoURL(for: item)
+        if let url = result.0 {
+            let player = AVPlayer(url: url)
+            self.player = player
+            videoError = nil
+            player.play()
+        } else {
+            videoError = result.1
+        }
+    }
+
+    private func openDetail() {
+        let seconds = player?.currentTime().seconds
+        player?.pause()
+        model.openDetail(item, videoStartTime: seconds?.isFinite == true ? seconds : nil)
+    }
+}
+
+struct ThumbnailOrKindView: View {
+    @EnvironmentObject private var model: AppModel
+    var item: Item
+    var size: CGSize
+
+    var body: some View {
+        if
+            let url = model.thumbnailURL(for: item),
+            let image = NSImage(contentsOf: url)
+        {
+            Image(nsImage: image)
+                .resizable()
+                .scaledToFill()
+                .frame(width: size.width > 0 ? size.width : nil, height: size.height)
+                .frame(maxWidth: size.width > 0 ? size.width : .infinity)
+                .clipShape(RoundedRectangle(cornerRadius: 6))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 6)
+                        .stroke(.quaternary)
+                }
+        } else {
+            KindIcon(kind: item.kind)
+        }
     }
 }
 
@@ -979,6 +1102,7 @@ struct ItemDetailSheet: View {
     @State private var backlinks: [ItemSummary] = []
     @State private var assetPreviews: [AssetPreview] = []
     @State private var selectedAssetPreviewID: String?
+    @State private var detailVideoStartTime: Double?
     @State private var showFolderPicker = false
     @State private var linkPickerTarget: LinkInsertionTarget?
     @State private var errorMessage: String?
@@ -1015,7 +1139,8 @@ struct ItemDetailSheet: View {
                     if !assetPreviews.isEmpty {
                         AssetPreviewPanel(
                             previews: assetPreviews,
-                            selectedID: $selectedAssetPreviewID
+                            selectedID: $selectedAssetPreviewID,
+                            videoStartTime: detailVideoStartTime
                         )
                     }
 
@@ -1134,7 +1259,10 @@ struct ItemDetailSheet: View {
             .padding(16)
         }
         .frame(width: 680, height: 640)
-        .onAppear(perform: loadOrganization)
+        .onAppear {
+            detailVideoStartTime = model.consumeDetailVideoStartTime(for: item)
+            loadOrganization()
+        }
         .sheet(isPresented: $showFolderPicker) {
             FolderPickerSheet(
                 title: "Adicionar a pasta",
@@ -1272,6 +1400,7 @@ enum LinkInsertionTarget: String, Identifiable {
 struct AssetPreviewPanel: View {
     var previews: [AssetPreview]
     @Binding var selectedID: String?
+    var videoStartTime: Double?
 
     private var selectedPreview: AssetPreview? {
         previews.first { $0.id == selectedID } ?? previews.first
@@ -1294,7 +1423,8 @@ struct AssetPreviewPanel: View {
             }
 
             if let selectedPreview {
-                AssetPreviewView(preview: selectedPreview)
+                AssetPreviewView(preview: selectedPreview, videoStartTime: videoStartTime)
+                    .id(selectedPreview.id)
                     .frame(maxWidth: .infinity)
             }
         }
@@ -1303,6 +1433,7 @@ struct AssetPreviewPanel: View {
 
 struct AssetPreviewView: View {
     var preview: AssetPreview
+    var videoStartTime: Double?
 
     var body: some View {
         switch preview.kind {
@@ -1317,16 +1448,42 @@ struct AssetPreviewView: View {
                         .stroke(.quaternary)
                 }
         case .video:
-            VideoPlayer(player: AVPlayer(url: preview.temporaryURL))
-                .frame(height: 320)
-                .clipShape(RoundedRectangle(cornerRadius: 8))
-                .overlay {
-                    RoundedRectangle(cornerRadius: 8)
-                        .stroke(.quaternary)
-                }
+            VideoAssetPreview(url: preview.temporaryURL, startTime: videoStartTime)
         case .file:
             FilePreview(preview: preview)
         }
+    }
+}
+
+struct VideoAssetPreview: View {
+    var url: URL
+    var startTime: Double?
+
+    @State private var player: AVPlayer
+    @State private var didApplyStartTime = false
+
+    init(url: URL, startTime: Double?) {
+        self.url = url
+        self.startTime = startTime
+        _player = State(initialValue: AVPlayer(url: url))
+    }
+
+    var body: some View {
+        VideoPlayer(player: player)
+            .frame(height: 320)
+            .clipShape(RoundedRectangle(cornerRadius: 8))
+            .overlay {
+                RoundedRectangle(cornerRadius: 8)
+                    .stroke(.quaternary)
+            }
+            .onAppear {
+                guard !didApplyStartTime, let startTime, startTime > 0 else {
+                    return
+                }
+                didApplyStartTime = true
+                player.seek(to: CMTime(seconds: startTime, preferredTimescale: 600))
+                player.play()
+            }
     }
 }
 
