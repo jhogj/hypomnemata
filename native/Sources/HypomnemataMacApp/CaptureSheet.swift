@@ -1,6 +1,7 @@
 import HypomnemataCore
 import HypomnemataIngestion
 import SwiftUI
+import UniformTypeIdentifiers
 
 struct CaptureSheet: View {
     @EnvironmentObject private var model: AppModel
@@ -12,6 +13,8 @@ struct CaptureSheet: View {
     @State private var note = ""
     @State private var bodyText = ""
     @State private var tags = ""
+    @State private var selectedFileURL: URL?
+    @State private var showingFileImporter = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -20,13 +23,30 @@ struct CaptureSheet: View {
 
             Picker("Tipo", selection: $selectedTab) {
                 Text("URL").tag(0)
-                Text("Texto").tag(1)
+                Text("Arquivo").tag(1)
+                Text("Texto").tag(2)
             }
             .pickerStyle(.segmented)
 
             if selectedTab == 0 {
                 TextField("https://...", text: $urlString)
                     .textFieldStyle(.roundedBorder)
+            } else if selectedTab == 1 {
+                HStack(spacing: 10) {
+                    Button {
+                        showingFileImporter = true
+                    } label: {
+                        Label("Escolher arquivo", systemImage: "paperclip")
+                    }
+                    if let selectedFileURL {
+                        Text(selectedFileURL.lastPathComponent)
+                            .lineLimit(1)
+                            .foregroundStyle(.secondary)
+                    } else {
+                        Text("Nenhum arquivo selecionado")
+                            .foregroundStyle(.secondary)
+                    }
+                }
             } else {
                 TextEditor(text: $bodyText)
                     .frame(minHeight: 140)
@@ -52,18 +72,49 @@ struct CaptureSheet: View {
                 }
                 Button("Salvar") {
                     model.createCapture(CaptureDraft(
-                        sourceURL: urlString.isEmpty ? nil : urlString,
-                        title: title.isEmpty ? nil : title,
-                        note: note.isEmpty ? nil : note,
-                        bodyText: bodyText.isEmpty ? nil : bodyText,
+                        sourceURL: selectedTab == 0 ? urlString.trimmedNonEmpty : nil,
+                        title: title.trimmedNonEmpty,
+                        note: note.trimmedNonEmpty,
+                        bodyText: selectedTab == 2 ? bodyText.trimmedNonEmpty : nil,
+                        fileURL: selectedTab == 1 ? selectedFileURL : nil,
                         tags: tags.split(separator: ",").map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
                     ))
                 }
                 .keyboardShortcut(.defaultAction)
-                .disabled(selectedTab == 0 ? urlString.isEmpty : bodyText.isEmpty)
+                .disabled(!canSave)
             }
         }
         .padding(22)
         .frame(width: 560)
+        .fileImporter(
+            isPresented: $showingFileImporter,
+            allowedContentTypes: [.item],
+            allowsMultipleSelection: false
+        ) { result in
+            if case let .success(urls) = result {
+                selectedFileURL = urls.first
+                if title.trimmedNonEmpty == nil {
+                    title = urls.first?.deletingPathExtension().lastPathComponent ?? ""
+                }
+            }
+        }
+    }
+
+    private var canSave: Bool {
+        switch selectedTab {
+        case 0:
+            urlString.trimmedNonEmpty != nil
+        case 1:
+            selectedFileURL != nil
+        default:
+            bodyText.trimmedNonEmpty != nil
+        }
+    }
+}
+
+private extension String {
+    var trimmedNonEmpty: String? {
+        let trimmed = trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
     }
 }

@@ -20,9 +20,9 @@
 ## Status atual
 
 - **Onda**: 1 (MVP), 2, 3 entregues. Onda 4 (busca semântica) adiada. Onda 5 (Polimento) em andamento.
-- **Rewrite nativo**: Sprint 0 e Sprint 1 entregues. Sprint 2 em andamento; segunda rodada concluída em 2026-04-25.
-- **Última sessão**: 2026-04-25 — Sprint 2.3: Lista/Grid e Detalhe Básico.
-- **Próxima tarefa**: Sprint 2.4 — Captura CRUD completa e assets criptografados. Timeline segue como ideia aprovada para o app legado/web.
+- **Rewrite nativo**: Sprint 0 e Sprint 1 entregues. Sprint 2 em andamento; terceira rodada concluída em 2026-04-25.
+- **Última sessão**: 2026-04-25 — Sprint 2.4: Captura CRUD completa e assets criptografados.
+- **Próxima tarefa**: Sprint 2.5 — Seleção em lote, delete em lote e performance. Timeline segue como ideia aprovada para o app legado/web.
 
 ### Deps externas necessárias (além do `uv sync`)
 | Ferramenta | Uso | Instalação |
@@ -194,6 +194,33 @@ python3.12 -m mlx_lm server --model mlx-community/gemma-4-e2b-it-4bit --port 808
   - `swift run --disable-sandbox HypomnemataNativeChecks` — passou.
   - `swift build --disable-sandbox --product HypomnemataMacApp` — passou.
 - **Status**: segunda rodada da Sprint 2 concluída. Próxima rodada: Sprint 2.4 — Captura CRUD completa e assets criptografados.
+
+### 2026-04-25 — Sprint 2.4: Captura CRUD completa e assets criptografados
+- **Implementado em `SQLiteItemRepository`**:
+  - `insertAsset(_:)` grava `AssetRecord` na tabela `assets`;
+  - `assets(forItemID:)` lista assets por item para detalhe/delete;
+  - assets seguem `ON DELETE CASCADE` no banco quando o item é removido.
+- **Implementado em `EncryptedAssetStore`**:
+  - `remove(record:)` remove arquivo criptografado físico do diretório `Assets`.
+- **Implementado em `AppModel`**:
+  - captura de arquivo lê `CaptureDraft.fileURL`, infere tipo pelo `CapturePlanner`, cria item, criptografa arquivo com AES-GCM e registra o asset no banco;
+  - título de arquivo usa o nome do arquivo sem extensão quando o usuário não preenche título;
+  - leitura de arquivo usa `startAccessingSecurityScopedResource()` quando o macOS fornecer URL security-scoped;
+  - falha ao registrar asset remove o arquivo criptografado recém-criado e remove o item criado;
+  - delete individual agora busca assets do item e remove os arquivos criptografados físicos após deletar o registro do item.
+- **Implementado em SwiftUI**:
+  - `CaptureSheet` agora tem abas URL, Arquivo e Texto;
+  - aba Arquivo usa `fileImporter` com `UTType.item`, mostra o nome selecionado e salva via fluxo criptografado;
+  - botão salvar valida URL, arquivo ou texto conforme aba ativa.
+- **Checks ampliados**:
+  - asset criptografado é registrado em `assets`;
+  - conteúdo em disco é diferente do plaintext;
+  - asset registrado é lido de volta pelo `EncryptedAssetStore`;
+  - `remove(record:)` torna o asset físico ilegível.
+- **Validação rodada**:
+  - `swift run --disable-sandbox HypomnemataNativeChecks` — passou.
+  - `swift build --disable-sandbox --product HypomnemataMacApp` — passou.
+- **Status**: terceira rodada da Sprint 2 concluída. Próxima rodada: Sprint 2.5 — Seleção em lote, delete em lote e performance.
 
 ### 2026-04-21 — Bun não instalado; usando npm por ora
 - Decisão 9 (`bun`) permanece, mas no momento da primeira sessão o `bun` não estava instalado no sistema (só `npm 11.12.1` e `node 25.9.0`).

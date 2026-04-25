@@ -4,6 +4,7 @@ import HypomnemataCore
 import HypomnemataData
 import HypomnemataIngestion
 import HypomnemataMedia
+import UniformTypeIdentifiers
 
 enum LibraryViewMode: String, CaseIterable, Identifiable {
     case list
@@ -28,6 +29,13 @@ enum LibraryViewMode: String, CaseIterable, Identifiable {
             "square.grid.2x2"
         }
     }
+}
+
+private struct CaptureFilePayload {
+    var data: Data
+    var originalFilename: String
+    var mimeType: String?
+    var defaultTitle: String
 }
 
 @MainActor
@@ -309,7 +317,11 @@ final class AppModel: ObservableObject {
             return "Vault não está desbloqueado."
         }
         do {
+            let assets = try repository.assets(forItemID: item.id)
             try repository.deleteItems(ids: [item.id])
+            for asset in assets {
+                try assetStore?.remove(record: asset)
+            }
             if selectedItem?.id == item.id {
                 selectedItem = nil
             }
@@ -327,6 +339,7 @@ final class AppModel: ObservableObject {
         }
         do {
             let plan = CapturePlanner.plan(draft)
+            let filePayload = try draft.fileURL.map(readCaptureFile)
             let metadataJSON: String?
             if plan.jobs.isEmpty {
                 metadataJSON = nil
@@ -337,16 +350,36 @@ final class AppModel: ObservableObject {
                 )
                 metadataJSON = String(data: data, encoding: .utf8)
             }
-            _ = try repository.createItem(
+            let createdItem = try repository.createItem(
                 kind: plan.kind,
                 sourceURL: draft.sourceURL,
-                title: draft.title,
+                title: draft.title ?? filePayload?.defaultTitle,
                 note: draft.note,
                 bodyText: draft.bodyText,
                 summary: nil,
                 metadataJSON: metadataJSON,
                 tags: draft.tags
             )
+            if let filePayload {
+                guard let assetStore else {
+                    try? repository.deleteItems(ids: [createdItem.id])
+                    throw DataError.assetStoreUnavailable
+                }
+                let stored = try assetStore.write(
+                    data: filePayload.data,
+                    itemID: createdItem.id,
+                    role: .original,
+                    originalFilename: filePayload.originalFilename,
+                    mimeType: filePayload.mimeType
+                )
+                do {
+                    try repository.insertAsset(stored.record)
+                } catch {
+                    try? assetStore.remove(record: stored.record)
+                    try? repository.deleteItems(ids: [createdItem.id])
+                    throw error
+                }
+            }
             showCapture = false
             refreshLibrary()
         } catch {
@@ -393,6 +426,25 @@ final class AppModel: ObservableObject {
             }
         }
         return total
+    }
+
+    private func readCaptureFile(_ fileURL: URL) throws -> CaptureFilePayload {
+        let didStartAccessing = fileURL.startAccessingSecurityScopedResource()
+        defer {
+            if didStartAccessing {
+                fileURL.stopAccessingSecurityScopedResource()
+            }
+        }
+
+        let data = try Data(contentsOf: fileURL)
+        let extensionName = fileURL.pathExtension
+        let mimeType = UTType(filenameExtension: extensionName)?.preferredMIMEType
+        return CaptureFilePayload(
+            data: data,
+            originalFilename: fileURL.lastPathComponent,
+            mimeType: mimeType,
+            defaultTitle: fileURL.deletingPathExtension().lastPathComponent
+        )
     }
 
     private func clearTemporaryCache() -> Error? {

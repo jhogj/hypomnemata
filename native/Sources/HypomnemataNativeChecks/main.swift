@@ -188,6 +188,9 @@ struct HypomnemataNativeChecks {
         let restoredAsset = try store.read(record: storedAsset.record)
         precondition(ciphertext != plaintext)
         precondition(restoredAsset == plaintext)
+        try repository.insertAsset(storedAsset.record)
+        let itemAssets = try repository.assets(forItemID: item.id)
+        precondition(itemAssets == [storedAsset.record])
 
         let decryptedTemp = try store.decryptToTemporaryFile(record: storedAsset.record)
         let decryptedTempData = try Data(contentsOf: decryptedTemp)
@@ -295,5 +298,14 @@ struct HypomnemataNativeChecks {
         let missingCache = root.appendingPathComponent("missing-cache", isDirectory: true)
         try TemporaryCacheCleaner().clear(at: missingCache)
         precondition(FileManager.default.fileExists(atPath: missingCache.path))
+
+        try store.remove(record: stored.record)
+        precondition(!FileManager.default.fileExists(atPath: stored.absoluteURL.path))
+        do {
+            _ = try store.read(record: stored.record)
+            preconditionFailure("Removed asset was still readable.")
+        } catch MediaError.assetNotFound {
+            // Expected: removed encrypted assets are no longer readable.
+        }
     }
 }

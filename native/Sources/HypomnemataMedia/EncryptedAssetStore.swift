@@ -117,6 +117,14 @@ public final class EncryptedAssetStore: @unchecked Sendable {
         return targetURL
     }
 
+    public func remove(record: AssetRecord) throws {
+        let encryptedURL = rootDirectory.appendingPathComponent(record.encryptedPath)
+        guard fileManager.fileExists(atPath: encryptedURL.path) else {
+            return
+        }
+        try fileManager.removeItem(at: encryptedURL)
+    }
+
     public func clearTemporaryCache() throws {
         try TemporaryCacheCleaner(fileManager: fileManager).clear(at: cacheDirectory)
     }

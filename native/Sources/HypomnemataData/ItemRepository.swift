@@ -52,6 +52,8 @@ public protocol ItemRepository: Sendable {
     func item(id: String) throws -> Item
     func patchItem(id: String, patch: ItemPatch) throws -> Item
     func deleteItems(ids: [String]) throws
+    func insertAsset(_ asset: AssetRecord) throws
+    func assets(forItemID itemID: String) throws -> [AssetRecord]
     func totalItemCount() throws -> Int
     func itemCountsByKind() throws -> [ItemKind: Int]
     func tagCounts() throws -> [TagCount]
@@ -222,6 +224,48 @@ public final class SQLiteItemRepository: ItemRepository, @unchecked Sendable {
             for id in ids {
                 try db.execute(sql: "DELETE FROM items WHERE id = ?", arguments: [id])
             }
+        }
+    }
+
+    public func insertAsset(_ asset: AssetRecord) throws {
+        try database.writer.write { db in
+            try db.execute(
+                sql: """
+                    INSERT INTO assets(
+                        id, item_id, role, mime_type, byte_count, encrypted_path, original_filename,
+                        duration_seconds, width, height, created_at
+                    )
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                arguments: [
+                    asset.id,
+                    asset.itemID,
+                    asset.role.rawValue,
+                    asset.mimeType,
+                    asset.byteCount,
+                    asset.encryptedPath,
+                    asset.originalFilename,
+                    asset.durationSeconds,
+                    asset.width,
+                    asset.height,
+                    asset.createdAt,
+                ]
+            )
+        }
+    }
+
+    public func assets(forItemID itemID: String) throws -> [AssetRecord] {
+        try database.writer.read { db in
+            try Row.fetchAll(
+                db,
+                sql: """
+                    SELECT *
+                    FROM assets
+                    WHERE item_id = ?
+                    ORDER BY created_at, id
+                    """,
+                arguments: [itemID]
+            ).map(Self.asset(from:))
         }
     }
 
@@ -429,6 +473,23 @@ public final class SQLiteItemRepository: ItemRepository, @unchecked Sendable {
             createdAt: row["created_at"],
             updatedAt: row["updated_at"],
             tags: []
+        )
+    }
+
+    private static func asset(from row: Row) -> AssetRecord {
+        let role = AssetRole(rawValue: row["role"]) ?? .original
+        return AssetRecord(
+            id: row["id"],
+            itemID: row["item_id"],
+            role: role,
+            mimeType: row["mime_type"],
+            byteCount: row["byte_count"],
+            encryptedPath: row["encrypted_path"],
+            originalFilename: row["original_filename"],
+            durationSeconds: row["duration_seconds"],
+            width: row["width"],
+            height: row["height"],
+            createdAt: row["created_at"]
         )
     }
 
