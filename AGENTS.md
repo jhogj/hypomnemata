@@ -90,6 +90,13 @@ python3.12 -m mlx_lm server --model mlx-community/gemma-4-e2b-it-4bit --port 808
 
 ## Decisões posteriores
 
+### 2026-04-25 — Rewrite nativo macOS iniciado
+- **Decisão**: nova trilha em `native/` com Swift/SwiftUI, macOS 14+, Apple Silicon, módulos Core/Data/Media/Ingestion/AI/Backup/App.
+- **Motivo**: a aplicação foi comprada e precisa virar app leve de macOS; FastAPI/React passam a ser referência funcional, não destino final.
+- **Segurança**: produção deve falhar fechada sem SQLCipher; testes locais podem abrir banco SQLite plaintext explicitamente.
+- **Extensão Chrome/MV3**: descartada do produto novo. Captura passa a ser interna ao app e futuramente via Share/Services nativos.
+- **Dados antigos**: sem migração no primeiro release nativo.
+
 ### 2026-04-21 — Bun não instalado; usando npm por ora
 - Decisão 9 (`bun`) permanece, mas no momento da primeira sessão o `bun` não estava instalado no sistema (só `npm 11.12.1` e `node 25.9.0`).
 - `package.json` de `webapp/` e `extension/` foi escrito sem lockfile específico.
