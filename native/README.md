@@ -2,7 +2,7 @@
 
 This is the native macOS rewrite track for Hypomnemata.
 
-Current status: foundation implementation for the rewrite plan. The existing
+Current status: Sprint 1 of the native rewrite is complete. The existing
 FastAPI/React app remains untouched and can keep serving as behavioral
 reference while the native app is built out.
 
@@ -17,6 +17,10 @@ reference while the native app is built out.
 - Asset encryption key stored inside the SQLCipher vault, not in a plaintext file
 - Temporary decrypted asset cache cleared on vault lock and application quit
 - Vault lock discards database, repositories, asset store, keys, selection and capture UI even if cleanup reports an error
+- Auto-lock after 15 minutes of inactivity
+- Immediate vault lock on macOS sleep, screen sleep, and session resign-active notifications
+- Vault passphrase change through SQLCipher rekey
+- Empty passphrases rejected before vault open or rekey
 
 ## External commands expected in product builds
 
@@ -35,6 +39,14 @@ CLANG_MODULE_CACHE_PATH=/tmp/hypo-clang-cache SWIFTPM_HOME=/tmp/hypo-swiftpm-cac
 CLANG_MODULE_CACHE_PATH=/tmp/hypo-clang-cache SWIFTPM_HOME=/tmp/hypo-swiftpm-cache swift build --disable-sandbox --product HypomnemataMacApp
 ```
 
-`HypomnemataNativeChecks` opens a real SQLCipher database, then verifies that
-system `sqlite3` cannot read it. The app path requires SQLCipher by default and
-fails closed when it is unavailable.
+`HypomnemataNativeChecks` opens a real SQLCipher database, exercises CRUD,
+FTS5, dependency checks, persistent asset keys, AES-GCM asset encryption,
+temporary cache cleanup, SQLCipher rekey, old-passphrase rejection, and then
+verifies that system `sqlite3` cannot read the vault. The app path requires
+SQLCipher by default and fails closed when it is unavailable.
+
+## Sprint status
+
+- Sprint 0: complete.
+- Sprint 1: complete as of 2026-04-25.
+- Next sprint: Sprint 2, native library UI and CRUD workflows.

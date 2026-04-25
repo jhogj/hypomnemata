@@ -12,7 +12,7 @@
 - **Decisões que divergem do PLANO.md**: entram aqui datadas, em "Decisões posteriores". Não reescrever o PLANO.md silenciosamente.
 - **Bugs**: seção própria, com repro e hipótese.
 - **Formato**: leve, datado (`YYYY-MM-DD`), sem cerimônia.
-- **Rewrite nativo / Sprint 1**: entregar em micro-passos. Para cada micro-passo: implementar só aquele recorte, atualizar `AGENTS.md`/docs, validar build/checks, reportar ao usuário e parar antes de continuar.
+- **Rewrite nativo / Sprint 1**: rotina padrão é entregar em micro-passos. Para cada micro-passo: implementar só aquele recorte, atualizar `AGENTS.md`/docs, validar build/checks, reportar ao usuário e parar antes de continuar. Exceção registrada: em 2026-04-25 o usuário pediu explicitamente fechar o restante da sprint inteiro.
 - **Sem contorno silencioso**: se faltar instalação, permissão, configuração local ou assinatura, parar e informar o comando exato para o usuário rodar.
 
 ---
@@ -20,8 +20,9 @@
 ## Status atual
 
 - **Onda**: 1 (MVP), 2, 3 entregues. Onda 4 (busca semântica) adiada. Onda 5 (Polimento) em andamento.
-- **Última sessão**: 2026-04-22 — Backup incremental para iCloud via rsync implementado.
-- **Próxima tarefa**: Visão de Linha do Tempo (Timeline) — Ideia aprovada.
+- **Rewrite nativo**: Sprint 0 entregue; Sprint 1 concluída em 2026-04-25. Próxima fase: Sprint 2 — Biblioteca Nativa.
+- **Última sessão**: 2026-04-25 — Sprint 1 do rewrite nativo concluída.
+- **Próxima tarefa**: Sprint 2 — Biblioteca Nativa. Timeline segue como ideia aprovada para o app legado/web.
 
 ### Deps externas necessárias (além do `uv sync`)
 | Ferramenta | Uso | Instalação |
@@ -122,6 +123,33 @@ python3.12 -m mlx_lm server --model mlx-community/gemma-4-e2b-it-4bit --port 808
 - **Motivo**: lock não pode deixar chaves/repositórios vivos se uma etapa auxiliar falhar.
 - **Estado**: se houve erro durante lock, o app entra em `.failed(message)` depois de descartar recursos; caso contrário entra em `.locked`.
 - **Validação esperada**: `TemporaryCacheCleaner` foi extraído para `HypomnemataMedia` e o check valida que limpar cache inexistente é idempotente e recria o diretório.
+
+### 2026-04-25 — Sprint 1.4: auto-lock por inatividade e eventos do macOS
+- **Implementado**: `AppModel` instala monitor local de eventos AppKit para teclado, mouse, scroll e mudança de modifiers. Cada atividade reinicia timer de 15 minutos enquanto o vault está desbloqueado.
+- **Eventos de segurança**: `NSWorkspace.willSleepNotification`, `screensDidSleepNotification` e `sessionDidResignActiveNotification` bloqueiam o vault imediatamente quando o Mac vai dormir, a tela dorme ou a sessão perde atividade.
+- **Motivo**: cumprir Sprint 1 sem depender só de lock manual; a conexão SQLCipher, repositórios, `AssetStore` e cache temporário saem de memória no lock.
+- **Nota técnica**: o `deinit` explícito de monitores foi removido porque Swift 6 trata esses objetos AppKit/Objective-C como não-Sendable em `deinit` não-isolado. `AppModel` vive pelo ciclo do app; limpeza crítica continua em lock/quit.
+
+### 2026-04-25 — Sprint 1.5: troca de senha do vault
+- **Implementado**: `NativeDatabase.changePassphrase(to:)` usa `db.changePassphrase(...)` do GRDB/SQLCipher após `PRAGMA wal_checkpoint(TRUNCATE)`.
+- **UI**: sidebar ganhou "Trocar senha", abrindo sheet com senha atual, nova senha e confirmação. Senha vazia e confirmação divergente geram erro local.
+- **Verificação da senha atual**: antes do rekey, o app tenta abrir o vault com a senha atual informada. Se falhar, não chama `changePassphrase`.
+- **Garantia**: a chave de assets permanece armazenada dentro do banco criptografado e não muda com a troca de senha.
+
+### 2026-04-25 — Sprint 1.6: checks finais de vault, assets, cache e rekey
+- **Implementado em `HypomnemataNativeChecks`**:
+  - cria vault SQLCipher real;
+  - valida CRUD, tags, FTS5 com diacríticos e dependências esperadas;
+  - cria chave de assets persistida no banco;
+  - grava asset AES-GCM, confirma que o arquivo em disco não é plaintext e que descriptografa corretamente;
+  - gera cache temporário descriptografado e confirma remoção no cleanup;
+  - troca senha do vault, valida que a senha antiga não abre mais;
+  - reabre com a senha nova, confirma que item, chave de assets e asset criptografado continuam válidos;
+  - confirma que `/usr/bin/sqlite3` comum não lê o banco.
+- **Validação rodada**:
+  - `swift run --disable-sandbox HypomnemataNativeChecks` — passou.
+  - `swift build --disable-sandbox --product HypomnemataMacApp` — passou.
+- **Status**: Sprint 1 concluída. Próxima etapa de produto: Sprint 2 — Biblioteca Nativa.
 
 ### 2026-04-21 — Bun não instalado; usando npm por ora
 - Decisão 9 (`bun`) permanece, mas no momento da primeira sessão o `bun` não estava instalado no sistema (só `npm 11.12.1` e `node 25.9.0`).

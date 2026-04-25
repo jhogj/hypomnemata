@@ -9,6 +9,9 @@ struct HypomnemataNativeApp: App {
             RootView()
                 .environmentObject(model)
                 .frame(minWidth: 980, minHeight: 680)
+                .onChange(of: model.query) { _, _ in
+                    model.recordUserActivity()
+                }
                 .onReceive(NotificationCenter.default.publisher(for: NSApplication.willTerminateNotification)) { _ in
                     model.prepareForQuit()
                 }

@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import HypomnemataCore
 import HypomnemataData
@@ -17,12 +18,17 @@ final class AppModel: ObservableObject {
     @Published var activeKind: ItemKind?
     @Published var query = ""
     @Published var showCapture = false
+    @Published var showChangePassword = false
     @Published var dependencyStatuses: [DependencyStatus] = []
 
     private var database: NativeDatabase?
     private var repository: SQLiteItemRepository?
     private var assetStore: EncryptedAssetStore?
     private var appPaths: AppPaths?
+    private var localEventMonitor: Any?
+    private var securityObservers: [NSObjectProtocol] = []
+    private var autoLockTimer: Timer?
+    private let autoLockInterval: TimeInterval = 15 * 60
 
     var isUnlocked: Bool {
         if case .unlocked = state {
@@ -33,6 +39,8 @@ final class AppModel: ObservableObject {
 
     init() {
         refreshDependencies()
+        installActivityMonitor()
+        installSecurityObservers()
     }
 
     func refreshDependencies() {
@@ -40,26 +48,44 @@ final class AppModel: ObservableObject {
     }
 
     func unlock(passphrase: String) {
+        guard !passphrase.isEmpty else {
+            state = .failed(DataError.emptyPassphrase.localizedDescription)
+            return
+        }
+        discardUnlockedState()
+        var databaseExists = false
         do {
             let paths = try AppPaths.production()
+            databaseExists = FileManager.default.fileExists(atPath: paths.databaseURL.path)
             let db = try NativeDatabase(
                 appPaths: paths,
                 passphrase: passphrase,
                 requireSQLCipher: true
             )
-            let assetKeyData = try db.loadOrCreateAssetKeyData()
+            let assetKeyData: Data
+            let store: EncryptedAssetStore
+            do {
+                assetKeyData = try db.loadOrCreateAssetKeyData()
+                store = try EncryptedAssetStore(
+                    rootDirectory: paths.assetsDirectory,
+                    cacheDirectory: paths.temporaryCacheDirectory,
+                    keyData: assetKeyData
+                )
+            } catch {
+                try? db.close()
+                throw error
+            }
+
             database = db
             repository = SQLiteItemRepository(database: db)
             appPaths = paths
-            assetStore = try EncryptedAssetStore(
-                rootDirectory: paths.assetsDirectory,
-                cacheDirectory: paths.temporaryCacheDirectory,
-                keyData: assetKeyData
-            )
+            assetStore = store
             state = .unlocked
+            resetAutoLockTimer()
             refreshItems()
         } catch {
-            state = .failed(error.localizedDescription)
+            discardUnlockedState()
+            state = .failed(unlockFailureMessage(error, databaseExists: databaseExists))
         }
     }
 
@@ -89,6 +115,8 @@ final class AppModel: ObservableObject {
     }
 
     private func discardUnlockedState() {
+        autoLockTimer?.invalidate()
+        autoLockTimer = nil
         database = nil
         repository = nil
         assetStore = nil
@@ -97,6 +125,47 @@ final class AppModel: ObservableObject {
         activeKind = nil
         items = []
         showCapture = false
+        showChangePassword = false
+    }
+
+    func recordUserActivity() {
+        guard isUnlocked else {
+            return
+        }
+        resetAutoLockTimer()
+    }
+
+    func changePassphrase(
+        currentPassphrase: String,
+        newPassphrase: String,
+        confirmation: String
+    ) -> String? {
+        guard !currentPassphrase.isEmpty else {
+            return "Informe a senha atual."
+        }
+        guard !newPassphrase.isEmpty else {
+            return DataError.emptyPassphrase.localizedDescription
+        }
+        guard newPassphrase == confirmation else {
+            return "A nova senha e a confirmação não conferem."
+        }
+        guard let database, let appPaths else {
+            return "Vault não está desbloqueado."
+        }
+
+        do {
+            let verifier = try NativeDatabase(
+                appPaths: appPaths,
+                passphrase: currentPassphrase,
+                requireSQLCipher: true
+            )
+            try verifier.close()
+            try database.changePassphrase(to: newPassphrase)
+            recordUserActivity()
+            return nil
+        } catch {
+            return "Senha atual inválida ou vault inacessível."
+        }
     }
 
     func refreshItems() {
@@ -162,6 +231,62 @@ final class AppModel: ObservableObject {
         } catch {
             return error
         }
+    }
+
+    private func installActivityMonitor() {
+        localEventMonitor = NSEvent.addLocalMonitorForEvents(
+            matching: [.keyDown, .leftMouseDown, .rightMouseDown, .otherMouseDown, .scrollWheel, .flagsChanged]
+        ) { [weak self] event in
+            Task { @MainActor in
+                self?.recordUserActivity()
+            }
+            return event
+        }
+    }
+
+    private func installSecurityObservers() {
+        let center = NSWorkspace.shared.notificationCenter
+        let names: [Notification.Name] = [
+            NSWorkspace.willSleepNotification,
+            NSWorkspace.screensDidSleepNotification,
+            NSWorkspace.sessionDidResignActiveNotification,
+        ]
+        securityObservers = names.map { name in
+            center.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
+                Task { @MainActor in
+                    if self?.isUnlocked == true {
+                        self?.lock()
+                    }
+                }
+            }
+        }
+    }
+
+    private func resetAutoLockTimer() {
+        autoLockTimer?.invalidate()
+        guard isUnlocked else {
+            autoLockTimer = nil
+            return
+        }
+        let timer = Timer(timeInterval: autoLockInterval, repeats: false) { [weak self] _ in
+            Task { @MainActor in
+                if self?.isUnlocked == true {
+                    self?.lock()
+                }
+            }
+        }
+        autoLockTimer = timer
+        RunLoop.main.add(timer, forMode: .common)
+    }
+
+    private func unlockFailureMessage(_ error: Error, databaseExists: Bool) -> String {
+        if let dataError = error as? DataError {
+            return dataError.localizedDescription
+        }
+        if databaseExists {
+            return "Não foi possível abrir o vault existente. Verifique a senha; se ela estiver correta, o banco pode estar corrompido ou inacessível."
+        }
+        return error.localizedDescription
     }
 }
 

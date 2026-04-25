@@ -83,6 +83,17 @@ public final class NativeDatabase: @unchecked Sendable {
         }
     }
 
+    public func changePassphrase(to newPassphrase: String) throws {
+        guard !newPassphrase.isEmpty else {
+            throw DataError.emptyPassphrase
+        }
+        try writer.writeWithoutTransaction { db in
+            try db.execute(sql: "PRAGMA wal_checkpoint(TRUNCATE)")
+            try db.changePassphrase(newPassphrase)
+            _ = try Int.fetchOne(db, sql: "SELECT count(*) FROM settings")
+        }
+    }
+
     private func seedVaultSettings(passphraseMarker: String) throws {
         try writer.write { db in
             try db.execute(

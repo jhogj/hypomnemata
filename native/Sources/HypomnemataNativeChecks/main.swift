@@ -38,13 +38,13 @@ struct HypomnemataNativeChecks {
         let root = URL(fileURLWithPath: NSTemporaryDirectory())
             .appendingPathComponent("hypomnemata-native-checks-\(UUID().uuidString)", isDirectory: true)
         defer { try? FileManager.default.removeItem(at: root) }
+        let appPaths = AppPaths(rootDirectory: root)
 
         let database = try NativeDatabase(
-            appPaths: AppPaths(rootDirectory: root),
+            appPaths: appPaths,
             passphrase: "test",
             requireSQLCipher: true
         )
-        defer { try? database.close() }
 
         let repository = SQLiteItemRepository(database: database)
         let item = try repository.createItem(
@@ -75,18 +75,78 @@ struct HypomnemataNativeChecks {
         precondition(firstAssetKey.count == 32)
         precondition(secondAssetKey == firstAssetKey)
 
+        let store = try EncryptedAssetStore(
+            rootDirectory: appPaths.assetsDirectory,
+            cacheDirectory: appPaths.temporaryCacheDirectory,
+            keyData: firstAssetKey
+        )
+        let plaintext = Data("asset sensível do vault".utf8)
+        let storedAsset = try store.write(
+            data: plaintext,
+            itemID: item.id,
+            role: .original,
+            originalFilename: "vault.txt",
+            mimeType: "text/plain"
+        )
+        let ciphertext = try Data(contentsOf: storedAsset.absoluteURL)
+        let restoredAsset = try store.read(record: storedAsset.record)
+        precondition(ciphertext != plaintext)
+        precondition(restoredAsset == plaintext)
+
+        let decryptedTemp = try store.decryptToTemporaryFile(record: storedAsset.record)
+        let decryptedTempData = try Data(contentsOf: decryptedTemp)
+        precondition(decryptedTempData == plaintext)
+        try store.clearTemporaryCache()
+        precondition(!FileManager.default.fileExists(atPath: decryptedTemp.path))
+
         let tools = DependencyDoctor.productionRequirements.map(\.executable)
         precondition(tools == ["sqlcipher", "ffmpeg", "yt-dlp", "gallery-dl", "trafilatura"])
 
+        do {
+            try database.changePassphrase(to: "")
+            preconditionFailure("Empty passphrase was accepted.")
+        } catch DataError.emptyPassphrase {
+            // Expected: empty vault passphrases are not valid.
+        }
+
+        let verifier = try NativeDatabase(
+            appPaths: appPaths,
+            passphrase: "test",
+            requireSQLCipher: true
+        )
+        try verifier.close()
+
+        try database.changePassphrase(to: "changed")
+        let rekeyedAssetKey = try database.loadOrCreateAssetKeyData()
+        precondition(rekeyedAssetKey == firstAssetKey)
         try database.close()
 
+        do {
+            let oldPassphraseDatabase = try NativeDatabase(
+                appPaths: appPaths,
+                passphrase: "test",
+                requireSQLCipher: true
+            )
+            try oldPassphraseDatabase.close()
+            preconditionFailure("Old passphrase opened the vault after rekey.")
+        } catch {
+            // Expected: SQLCipher must reject the old passphrase after rekey.
+        }
+
         let reopened = try NativeDatabase(
-            appPaths: AppPaths(rootDirectory: root),
-            passphrase: "test",
+            appPaths: appPaths,
+            passphrase: "changed",
             requireSQLCipher: true
         )
         let reopenedAssetKey = try reopened.loadOrCreateAssetKeyData()
         precondition(reopenedAssetKey == firstAssetKey)
+        let reopenedStore = try EncryptedAssetStore(
+            rootDirectory: appPaths.assetsDirectory,
+            cacheDirectory: appPaths.temporaryCacheDirectory,
+            keyData: reopenedAssetKey
+        )
+        let reopenedAsset = try reopenedStore.read(record: storedAsset.record)
+        precondition(reopenedAsset == plaintext)
         try reopened.close()
 
         let sqliteRead = Process()

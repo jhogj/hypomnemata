@@ -15,6 +15,9 @@ struct RootView: View {
                 .sheet(isPresented: $model.showCapture) {
                     CaptureSheet()
                 }
+                .sheet(isPresented: $model.showChangePassword) {
+                    ChangePasswordSheet()
+                }
         }
     }
 }
@@ -103,9 +106,64 @@ struct SidebarView: View {
                 Button("Bloquear") {
                     model.lock()
                 }
+                Button("Trocar senha") {
+                    model.showChangePassword = true
+                }
             }
             .padding()
         }
+    }
+}
+
+struct ChangePasswordSheet: View {
+    @EnvironmentObject private var model: AppModel
+    @Environment(\.dismiss) private var dismiss
+
+    @State private var currentPassphrase = ""
+    @State private var newPassphrase = ""
+    @State private var confirmation = ""
+    @State private var errorMessage: String?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text("Trocar senha")
+                .font(.title2.bold())
+
+            SecureField("Senha atual", text: $currentPassphrase)
+                .textFieldStyle(.roundedBorder)
+            SecureField("Nova senha", text: $newPassphrase)
+                .textFieldStyle(.roundedBorder)
+            SecureField("Confirmar nova senha", text: $confirmation)
+                .textFieldStyle(.roundedBorder)
+
+            if let errorMessage {
+                Text(errorMessage)
+                    .font(.callout)
+                    .foregroundStyle(.red)
+            }
+
+            HStack {
+                Spacer()
+                Button("Cancelar") {
+                    dismiss()
+                }
+                Button("Salvar") {
+                    if let message = model.changePassphrase(
+                        currentPassphrase: currentPassphrase,
+                        newPassphrase: newPassphrase,
+                        confirmation: confirmation
+                    ) {
+                        errorMessage = message
+                    } else {
+                        dismiss()
+                    }
+                }
+                .keyboardShortcut(.defaultAction)
+                .disabled(currentPassphrase.isEmpty || newPassphrase.isEmpty || confirmation.isEmpty)
+            }
+        }
+        .padding(22)
+        .frame(width: 440)
     }
 }
 
