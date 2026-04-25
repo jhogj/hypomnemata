@@ -117,6 +117,12 @@ python3.12 -m mlx_lm server --model mlx-community/gemma-4-e2b-it-4bit --port 808
 - **Motivo**: arquivos descriptografados para previews futuros de PDFKit/AVPlayer não podem permanecer em `TemporaryCache` após lock/quit.
 - **Validação esperada**: `HypomnemataNativeChecks` confirma que `clearTemporaryCache()` remove arquivo temporário descriptografado e recria o diretório de cache vazio.
 
+### 2026-04-25 — Sprint 1.3: lock idempotente e fail-closed
+- **Implementado**: `AppModel.lock()` agora coleta erro de limpeza de cache e erro de fechamento do banco, mas sempre descarta `database`, `repository`, `assetStore`, `appPaths`, seleção, query, itens e modal de captura.
+- **Motivo**: lock não pode deixar chaves/repositórios vivos se uma etapa auxiliar falhar.
+- **Estado**: se houve erro durante lock, o app entra em `.failed(message)` depois de descartar recursos; caso contrário entra em `.locked`.
+- **Validação esperada**: `TemporaryCacheCleaner` foi extraído para `HypomnemataMedia` e o check valida que limpar cache inexistente é idempotente e recria o diretório.
+
 ### 2026-04-21 — Bun não instalado; usando npm por ora
 - Decisão 9 (`bun`) permanece, mas no momento da primeira sessão o `bun` não estava instalado no sistema (só `npm 11.12.1` e `node 25.9.0`).
 - `package.json` de `webapp/` e `extension/` foi escrito sem lockfile específico.

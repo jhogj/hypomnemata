@@ -16,6 +16,7 @@ reference while the native app is built out.
 - AES-GCM encrypted assets through CryptoKit
 - Asset encryption key stored inside the SQLCipher vault, not in a plaintext file
 - Temporary decrypted asset cache cleared on vault lock and application quit
+- Vault lock discards database, repositories, asset store, keys, selection and capture UI even if cleanup reports an error
 
 ## External commands expected in product builds
 

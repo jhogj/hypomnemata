@@ -118,10 +118,6 @@ public final class EncryptedAssetStore: @unchecked Sendable {
     }
 
     public func clearTemporaryCache() throws {
-        guard fileManager.fileExists(atPath: cacheDirectory.path) else {
-            return
-        }
-        try fileManager.removeItem(at: cacheDirectory)
-        try fileManager.createDirectory(at: cacheDirectory, withIntermediateDirectories: true)
+        try TemporaryCacheCleaner(fileManager: fileManager).clear(at: cacheDirectory)
     }
 }

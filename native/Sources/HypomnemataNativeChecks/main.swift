@@ -135,5 +135,9 @@ struct HypomnemataNativeChecks {
 
         let recreated = root.appendingPathComponent("cache", isDirectory: true)
         precondition(FileManager.default.fileExists(atPath: recreated.path))
+
+        let missingCache = root.appendingPathComponent("missing-cache", isDirectory: true)
+        try TemporaryCacheCleaner().clear(at: missingCache)
+        precondition(FileManager.default.fileExists(atPath: missingCache.path))
     }
 }

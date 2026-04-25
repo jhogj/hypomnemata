@@ -64,22 +64,39 @@ final class AppModel: ObservableObject {
     }
 
     func lock() {
-        clearTemporaryCache()
+        let cacheError = clearTemporaryCache()
+        let closeError = closeDatabase()
+        discardUnlockedState()
+
+        if let message = [cacheError, closeError].compactMap(\.?.localizedDescription).first {
+            state = .failed(message)
+        } else {
+            state = .locked
+        }
+    }
+
+    func prepareForQuit() {
+        _ = clearTemporaryCache()
+    }
+
+    private func closeDatabase() -> Error? {
         do {
             try database?.close()
+            return nil
         } catch {
-            state = .failed(error.localizedDescription)
+            return error
         }
+    }
+
+    private func discardUnlockedState() {
         database = nil
         repository = nil
         assetStore = nil
         appPaths = nil
+        query = ""
+        activeKind = nil
         items = []
-        state = .locked
-    }
-
-    func prepareForQuit() {
-        clearTemporaryCache()
+        showCapture = false
     }
 
     func refreshItems() {
@@ -130,7 +147,7 @@ final class AppModel: ObservableObject {
         }
     }
 
-    private func clearTemporaryCache() {
+    private func clearTemporaryCache() -> Error? {
         do {
             if let assetStore {
                 try assetStore.clearTemporaryCache()
@@ -141,8 +158,9 @@ final class AppModel: ObservableObject {
                     withIntermediateDirectories: true
                 )
             }
+            return nil
         } catch {
-            state = .failed(error.localizedDescription)
+            return error
         }
     }
 }
