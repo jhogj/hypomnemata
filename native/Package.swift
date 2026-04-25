@@ -62,6 +62,7 @@ let package = Package(
                 "HypomnemataCore",
                 "HypomnemataData",
                 "HypomnemataMedia",
+                .product(name: "GRDB", package: "GRDBSQLCipher"),
             ]
         ),
     ]

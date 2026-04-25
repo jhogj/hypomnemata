@@ -79,6 +79,11 @@ struct LibraryShellView: View {
                 Divider()
                 LibraryContentView(items: model.items)
             }
+            .safeAreaInset(edge: .bottom) {
+                if model.selectionMode {
+                    SelectionToolbar()
+                }
+            }
         }
     }
 }
@@ -286,6 +291,15 @@ struct SearchHeaderView: View {
             }
             .keyboardShortcut("k", modifiers: [.command])
 
+            Button {
+                model.toggleSelectionMode()
+            } label: {
+                Label(
+                    model.selectionMode ? "Cancelar seleção" : "Selecionar",
+                    systemImage: model.selectionMode ? "xmark.circle" : "checkmark.circle"
+                )
+            }
+
             Picker("Visualização", selection: $model.viewMode) {
                 ForEach(LibraryViewMode.allCases) { mode in
                     Label(mode.displayName, systemImage: mode.systemImage)
@@ -417,6 +431,9 @@ struct ItemRowView: View {
             model.openDetail(item)
         } label: {
             HStack(alignment: .top, spacing: 12) {
+                if model.selectionMode {
+                    SelectionIndicator(isSelected: model.isSelected(item))
+                }
                 KindIcon(kind: item.kind)
                 VStack(alignment: .leading, spacing: 6) {
                     HStack(alignment: .firstTextBaseline) {
@@ -451,6 +468,7 @@ struct ItemRowView: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .listRowBackground(model.isSelected(item) ? Color.accentColor.opacity(0.12) : Color.clear)
     }
 }
 
@@ -464,6 +482,9 @@ struct ItemGridCardView: View {
         } label: {
             VStack(alignment: .leading, spacing: 10) {
                 HStack {
+                    if model.selectionMode {
+                        SelectionIndicator(isSelected: model.isSelected(item))
+                    }
                     KindIcon(kind: item.kind)
                     Spacer()
                     Text(item.kind.rawValue)
@@ -501,11 +522,84 @@ struct ItemGridCardView: View {
             .background(.background, in: RoundedRectangle(cornerRadius: 8))
             .overlay {
                 RoundedRectangle(cornerRadius: 8)
-                    .stroke(.quaternary)
+                    .stroke(model.isSelected(item) ? Color.accentColor : Color.secondary.opacity(0.2), lineWidth: model.isSelected(item) ? 2 : 1)
             }
             .contentShape(RoundedRectangle(cornerRadius: 8))
         }
         .buttonStyle(.plain)
+    }
+}
+
+struct SelectionIndicator: View {
+    var isSelected: Bool
+
+    var body: some View {
+        Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
+            .font(.system(size: 18, weight: .semibold))
+            .foregroundStyle(isSelected ? Color.accentColor : Color.secondary)
+            .frame(width: 22, height: 22)
+            .accessibilityLabel(isSelected ? "Selecionado" : "Não selecionado")
+    }
+}
+
+struct SelectionToolbar: View {
+    @EnvironmentObject private var model: AppModel
+    @State private var showDeleteConfirmation = false
+    @State private var errorMessage: String?
+
+    var body: some View {
+        VStack(spacing: 6) {
+            if let errorMessage {
+                Text(errorMessage)
+                    .font(.caption)
+                    .foregroundStyle(.red)
+            }
+            HStack(spacing: 12) {
+                Text("\(model.selectedItemCount) selecionado\(model.selectedItemCount == 1 ? "" : "s")")
+                    .font(.callout.weight(.semibold))
+                    .monospacedDigit()
+
+                Spacer()
+
+                Button {
+                    model.selectVisibleItems()
+                } label: {
+                    Label("Selecionar visíveis", systemImage: "checklist")
+                }
+                .disabled(model.items.isEmpty)
+
+                Button {
+                    model.clearSelection()
+                } label: {
+                    Label("Limpar", systemImage: "xmark")
+                }
+                .disabled(model.selectedItemCount == 0)
+
+                Button(role: .destructive) {
+                    showDeleteConfirmation = true
+                } label: {
+                    Label("Excluir", systemImage: "trash")
+                }
+                .disabled(model.selectedItemCount == 0)
+            }
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 10)
+        .background(.bar)
+        .confirmationDialog(
+            "Excluir itens selecionados?",
+            isPresented: $showDeleteConfirmation,
+            titleVisibility: .visible
+        ) {
+            Button("Excluir", role: .destructive) {
+                if let message = model.deleteSelectedItems() {
+                    errorMessage = message
+                }
+            }
+            Button("Cancelar", role: .cancel) {}
+        } message: {
+            Text("Esta ação remove os itens e seus assets criptografados.")
+        }
     }
 }
 

@@ -1,4 +1,5 @@
 import Foundation
+import GRDB
 import HypomnemataCore
 import HypomnemataData
 import HypomnemataMedia
@@ -9,6 +10,7 @@ struct HypomnemataNativeChecks {
         try checkCore()
         try checkData()
         try checkMedia()
+        try checkPerformance()
         print("HypomnemataNativeChecks: ok")
     }
 
@@ -191,6 +193,40 @@ struct HypomnemataNativeChecks {
         try repository.insertAsset(storedAsset.record)
         let itemAssets = try repository.assets(forItemID: item.id)
         precondition(itemAssets == [storedAsset.record])
+        let batchAssets = try repository.assets(forItemIDs: [item.id, article.id])
+        precondition(batchAssets == [storedAsset.record])
+
+        let batchDeleteA = try repository.createItem(
+            kind: .note,
+            title: "Excluir em lote A",
+            note: nil,
+            bodyText: nil,
+            tags: ["batch"]
+        )
+        let batchDeleteB = try repository.createItem(
+            kind: .note,
+            title: "Excluir em lote B",
+            note: nil,
+            bodyText: nil,
+            tags: ["batch"]
+        )
+        let batchStoredAsset = try store.write(
+            data: Data("batch asset".utf8),
+            itemID: batchDeleteA.id,
+            role: .original,
+            originalFilename: "batch.txt",
+            mimeType: "text/plain"
+        )
+        try repository.insertAsset(batchStoredAsset.record)
+        let assetsBeforeBatchDelete = try repository.assets(forItemIDs: [batchDeleteA.id, batchDeleteB.id])
+        precondition(assetsBeforeBatchDelete == [batchStoredAsset.record])
+        try repository.deleteItems(ids: [batchDeleteA.id, batchDeleteB.id])
+        for asset in assetsBeforeBatchDelete {
+            try store.remove(record: asset)
+        }
+        let assetsAfterBatchDelete = try repository.assets(forItemIDs: [batchDeleteA.id, batchDeleteB.id])
+        precondition(assetsAfterBatchDelete.isEmpty)
+        precondition(!FileManager.default.fileExists(atPath: batchStoredAsset.absoluteURL.path))
 
         let decryptedTemp = try store.decryptToTemporaryFile(record: storedAsset.record)
         let decryptedTempData = try Data(contentsOf: decryptedTemp)
@@ -307,5 +343,74 @@ struct HypomnemataNativeChecks {
         } catch MediaError.assetNotFound {
             // Expected: removed encrypted assets are no longer readable.
         }
+    }
+
+    private static func checkPerformance() throws {
+        let root = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("hypomnemata-performance-checks-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let database = try NativeDatabase(
+            appPaths: AppPaths(rootDirectory: root),
+            passphrase: "performance",
+            requireSQLCipher: true
+        )
+        defer { try? database.close() }
+
+        let repository = SQLiteItemRepository(database: database)
+        let now = ClockTimestamp.nowISO8601()
+        var insertedIDs: [String] = []
+        insertedIDs.reserveCapacity(10_000)
+
+        try database.writer.write { db in
+            for index in 0..<10_000 {
+                let id = UUIDV7.generateString()
+                insertedIDs.append(id)
+                let kind: ItemKind = index.isMultiple(of: 2) ? .note : .article
+                try db.execute(
+                    sql: """
+                        INSERT INTO items(
+                            id, kind, source_url, title, note, body_text, summary, meta_json,
+                            captured_at, created_at, updated_at
+                        )
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        """,
+                    arguments: [
+                        id,
+                        kind.rawValue,
+                        index.isMultiple(of: 2) ? nil : "https://example.com/perf-\(index)",
+                        "Item perf \(index)",
+                        "nota perf \(index)",
+                        "corpo perf token\(index)",
+                        index.isMultiple(of: 5) ? "resumo perf \(index)" : nil,
+                        nil,
+                        now,
+                        now,
+                        now,
+                    ]
+                )
+            }
+        }
+
+        let listStart = Date()
+        let listed = try repository.listItems(filter: ItemListFilter(limit: 200))
+        let listElapsed = Date().timeIntervalSince(listStart)
+        precondition(listed.count == 200)
+        precondition(listElapsed < 2.0)
+
+        let searchStart = Date()
+        let found = try repository.search("token9999", filter: ItemListFilter(limit: 20))
+        let searchElapsed = Date().timeIntervalSince(searchStart)
+        precondition(found.count == 1)
+        precondition(found[0].title == "Item perf 9999")
+        precondition(searchElapsed < 2.0)
+
+        let deleteIDs = Array(insertedIDs.prefix(500))
+        let deleteStart = Date()
+        try repository.deleteItems(ids: deleteIDs)
+        let deleteElapsed = Date().timeIntervalSince(deleteStart)
+        let remainingCount = try repository.totalItemCount()
+        precondition(remainingCount == 9_500)
+        precondition(deleteElapsed < 5.0)
     }
 }

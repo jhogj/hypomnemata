@@ -2,7 +2,7 @@
 
 This is the native macOS rewrite track for Hypomnemata.
 
-Current status: Sprint 2 of the native rewrite is in progress. The existing
+Current status: Sprint 2 of the native rewrite is complete. The existing
 FastAPI/React app remains untouched and can keep serving as behavioral
 reference while the native app is built out.
 
@@ -29,6 +29,8 @@ reference while the native app is built out.
 - Capture sheet with URL, file, and text modes
 - File capture writes AES-GCM encrypted assets and records them in SQLite
 - Individual delete removes encrypted asset files associated with the item
+- Batch selection and batch delete for visible library items
+- Synthetic 10k-item check for list, FTS5 search, and batch delete
 
 ## External commands expected in product builds
 
@@ -50,10 +52,10 @@ CLANG_MODULE_CACHE_PATH=/tmp/hypo-clang-cache SWIFTPM_HOME=/tmp/hypo-swiftpm-cac
 `HypomnemataNativeChecks` opens a real SQLCipher database, exercises CRUD,
 FTS5, edit/delete flows, dependency checks, combined filters, folder queries,
 persistent asset keys, asset table registration, AES-GCM asset encryption,
-encrypted asset removal, temporary cache cleanup, SQLCipher rekey,
-old-passphrase rejection, and then verifies that system `sqlite3` cannot read
-the vault. The app path requires SQLCipher by default and fails closed when it
-is unavailable.
+encrypted asset removal, batch delete, a synthetic 10k-item performance
+scenario, temporary cache cleanup, SQLCipher rekey, old-passphrase rejection,
+and then verifies that system `sqlite3` cannot read the vault. The app path
+requires SQLCipher by default and fails closed when it is unavailable.
 
 ## Sprint status
 
@@ -62,4 +64,6 @@ is unavailable.
 - Sprint 2.1/2.2: complete as of 2026-04-25.
 - Sprint 2.3: complete as of 2026-04-25.
 - Sprint 2.4: complete as of 2026-04-25.
-- Next step: Sprint 2.5, batch selection, batch delete, and performance.
+- Sprint 2.5: complete as of 2026-04-25.
+- Sprint 2: complete as of 2026-04-25.
+- Next step: Sprint 3, native capture integrations.

@@ -20,9 +20,9 @@
 ## Status atual
 
 - **Onda**: 1 (MVP), 2, 3 entregues. Onda 4 (busca semântica) adiada. Onda 5 (Polimento) em andamento.
-- **Rewrite nativo**: Sprint 0 e Sprint 1 entregues. Sprint 2 em andamento; terceira rodada concluída em 2026-04-25.
-- **Última sessão**: 2026-04-25 — Sprint 2.4: Captura CRUD completa e assets criptografados.
-- **Próxima tarefa**: Sprint 2.5 — Seleção em lote, delete em lote e performance. Timeline segue como ideia aprovada para o app legado/web.
+- **Rewrite nativo**: Sprint 0, Sprint 1 e Sprint 2 entregues em 2026-04-25.
+- **Última sessão**: 2026-04-25 — Sprint 2.5: seleção em lote, delete em lote e performance; Sprint 2 concluída.
+- **Próxima tarefa**: Sprint 3 — Captura Nativa. Timeline segue como ideia aprovada para o app legado/web.
 
 ### Deps externas necessárias (além do `uv sync`)
 | Ferramenta | Uso | Instalação |
@@ -221,6 +221,30 @@ python3.12 -m mlx_lm server --model mlx-community/gemma-4-e2b-it-4bit --port 808
   - `swift run --disable-sandbox HypomnemataNativeChecks` — passou.
   - `swift build --disable-sandbox --product HypomnemataMacApp` — passou.
 - **Status**: terceira rodada da Sprint 2 concluída. Próxima rodada: Sprint 2.5 — Seleção em lote, delete em lote e performance.
+
+### 2026-04-25 — Sprint 2.5: seleção em lote, delete em lote e performance
+- **Implementado em `SQLiteItemRepository`**:
+  - `assets(forItemIDs:)` lista assets de múltiplos itens em uma query, usado antes de delete em lote.
+- **Implementado em `AppModel`**:
+  - `selectionMode`, `selectedItemIDs` e `selectedItemCount`;
+  - `toggleSelectionMode()`, `toggleItemSelection(_:)`, `selectVisibleItems()`, `clearSelection()`;
+  - `deleteSelectedItems()` usa um fluxo único de delete em lote;
+  - delete em lote coleta assets antes de remover os itens, apaga os registros via `deleteItems(ids:)` e remove os arquivos criptografados físicos no `EncryptedAssetStore`;
+  - seleção é limpa/prunada após refresh, troca de filtros e delete.
+- **Implementado em SwiftUI**:
+  - botão "Selecionar" no header;
+  - indicadores de seleção em lista e grid;
+  - highlight visual para itens selecionados;
+  - toolbar inferior com contagem, selecionar visíveis, limpar e excluir;
+  - confirmação antes de excluir itens selecionados.
+- **Checks ampliados**:
+  - `assets(forItemIDs:)` retorna assets esperados;
+  - delete em lote remove registros e arquivos criptografados físicos;
+  - cenário sintético com 10k itens inseridos em transação valida listagem, busca FTS5 e delete em lote com limites de tempo conservadores.
+- **Validação rodada**:
+  - `swift run --disable-sandbox HypomnemataNativeChecks` — passou.
+  - `swift build --disable-sandbox --product HypomnemataMacApp` — passou.
+- **Status**: Sprint 2 concluída. Próxima etapa: Sprint 3 — Captura Nativa.
 
 ### 2026-04-21 — Bun não instalado; usando npm por ora
 - Decisão 9 (`bun`) permanece, mas no momento da primeira sessão o `bun` não estava instalado no sistema (só `npm 11.12.1` e `node 25.9.0`).

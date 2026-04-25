@@ -54,6 +54,8 @@ final class AppModel: ObservableObject {
     @Published var query = ""
     @Published var viewMode: LibraryViewMode = .list
     @Published var selectedItem: Item?
+    @Published var selectionMode = false
+    @Published var selectedItemIDs: Set<String> = []
     @Published var showCapture = false
     @Published var showChangePassword = false
     @Published var dependencyStatuses: [DependencyStatus] = []
@@ -81,6 +83,10 @@ final class AppModel: ObservableObject {
 
     var activeFolder: Folder? {
         folders.first { $0.id == activeFolderID }
+    }
+
+    var selectedItemCount: Int {
+        selectedItemIDs.count
     }
 
     init() {
@@ -173,6 +179,8 @@ final class AppModel: ObservableObject {
         activeFolderID = nil
         items = []
         selectedItem = nil
+        selectionMode = false
+        selectedItemIDs = []
         viewMode = .list
         kindCounts = Dictionary(uniqueKeysWithValues: ItemKind.allCases.map { ($0, 0) })
         tagCounts = []
@@ -243,6 +251,7 @@ final class AppModel: ObservableObject {
             } else {
                 items = try repository.search(query, filter: filter)
             }
+            selectedItemIDs.formIntersection(Set(items.map(\.id)))
         } catch {
             state = .failed(error.localizedDescription)
         }
@@ -279,7 +288,43 @@ final class AppModel: ObservableObject {
     }
 
     func openDetail(_ item: Item) {
+        guard !selectionMode else {
+            toggleItemSelection(item)
+            return
+        }
         selectedItem = item
+        recordUserActivity()
+    }
+
+    func toggleSelectionMode() {
+        selectionMode.toggle()
+        if !selectionMode {
+            selectedItemIDs = []
+        }
+        recordUserActivity()
+    }
+
+    func toggleItemSelection(_ item: Item) {
+        if selectedItemIDs.contains(item.id) {
+            selectedItemIDs.remove(item.id)
+        } else {
+            selectedItemIDs.insert(item.id)
+        }
+        recordUserActivity()
+    }
+
+    func isSelected(_ item: Item) -> Bool {
+        selectedItemIDs.contains(item.id)
+    }
+
+    func selectVisibleItems() {
+        selectedItemIDs = Set(items.map(\.id))
+        selectionMode = true
+        recordUserActivity()
+    }
+
+    func clearSelection() {
+        selectedItemIDs = []
         recordUserActivity()
     }
 
@@ -313,17 +358,32 @@ final class AppModel: ObservableObject {
     }
 
     func deleteItem(_ item: Item) -> String? {
+        deleteItems(ids: [item.id])
+    }
+
+    func deleteSelectedItems() -> String? {
+        deleteItems(ids: Array(selectedItemIDs))
+    }
+
+    private func deleteItems(ids: [String]) -> String? {
         guard let repository else {
             return "Vault não está desbloqueado."
         }
+        guard !ids.isEmpty else {
+            return nil
+        }
         do {
-            let assets = try repository.assets(forItemID: item.id)
-            try repository.deleteItems(ids: [item.id])
+            let assets = try repository.assets(forItemIDs: ids)
+            try repository.deleteItems(ids: ids)
             for asset in assets {
                 try assetStore?.remove(record: asset)
             }
-            if selectedItem?.id == item.id {
-                selectedItem = nil
+            if let selectedItem, ids.contains(selectedItem.id) {
+                self.selectedItem = nil
+            }
+            selectedItemIDs.subtract(Set(ids))
+            if selectedItemIDs.isEmpty {
+                selectionMode = false
             }
             refreshLibrary()
             recordUserActivity()

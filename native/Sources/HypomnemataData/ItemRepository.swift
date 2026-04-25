@@ -54,6 +54,7 @@ public protocol ItemRepository: Sendable {
     func deleteItems(ids: [String]) throws
     func insertAsset(_ asset: AssetRecord) throws
     func assets(forItemID itemID: String) throws -> [AssetRecord]
+    func assets(forItemIDs itemIDs: [String]) throws -> [AssetRecord]
     func totalItemCount() throws -> Int
     func itemCountsByKind() throws -> [ItemKind: Int]
     func tagCounts() throws -> [TagCount]
@@ -104,7 +105,7 @@ public final class SQLiteItemRepository: ItemRepository, @unchecked Sendable {
     }
 
     public func listItems(filter: ItemListFilter = ItemListFilter()) throws -> [Item] {
-        try database.writer.read { db in
+        return try database.writer.read { db in
             var sql = "SELECT DISTINCT items.* FROM items"
             var joins: [String] = []
             var clauses: [String] = []
@@ -164,7 +165,7 @@ public final class SQLiteItemRepository: ItemRepository, @unchecked Sendable {
     }
 
     public func item(id: String) throws -> Item {
-        try database.writer.read { db in
+        return try database.writer.read { db in
             guard let row = try Row.fetchOne(db, sql: "SELECT * FROM items WHERE id = ?", arguments: [id]) else {
                 throw DataError.itemNotFound(id)
             }
@@ -255,16 +256,28 @@ public final class SQLiteItemRepository: ItemRepository, @unchecked Sendable {
     }
 
     public func assets(forItemID itemID: String) throws -> [AssetRecord] {
-        try database.writer.read { db in
-            try Row.fetchAll(
+        try assets(forItemIDs: [itemID])
+    }
+
+    public func assets(forItemIDs itemIDs: [String]) throws -> [AssetRecord] {
+        guard !itemIDs.isEmpty else {
+            return []
+        }
+        return try database.writer.read { db in
+            let placeholders = Array(repeating: "?", count: itemIDs.count).joined(separator: ", ")
+            var arguments = StatementArguments()
+            for itemID in itemIDs {
+                _ = arguments.append(contentsOf: [itemID])
+            }
+            return try Row.fetchAll(
                 db,
                 sql: """
                     SELECT *
                     FROM assets
-                    WHERE item_id = ?
+                    WHERE item_id IN (\(placeholders))
                     ORDER BY created_at, id
                     """,
-                arguments: [itemID]
+                arguments: arguments
             ).map(Self.asset(from:))
         }
     }
