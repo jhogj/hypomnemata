@@ -7,6 +7,7 @@ public enum JobAutomationOutcome: Sendable, Equatable {
     case summarized(summary: String)
     case taggedAutomatically(tags: [String])
     case articleScraped(ArticleScrapeResult)
+    case mediaDownloaded(MediaDownloadResult)
 }
 
 public enum JobAutomationError: LocalizedError, Equatable, Sendable {
@@ -27,14 +28,20 @@ public enum JobAutomationError: LocalizedError, Equatable, Sendable {
 }
 
 public struct JobAutomation: Sendable {
-    public static let supportedKinds: Set<JobKind> = [.summarize, .autotag, .scrapeArticle]
+    public static let supportedKinds: Set<JobKind> = [.summarize, .autotag, .scrapeArticle, .downloadMedia]
 
     private let service: ItemAIService
     private let articleScraper: (any ArticleScraper)?
+    private let mediaDownloader: (any MediaDownloader)?
 
-    public init(service: ItemAIService, articleScraper: (any ArticleScraper)? = nil) {
+    public init(
+        service: ItemAIService,
+        articleScraper: (any ArticleScraper)? = nil,
+        mediaDownloader: (any MediaDownloader)? = nil
+    ) {
         self.service = service
         self.articleScraper = articleScraper
+        self.mediaDownloader = mediaDownloader
     }
 
     public static func canRun(_ kind: JobKind) -> Bool {
@@ -72,7 +79,17 @@ public struct JobAutomation: Sendable {
             }
             let result = try await articleScraper.scrape(url: trimmedURL)
             return .articleScraped(result)
-        case .downloadMedia, .generateThumbnail, .runOCR:
+        case .downloadMedia:
+            guard let mediaDownloader else {
+                throw JobAutomationError.missingExecutor(kind)
+            }
+            let trimmedURL = item.sourceURL?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            guard !trimmedURL.isEmpty else {
+                throw JobAutomationError.missingSourceURL
+            }
+            let result = try await mediaDownloader.download(url: trimmedURL)
+            return .mediaDownloaded(result)
+        case .generateThumbnail, .runOCR:
             throw JobAutomationError.unsupportedJobKind(kind)
         }
     }

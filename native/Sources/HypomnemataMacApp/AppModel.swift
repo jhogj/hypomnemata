@@ -842,7 +842,8 @@ final class AppModel: ObservableObject {
         do {
             automation = JobAutomation(
                 service: try makeItemAIService(),
-                articleScraper: TrafilaturaArticleScraper(renderer: WKWebViewPageRenderer())
+                articleScraper: TrafilaturaArticleScraper(renderer: WKWebViewPageRenderer()),
+                mediaDownloader: YTDLPMediaDownloader()
             )
         } catch {
             let message = LLMRecoverableErrorMapper().jobErrorMessage(for: error)
@@ -908,6 +909,8 @@ final class AppModel: ObservableObject {
             return
         case let .articleScraped(result):
             try applyArticleScrapeResult(result, to: item)
+        case let .mediaDownloaded(result):
+            try applyMediaDownloadResult(result, to: item)
         }
     }
 
@@ -965,6 +968,66 @@ final class AppModel: ObservableObject {
         }
         if let heroImageURL = result.heroImageURL {
             metadata["hero_image_url"] = heroImageURL
+        }
+        guard !metadata.isEmpty else {
+            return nil
+        }
+        let data = try JSONSerialization.data(withJSONObject: metadata, options: [.sortedKeys])
+        return String(data: data, encoding: .utf8)
+    }
+
+    private func applyMediaDownloadResult(_ result: MediaDownloadResult, to item: Item) throws {
+        guard let repository, let assetStore else {
+            return
+        }
+        var storedVideo = try assetStore.write(
+            data: result.data,
+            itemID: item.id,
+            role: .original,
+            originalFilename: result.originalFilename,
+            mimeType: result.mimeType
+        ).record
+        storedVideo.durationSeconds = result.durationSeconds
+
+        do {
+            try repository.insertAsset(storedVideo)
+            for subtitle in result.subtitles {
+                let storedSubtitle = try assetStore.write(
+                    data: subtitle.data,
+                    itemID: item.id,
+                    role: .subtitle,
+                    originalFilename: subtitle.originalFilename,
+                    mimeType: subtitle.mimeType
+                )
+                do {
+                    try repository.insertAsset(storedSubtitle.record)
+                } catch {
+                    try? assetStore.remove(record: storedSubtitle.record)
+                    throw error
+                }
+            }
+            let currentTitle = item.title?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+            let metadata = try mediaMetadataJSON(from: result)
+            _ = try repository.patchItem(
+                id: item.id,
+                patch: ItemPatch(
+                    title: currentTitle ?? result.title,
+                    metadataJSON: metadata
+                )
+            )
+        } catch {
+            try? assetStore.remove(record: storedVideo)
+            throw error
+        }
+    }
+
+    private func mediaMetadataJSON(from result: MediaDownloadResult) throws -> String? {
+        var metadata: [String: String] = [:]
+        if let webpageURL = result.webpageURL {
+            metadata["webpage_url"] = webpageURL
+        }
+        if let durationSeconds = result.durationSeconds {
+            metadata["duration_seconds"] = String(durationSeconds)
         }
         guard !metadata.isEmpty else {
             return nil

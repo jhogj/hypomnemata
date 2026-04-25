@@ -128,7 +128,7 @@ public struct JobDependencyResolver: Sendable {
         case .scrapeArticle:
             ["trafilatura"]
         case .downloadMedia:
-            ["yt-dlp"]
+            ["yt-dlp", "ffmpeg"]
         case .generateThumbnail:
             ["ffmpeg"]
         case .runOCR, .summarize, .autotag:

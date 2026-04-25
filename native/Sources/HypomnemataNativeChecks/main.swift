@@ -194,7 +194,7 @@ struct HypomnemataNativeChecks {
         precondition(JobAutomation.canRun(.summarize))
         precondition(JobAutomation.canRun(.autotag))
         precondition(JobAutomation.canRun(.scrapeArticle))
-        precondition(!JobAutomation.canRun(.downloadMedia))
+        precondition(JobAutomation.canRun(.downloadMedia))
         precondition(!JobAutomation.canRun(.generateThumbnail))
         precondition(!JobAutomation.canRun(.runOCR))
 
@@ -254,9 +254,9 @@ struct HypomnemataNativeChecks {
 
         do {
             _ = try await summaryAutomation.run(.downloadMedia, on: articleItem)
-            preconditionFailure("downloadMedia ainda não tem executor.")
-        } catch JobAutomationError.unsupportedJobKind(.downloadMedia) {
-            // Expected: 6.5 ainda não foi entregue.
+            preconditionFailure("downloadMedia without configured downloader should fail.")
+        } catch JobAutomationError.missingExecutor(.downloadMedia) {
+            // Expected: sem MediaDownloader configurado, o job falha de forma identificável.
         }
 
         let scrapedFixture = ArticleScrapeResult(
@@ -382,6 +382,105 @@ struct HypomnemataNativeChecks {
         precondition((fallbackResult.bodyText ?? "").count >= 200)
         let capturedStdin = await stdinCapture.snapshot()
         precondition(String(data: capturedStdin, encoding: .utf8)?.contains("SPA payload") == true)
+
+        let mediaFixture = MediaDownloadResult(
+            data: Data([0x00, 0x00, 0x00, 0x18]),
+            mimeType: "video/mp4",
+            originalFilename: "video.mp4",
+            title: "Vídeo baixado",
+            durationSeconds: 42,
+            webpageURL: "https://youtu.be/abc",
+            subtitles: [
+                DownloadedSubtitle(
+                    data: Data("WEBVTT".utf8),
+                    mimeType: "text/vtt; charset=utf-8",
+                    originalFilename: "video.pt.vtt"
+                ),
+            ]
+        )
+        let mediaAutomation = JobAutomation(
+            service: ItemAIService(
+                client: FakeLLMClient(response: "Resumo automático"),
+                configuration: configured
+            ),
+            mediaDownloader: FakeMediaDownloader(result: mediaFixture, expectedURL: "https://youtu.be/abc")
+        )
+        let videoURLItem = Item(
+            kind: .video,
+            sourceURL: "https://youtu.be/abc",
+            title: nil,
+            bodyText: nil,
+            tags: []
+        )
+        let mediaOutcome = try await mediaAutomation.run(.downloadMedia, on: videoURLItem)
+        guard case let .mediaDownloaded(media) = mediaOutcome else {
+            preconditionFailure("downloadMedia outcome deve ser .mediaDownloaded.")
+        }
+        precondition(media.title == "Vídeo baixado")
+        precondition(media.mimeType == "video/mp4")
+        precondition(media.durationSeconds == 42)
+        precondition(media.subtitles.first?.originalFilename == "video.pt.vtt")
+
+        do {
+            _ = try await mediaAutomation.run(.downloadMedia, on: articleURLEmpty)
+            preconditionFailure("downloadMedia deve falhar quando o item não tem URL.")
+        } catch JobAutomationError.missingSourceURL {
+            // Expected.
+        }
+
+        let mediaStub = YTDLPMediaDownloader(
+            ytDLPPath: "/usr/bin/false",
+            runProcess: { _, args, workingDirectory in
+                if args.contains("--dump-json") {
+                    let json = #"{"title":"Stub Video","duration":12.5,"webpage_url":"https://example.com/watch"}"#
+                    return (0, Data(json.utf8), Data())
+                }
+                try Data([0x00, 0x00, 0x00, 0x20, 0x66, 0x74, 0x79, 0x70]).write(
+                    to: workingDirectory.appendingPathComponent("Stub Video [abc].mp4")
+                )
+                try Data("WEBVTT\n".utf8).write(
+                    to: workingDirectory.appendingPathComponent("Stub Video [abc].pt.vtt")
+                )
+                return (0, Data(), Data())
+            }
+        )
+        let downloadedResult = try await mediaStub.download(url: "https://example.com/watch")
+        precondition(downloadedResult.title == "Stub Video")
+        precondition(downloadedResult.durationSeconds == 12.5)
+        precondition(downloadedResult.webpageURL == "https://example.com/watch")
+        precondition(downloadedResult.mimeType == "video/mp4")
+        precondition(downloadedResult.originalFilename == "Stub Video [abc].mp4")
+        precondition(downloadedResult.subtitles.count == 1)
+        precondition(downloadedResult.subtitles[0].mimeType == "text/vtt; charset=utf-8")
+
+        let mediaFail = YTDLPMediaDownloader(
+            ytDLPPath: "/usr/bin/false",
+            runProcess: { _, _, _ in
+                (1, Data(), Data("erro yt".utf8))
+            }
+        )
+        do {
+            _ = try await mediaFail.download(url: "https://example.com/fail")
+            preconditionFailure("Saída não-zero do yt-dlp deve virar erro.")
+        } catch MediaDownloadError.binaryFailed {
+            // Expected.
+        }
+
+        let mediaEmpty = YTDLPMediaDownloader(
+            ytDLPPath: "/usr/bin/false",
+            runProcess: { _, args, _ in
+                if args.contains("--dump-json") {
+                    return (0, Data(#"{"title":"Sem arquivo"}"#.utf8), Data())
+                }
+                return (0, Data(), Data())
+            }
+        )
+        do {
+            _ = try await mediaEmpty.download(url: "https://example.com/empty")
+            preconditionFailure("Download sem arquivo de mídia deve falhar.")
+        } catch MediaDownloadError.outputNotFound {
+            // Expected.
+        }
 
         let envOnly = try LLMConfiguration.resolve(
             overrides: LLMOverrides(),
@@ -1161,5 +1260,15 @@ private struct FakePageRenderer: JSPageRenderer {
 
     func renderHTML(url: String) async throws -> String {
         html
+    }
+}
+
+private struct FakeMediaDownloader: MediaDownloader {
+    var result: MediaDownloadResult
+    var expectedURL: String
+
+    func download(url: String) async throws -> MediaDownloadResult {
+        precondition(url == expectedURL)
+        return result
     }
 }
