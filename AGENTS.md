@@ -20,9 +20,9 @@
 ## Status atual
 
 - **Onda**: 1 (MVP), 2, 3 entregues. Onda 4 (busca semântica) adiada. Onda 5 (Polimento) em andamento.
-- **Rewrite nativo**: Sprint 0, Sprint 1, Sprint 2, Sprint 3, Sprint 4.1 e Sprint 4.2 entregues em 2026-04-25.
-- **Última sessão**: 2026-04-25 — Sprint 4.2: UI de pastas e operações de organização.
-- **Próxima tarefa**: Sprint 4.3 — Zettelkasten no detalhe: links clicáveis/autocomplete básico e backlinks. Timeline segue como ideia aprovada para o app legado/web.
+- **Rewrite nativo**: Sprint 0, Sprint 1, Sprint 2, Sprint 3 e Sprint 4 entregues em 2026-04-25.
+- **Última sessão**: 2026-04-25 — Sprint 4.3: links clicáveis, backlinks e inserção de links no detalhe.
+- **Próxima tarefa**: Sprint 5 — Mídia, PDF, OCR e thumbnails. Timeline segue como ideia aprovada para o app legado/web.
 
 ### Deps externas necessárias (além do `uv sync`)
 | Ferramenta | Uso | Instalação |
@@ -338,6 +338,28 @@ python3.12 -m mlx_lm server --model mlx-community/gemma-4-e2b-it-4bit --port 808
   - `swift build --disable-sandbox --product HypomnemataMacApp` — passou.
   - `swift run --disable-sandbox HypomnemataNativeChecks` — passou.
 - **Status**: Sprint 4.2 concluída. Próxima rodada: Sprint 4.3 — links clicáveis/autocomplete básico e backlinks no detalhe.
+
+### 2026-04-25 — Sprint 4.3: Zettelkasten no detalhe
+- **Implementado em `AppModel`**:
+  - `openItem(id:)` abre item relacionado no detalhe;
+  - `linkedItems(from:)`, `backlinks(to:)` e `linkCandidates(query:excluding:)` expõem dados para a UI;
+  - candidatos de link usam listagem recente quando query está vazia e FTS5 quando há busca.
+- **Implementado em SwiftUI**:
+  - detalhe do item mostra "Links" e "Backlinks" com navegação para itens relacionados;
+  - botões "Inserir link" em Nota e Texto abrem `LinkPickerSheet`;
+  - `LinkPickerSheet` oferece autocomplete básico por busca e insere `[[uuid|título]]`;
+  - links inseridos passam pelo fluxo normal de salvar item, que sincroniza `item_links`.
+- **Validação da Sprint 4 contra o plano**:
+  - tags manuais já existiam no detalhe/captura e seguem persistidas;
+  - pastas many-to-many, seleção em lote e adicionar à pasta foram entregues em 4.1/4.2;
+  - links/backlinks via `[[uuid|título]]` são sincronizados em `item_links`;
+  - renomear item linkado retorna título atual nos links lidos do banco;
+  - excluir item remove links/backlinks por cascade;
+  - item em múltiplas pastas e operações em lote sem duplicar relações estão cobertos por `INSERT OR IGNORE` e checks.
+- **Validação rodada**:
+  - `swift build --disable-sandbox --product HypomnemataMacApp` — passou.
+  - `swift run --disable-sandbox HypomnemataNativeChecks` — passou.
+- **Status**: Sprint 4 concluída. Próxima etapa: Sprint 5 — Mídia, PDF, OCR e thumbnails.
 
 ### 2026-04-21 — Bun não instalado; usando npm por ora
 - Decisão 9 (`bun`) permanece, mas no momento da primeira sessão o `bun` não estava instalado no sistema (só `npm 11.12.1` e `node 25.9.0`).

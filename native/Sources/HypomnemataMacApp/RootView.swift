@@ -515,6 +515,87 @@ struct FolderPickerSheet: View {
     }
 }
 
+struct LinkPickerSheet: View {
+    @EnvironmentObject private var model: AppModel
+    @Environment(\.dismiss) private var dismiss
+
+    var currentItemID: String
+    var onSelect: (ItemSummary) -> Void
+
+    @State private var query = ""
+    @State private var candidates: [ItemSummary] = []
+    @State private var errorMessage: String?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Text("Inserir link")
+                .font(.title2.bold())
+
+            TextField("Buscar item", text: $query)
+                .textFieldStyle(.roundedBorder)
+                .onSubmit(loadCandidates)
+
+            if candidates.isEmpty {
+                ContentUnavailableView(
+                    "Nenhum item encontrado",
+                    systemImage: "link",
+                    description: Text("Busque pelo título, nota ou texto do item.")
+                )
+                .frame(minHeight: 150)
+            } else {
+                List(candidates) { summary in
+                    Button {
+                        onSelect(summary)
+                        dismiss()
+                    } label: {
+                        HStack(spacing: 10) {
+                            KindIcon(kind: summary.kind)
+                            VStack(alignment: .leading, spacing: 3) {
+                                Text(summary.displayTitle)
+                                    .font(.headline)
+                                    .lineLimit(1)
+                                Text(summary.id)
+                                    .font(.caption.monospaced())
+                                    .foregroundStyle(.secondary)
+                                    .lineLimit(1)
+                            }
+                            Spacer()
+                        }
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                }
+                .frame(minHeight: 220)
+            }
+
+            if let errorMessage {
+                Text(errorMessage)
+                    .font(.callout)
+                    .foregroundStyle(.red)
+            }
+
+            HStack {
+                Spacer()
+                Button("Cancelar") {
+                    dismiss()
+                }
+            }
+        }
+        .padding(22)
+        .frame(width: 560, height: 440)
+        .onAppear(perform: loadCandidates)
+        .onChange(of: query) { _, _ in
+            loadCandidates()
+        }
+    }
+
+    private func loadCandidates() {
+        let result = model.linkCandidates(query: query, excluding: currentItemID)
+        candidates = result.0
+        errorMessage = result.1
+    }
+}
+
 struct SearchHeaderView: View {
     @EnvironmentObject private var model: AppModel
 
@@ -892,7 +973,10 @@ struct ItemDetailSheet: View {
     @State private var bodyText: String
     @State private var tags: String
     @State private var itemFolders: [Folder] = []
+    @State private var linkedItems: [ItemSummary] = []
+    @State private var backlinks: [ItemSummary] = []
     @State private var showFolderPicker = false
+    @State private var linkPickerTarget: LinkInsertionTarget?
     @State private var errorMessage: String?
     @State private var showDeleteConfirmation = false
 
@@ -954,18 +1038,52 @@ struct ItemDetailSheet: View {
                         }
                     }
 
+                    DetailFieldLabel("Links")
+                    RelatedItemLine(
+                        emptyText: "Nenhum link saindo deste item",
+                        items: linkedItems
+                    ) { summary in
+                        openRelated(summary)
+                    }
+
+                    DetailFieldLabel("Backlinks")
+                    RelatedItemLine(
+                        emptyText: "Nenhum item aponta para este",
+                        items: backlinks
+                    ) { summary in
+                        openRelated(summary)
+                    }
+
                     DetailFieldLabel("Etiquetas")
                     TextField("separadas por vírgula", text: $tags)
                         .textFieldStyle(.roundedBorder)
 
-                    DetailFieldLabel("Nota")
+                    HStack {
+                        DetailFieldLabel("Nota")
+                        Spacer()
+                        Button {
+                            linkPickerTarget = .note
+                        } label: {
+                            Label("Inserir link", systemImage: "link.badge.plus")
+                        }
+                        .buttonStyle(.borderless)
+                    }
                     TextEditor(text: $note)
                         .frame(minHeight: 110)
                         .overlay {
                             RoundedRectangle(cornerRadius: 6).stroke(.quaternary)
                         }
 
-                    DetailFieldLabel("Texto")
+                    HStack {
+                        DetailFieldLabel("Texto")
+                        Spacer()
+                        Button {
+                            linkPickerTarget = .bodyText
+                        } label: {
+                            Label("Inserir link", systemImage: "link.badge.plus")
+                        }
+                        .buttonStyle(.borderless)
+                    }
                     TextEditor(text: $bodyText)
                         .frame(minHeight: 170)
                         .overlay {
@@ -1005,7 +1123,7 @@ struct ItemDetailSheet: View {
             .padding(16)
         }
         .frame(width: 680, height: 640)
-        .onAppear(perform: loadFolders)
+        .onAppear(perform: loadOrganization)
         .sheet(isPresented: $showFolderPicker) {
             FolderPickerSheet(
                 title: "Adicionar a pasta",
@@ -1036,6 +1154,12 @@ struct ItemDetailSheet: View {
                 return nil
             }
         }
+        .sheet(item: $linkPickerTarget) { target in
+            LinkPickerSheet(currentItemID: item.id) { summary in
+                insertLink(to: summary, target: target)
+                linkPickerTarget = nil
+            }
+        }
         .confirmationDialog(
             "Excluir este item?",
             isPresented: $showDeleteConfirmation,
@@ -1063,6 +1187,7 @@ struct ItemDetailSheet: View {
         ) {
             errorMessage = message
         } else {
+            loadOrganization()
             dismiss()
         }
     }
@@ -1082,6 +1207,43 @@ struct ItemDetailSheet: View {
             errorMessage = message
         }
     }
+
+    private func loadOrganization() {
+        loadFolders()
+        let linkedResult = model.linkedItems(from: item)
+        linkedItems = linkedResult.0
+        if let message = linkedResult.1 {
+            errorMessage = message
+        }
+        let backlinkResult = model.backlinks(to: item)
+        backlinks = backlinkResult.0
+        if let message = backlinkResult.1 {
+            errorMessage = message
+        }
+    }
+
+    private func insertLink(to summary: ItemSummary, target: LinkInsertionTarget) {
+        let link = "[[\(summary.id)|\(summary.displayTitle)]]"
+        switch target {
+        case .note:
+            note = note.appendingLink(link)
+        case .bodyText:
+            bodyText = bodyText.appendingLink(link)
+        }
+    }
+
+    private func openRelated(_ summary: ItemSummary) {
+        if let message = model.openItem(id: summary.id) {
+            errorMessage = message
+        }
+    }
+}
+
+enum LinkInsertionTarget: String, Identifiable {
+    case note
+    case bodyText
+
+    var id: String { rawValue }
 }
 
 struct DetailFieldLabel: View {
@@ -1152,6 +1314,41 @@ struct FolderChipLine: View {
                     }
                     .buttonStyle(.plain)
                     .help("Remover desta pasta")
+                }
+            }
+        }
+    }
+}
+
+struct RelatedItemLine: View {
+    var emptyText: String
+    var items: [ItemSummary]
+    var onOpen: (ItemSummary) -> Void
+
+    var body: some View {
+        if items.isEmpty {
+            Text(emptyText)
+                .font(.callout)
+                .foregroundStyle(.secondary)
+        } else {
+            VStack(alignment: .leading, spacing: 6) {
+                ForEach(items) { summary in
+                    Button {
+                        onOpen(summary)
+                    } label: {
+                        HStack(spacing: 8) {
+                            KindIcon(kind: summary.kind)
+                            Text(summary.displayTitle)
+                                .lineLimit(1)
+                            Spacer()
+                            Image(systemName: "chevron.right")
+                                .font(.caption)
+                                .foregroundStyle(.tertiary)
+                        }
+                        .padding(.vertical, 3)
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
                 }
             }
         }
@@ -1232,10 +1429,27 @@ private extension Item {
     }
 }
 
+private extension ItemSummary {
+    var displayTitle: String {
+        if let title = title?.trimmingCharacters(in: .whitespacesAndNewlines), !title.isEmpty {
+            return title
+        }
+        return kind.rawValue
+    }
+}
+
 private extension String {
     var trimmedNonEmpty: String? {
         let trimmed = trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? nil : trimmed
+    }
+
+    func appendingLink(_ link: String) -> String {
+        let trimmed = trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.isEmpty {
+            return link
+        }
+        return self + "\n" + link
     }
 }
 

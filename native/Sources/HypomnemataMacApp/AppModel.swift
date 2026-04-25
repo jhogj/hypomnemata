@@ -300,6 +300,19 @@ final class AppModel: ObservableObject {
         recordUserActivity()
     }
 
+    func openItem(id: String) -> String? {
+        guard let repository else {
+            return "Vault não está desbloqueado."
+        }
+        do {
+            selectedItem = try repository.item(id: id)
+            recordUserActivity()
+            return nil
+        } catch {
+            return error.localizedDescription
+        }
+    }
+
     func toggleSelectionMode() {
         selectionMode.toggle()
         if !selectionMode {
@@ -431,6 +444,49 @@ final class AppModel: ObservableObject {
             return nil
         } catch {
             return error.localizedDescription
+        }
+    }
+
+    func linkedItems(from item: Item) -> ([ItemSummary], String?) {
+        guard let repository else {
+            return ([], "Vault não está desbloqueado.")
+        }
+        do {
+            return (try repository.linkedItems(from: item.id), nil)
+        } catch {
+            return ([], error.localizedDescription)
+        }
+    }
+
+    func backlinks(to item: Item) -> ([ItemSummary], String?) {
+        guard let repository else {
+            return ([], "Vault não está desbloqueado.")
+        }
+        do {
+            return (try repository.backlinks(to: item.id), nil)
+        } catch {
+            return ([], error.localizedDescription)
+        }
+    }
+
+    func linkCandidates(query: String, excluding itemID: String) -> ([ItemSummary], String?) {
+        guard let repository else {
+            return ([], "Vault não está desbloqueado.")
+        }
+        do {
+            let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
+            let sourceItems: [Item]
+            if trimmed.isEmpty {
+                sourceItems = try repository.listItems(filter: ItemListFilter(limit: 50))
+            } else {
+                sourceItems = try repository.search(trimmed, filter: ItemListFilter(limit: 50))
+            }
+            let summaries = sourceItems
+                .filter { $0.id != itemID }
+                .map { ItemSummary(id: $0.id, title: $0.title, kind: $0.kind, capturedAt: $0.capturedAt) }
+            return (summaries, nil)
+        } catch {
+            return ([], error.localizedDescription)
         }
     }
 
