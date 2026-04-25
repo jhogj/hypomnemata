@@ -15,6 +15,7 @@ reference while the native app is built out.
 - SQLCipher required for production vaults
 - AES-GCM encrypted assets through CryptoKit
 - Asset encryption key stored inside the SQLCipher vault, not in a plaintext file
+- Temporary decrypted asset cache cleared on vault lock and application quit
 
 ## External commands expected in product builds
 

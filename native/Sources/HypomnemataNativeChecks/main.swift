@@ -132,5 +132,8 @@ struct HypomnemataNativeChecks {
         precondition(tempData == plaintext)
         try store.clearTemporaryCache()
         precondition(!FileManager.default.fileExists(atPath: temp.path))
+
+        let recreated = root.appendingPathComponent("cache", isDirectory: true)
+        precondition(FileManager.default.fileExists(atPath: recreated.path))
     }
 }

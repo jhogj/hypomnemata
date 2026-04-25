@@ -9,6 +9,9 @@ struct HypomnemataNativeApp: App {
             RootView()
                 .environmentObject(model)
                 .frame(minWidth: 980, minHeight: 680)
+                .onReceive(NotificationCenter.default.publisher(for: NSApplication.willTerminateNotification)) { _ in
+                    model.prepareForQuit()
+                }
         }
         .commands {
             CommandGroup(replacing: .newItem) {

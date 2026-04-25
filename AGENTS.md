@@ -12,6 +12,8 @@
 - **Decisões que divergem do PLANO.md**: entram aqui datadas, em "Decisões posteriores". Não reescrever o PLANO.md silenciosamente.
 - **Bugs**: seção própria, com repro e hipótese.
 - **Formato**: leve, datado (`YYYY-MM-DD`), sem cerimônia.
+- **Rewrite nativo / Sprint 1**: entregar em micro-passos. Para cada micro-passo: implementar só aquele recorte, atualizar `AGENTS.md`/docs, validar build/checks, reportar ao usuário e parar antes de continuar.
+- **Sem contorno silencioso**: se faltar instalação, permissão, configuração local ou assinatura, parar e informar o comando exato para o usuário rodar.
 
 ---
 
@@ -108,6 +110,12 @@ python3.12 -m mlx_lm server --model mlx-community/gemma-4-e2b-it-4bit --port 808
 - **Motivo**: assets criptografados precisam de chave estável protegida pelo SQLCipher, não chave ad hoc em memória nem arquivo plaintext.
 - **App**: no unlock, `AppModel` cria `EncryptedAssetStore` usando a chave persistida no vault.
 - **Validação esperada**: `HypomnemataNativeChecks` confirma tamanho da chave, estabilidade dentro da sessão e estabilidade após reopen do banco.
+
+### 2026-04-25 — Sprint 1.2: limpeza de cache temporário
+- **Implementado**: `AppModel.lock()` chama `EncryptedAssetStore.clearTemporaryCache()` antes de fechar o banco e descartar chaves/repositórios.
+- **Quit**: `HypomnemataNativeApp` escuta `NSApplication.willTerminateNotification` e chama `prepareForQuit()` para limpar cache antes do app encerrar.
+- **Motivo**: arquivos descriptografados para previews futuros de PDFKit/AVPlayer não podem permanecer em `TemporaryCache` após lock/quit.
+- **Validação esperada**: `HypomnemataNativeChecks` confirma que `clearTemporaryCache()` remove arquivo temporário descriptografado e recria o diretório de cache vazio.
 
 ### 2026-04-21 — Bun não instalado; usando npm por ora
 - Decisão 9 (`bun`) permanece, mas no momento da primeira sessão o `bun` não estava instalado no sistema (só `npm 11.12.1` e `node 25.9.0`).

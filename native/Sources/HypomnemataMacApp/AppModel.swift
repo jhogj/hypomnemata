@@ -22,6 +22,7 @@ final class AppModel: ObservableObject {
     private var database: NativeDatabase?
     private var repository: SQLiteItemRepository?
     private var assetStore: EncryptedAssetStore?
+    private var appPaths: AppPaths?
 
     var isUnlocked: Bool {
         if case .unlocked = state {
@@ -49,6 +50,7 @@ final class AppModel: ObservableObject {
             let assetKeyData = try db.loadOrCreateAssetKeyData()
             database = db
             repository = SQLiteItemRepository(database: db)
+            appPaths = paths
             assetStore = try EncryptedAssetStore(
                 rootDirectory: paths.assetsDirectory,
                 cacheDirectory: paths.temporaryCacheDirectory,
@@ -62,6 +64,7 @@ final class AppModel: ObservableObject {
     }
 
     func lock() {
+        clearTemporaryCache()
         do {
             try database?.close()
         } catch {
@@ -70,8 +73,13 @@ final class AppModel: ObservableObject {
         database = nil
         repository = nil
         assetStore = nil
+        appPaths = nil
         items = []
         state = .locked
+    }
+
+    func prepareForQuit() {
+        clearTemporaryCache()
     }
 
     func refreshItems() {
@@ -120,5 +128,30 @@ final class AppModel: ObservableObject {
         } catch {
             state = .failed(error.localizedDescription)
         }
+    }
+
+    private func clearTemporaryCache() {
+        do {
+            if let assetStore {
+                try assetStore.clearTemporaryCache()
+            } else if let appPaths {
+                try FileManager.default.removeItemIfExists(at: appPaths.temporaryCacheDirectory)
+                try FileManager.default.createDirectory(
+                    at: appPaths.temporaryCacheDirectory,
+                    withIntermediateDirectories: true
+                )
+            }
+        } catch {
+            state = .failed(error.localizedDescription)
+        }
+    }
+}
+
+private extension FileManager {
+    func removeItemIfExists(at url: URL) throws {
+        guard fileExists(atPath: url.path) else {
+            return
+        }
+        try removeItem(at: url)
     }
 }
