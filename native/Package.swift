@@ -63,6 +63,7 @@ let package = Package(
                 "HypomnemataData",
                 "HypomnemataIngestion",
                 "HypomnemataMedia",
+                "HypomnemataAI",
                 .product(name: "GRDB", package: "GRDBSQLCipher"),
             ]
         ),

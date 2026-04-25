@@ -20,7 +20,7 @@
 - **Onda**: 1 (MVP), 2, 3 entregues. Onda 4 (busca semântica) adiada. Onda 5 (Polimento) em andamento.
 - **Rewrite nativo**: Sprint 0, Sprint 1, Sprint 2, Sprint 3, Sprint 4 e Sprint 5 entregues em 2026-04-25. Ver `AGENTS.md` e `native/README.md` para o estado mais novo.
 - **Última sessão**: 2026-04-25 — Sprint 5.3 nativa: OCR nativo de imagens/PDFs, `bodyText` e asset derivado criptografado.
-- **Próxima tarefa**: Sprint 6 — IA/local LLM e automações nativas, a definir em recortes. Timeline segue como ideia aprovada para o app legado/web.
+- **Próxima tarefa**: Sprint 6.2 — resumo e autotags. Timeline segue como ideia aprovada para o app legado/web.
 
 ### Deps externas necessárias (além do `uv sync`)
 | Ferramenta | Uso | Instalação |

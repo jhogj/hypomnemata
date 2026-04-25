@@ -22,7 +22,7 @@
 - **Onda**: 1 (MVP), 2, 3 entregues. Onda 4 (busca semântica) adiada. Onda 5 (Polimento) em andamento.
 - **Rewrite nativo**: Sprint 0, Sprint 1, Sprint 2, Sprint 3, Sprint 4 e Sprint 5 entregues em 2026-04-25.
 - **Última sessão**: 2026-04-25 — Sprint 5.3: OCR nativo de imagens/PDFs, texto extraído em `bodyText` e asset derivado criptografado.
-- **Próxima tarefa**: Sprint 6 — IA/local LLM e automações nativas, a definir em recortes. Timeline segue como ideia aprovada para o app legado/web.
+- **Próxima tarefa**: Sprint 6.2 — resumo e autotags. Timeline segue como ideia aprovada para o app legado/web.
 
 ### Deps externas necessárias (além do `uv sync`)
 | Ferramenta | Uso | Instalação |
@@ -420,6 +420,51 @@ python3.12 -m mlx_lm server --model mlx-community/gemma-4-e2b-it-4bit --port 808
   - `swift run --disable-sandbox HypomnemataNativeChecks` — passou.
   - `swift build --disable-sandbox --product HypomnemataMacApp` — passou.
 - **Status**: Sprint 5 concluída.
+
+### 2026-04-25 — Sprint 6 planejada: IA/local LLM e automações nativas
+- **Decisão**: dividir a Sprint 6 em 3 partes para reduzir risco, porque ela toca provider de IA, persistência de resultado, jobs e UI.
+- **Sprint 6.1 — Contratos e infraestrutura**:
+  - criar/ajustar contratos nativos para cliente LLM local OpenAI-compatible;
+  - centralizar configuração de endpoint/modelo/limites sem hardcode na UI;
+  - mapear erros recuperáveis de IA para jobs (`summarize`, `autotag`) sem travar captura ou vault;
+  - validar com cliente fake em `HypomnemataNativeChecks`, sem depender de servidor LLM real.
+- **Sprint 6.2 — Resumo e autotags**:
+  - gerar resumo a partir de `bodyText`, nota ou título quando houver contexto suficiente;
+  - salvar resumo no campo `summary`;
+  - gerar tags sugeridas e aplicar de forma conservadora, preservando tags existentes;
+  - expor ações básicas no detalhe para gerar/regerar resumo e tags.
+- **Sprint 6.3 — Automação e validação final**:
+  - enfileirar IA após captura/OCR quando fizer sentido;
+  - permitir reprocessamento manual de jobs falhos;
+  - mostrar estado de jobs de IA no detalhe sem bloquear edição do item;
+  - fechar checks e documentação da Sprint 6.
+- **Como implementar a 6.1**:
+  - primeiro ler `HypomnemataAI`, `JobDependencyResolver`, `Job`, `AppModel.createCapture(_:)` e checks atuais;
+  - preferir um protocolo pequeno (`LLMClient`) e um cliente OpenAI-compatible reutilizável;
+  - manter a 6.1 sem chamada de rede obrigatória nos checks;
+  - não adicionar automação de resumo/autotag ainda, apenas infraestrutura validada.
+- **Critério de pronto da 6.1**:
+  - build do app passa;
+  - `HypomnemataNativeChecks` passa com fake LLM;
+  - erros de configuração/provider viram mensagens recuperáveis;
+  - documentação atualizada antes de avançar para 6.2.
+
+### 2026-04-25 — Sprint 6.1: contratos e infraestrutura de IA local
+- **Implementado em `HypomnemataAI`**:
+  - `LLMClient` define contrato mínimo para `complete(...)` e `streamChat(...)`;
+  - `OpenAICompatibleClient` conforma ao contrato e agora suporta chamada não-streaming (`stream = false`) além do streaming já existente;
+  - `LLMConfiguration.fromEnvironment(...)` lê `HYPO_LLM_URL`, `HYPO_LLM_MODEL` e `HYPO_LLM_CONTEXT_LIMIT`, com validação explícita;
+  - `LLMItemContext` centraliza seleção/limite de contexto a partir de `bodyText`, `note` ou `title`;
+  - `LLMRecoverableErrorMapper` transforma falhas de configuração/provider em mensagem segura para jobs recuperáveis.
+- **Checks ampliados**:
+  - `HypomnemataNativeChecks` agora depende de `HypomnemataAI`;
+  - valida configuração válida e erros de URL/modelo/limite;
+  - valida contexto de prompt e rejeição de conteúdo vazio;
+  - usa `FakeLLMClient`, sem servidor LLM real nem chamada de rede.
+- **Validação rodada**:
+  - `swift run --disable-sandbox HypomnemataNativeChecks` — passou.
+  - `swift build --disable-sandbox --product HypomnemataMacApp` — passou.
+- **Status**: Sprint 6.1 concluída. Próxima rodada: Sprint 6.2 — resumo e autotags.
 
 ### 2026-04-21 — Bun não instalado; usando npm por ora
 - Decisão 9 (`bun`) permanece, mas no momento da primeira sessão o `bun` não estava instalado no sistema (só `npm 11.12.1` e `node 25.9.0`).

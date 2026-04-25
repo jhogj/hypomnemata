@@ -1,6 +1,7 @@
 import AppKit
 import Foundation
 import GRDB
+import HypomnemataAI
 import HypomnemataCore
 import HypomnemataData
 import HypomnemataIngestion
@@ -8,8 +9,9 @@ import HypomnemataMedia
 
 @main
 struct HypomnemataNativeChecks {
-    static func main() throws {
+    static func main() async throws {
         try checkCore()
+        try await checkAI()
         try checkData()
         try checkMedia()
         try checkPerformance()
@@ -91,6 +93,65 @@ struct HypomnemataNativeChecks {
         precondition(id.count == 36)
         precondition(id[id.index(id.startIndex, offsetBy: 14)] == "7")
         precondition(["8", "9", "a", "b"].contains(id[id.index(id.startIndex, offsetBy: 19)]))
+    }
+
+    private static func checkAI() async throws {
+        let configured = try LLMConfiguration.fromEnvironment([
+            "HYPO_LLM_URL": "http://127.0.0.1:8080",
+            "HYPO_LLM_MODEL": "modelo-local",
+            "HYPO_LLM_CONTEXT_LIMIT": "1200",
+        ])
+        precondition(configured.baseURL.absoluteString == "http://127.0.0.1:8080")
+        precondition(configured.model == "modelo-local")
+        precondition(configured.contextCharacterLimit == 1200)
+
+        do {
+            _ = try LLMConfiguration.fromEnvironment([
+                "HYPO_LLM_URL": "nota-url",
+                "HYPO_LLM_MODEL": "modelo-local",
+            ])
+            preconditionFailure("Invalid LLM URL was accepted.")
+        } catch LLMConfigurationError.invalidBaseURL {
+            // Expected: provider URL must be explicit http/https.
+        }
+
+        do {
+            _ = try LLMConfiguration.fromEnvironment([
+                "HYPO_LLM_URL": "http://127.0.0.1:8080",
+                "HYPO_LLM_MODEL": " ",
+            ])
+            preconditionFailure("Empty LLM model was accepted.")
+        } catch LLMConfigurationError.emptyModel {
+            // Expected: a provider model is required.
+        }
+
+        let context = LLMItemContext(
+            title: "Título",
+            note: "Nota curta",
+            bodyText: String(repeating: "abc", count: 100)
+        )
+        let promptContext = try context.promptContext(limit: 12)
+        precondition(promptContext == "abcabcabcabc")
+
+        do {
+            _ = try LLMItemContext().promptContext(limit: 10)
+            preconditionFailure("Empty item context was accepted for LLM.")
+        } catch LLMClientError.emptyContent {
+            // Expected: LLM jobs need usable item content.
+        }
+
+        let fake = FakeLLMClient(response: "Resumo controlado")
+        let response = try await fake.complete(messages: [
+            LLMMessage(role: "system", content: "Resuma"),
+            LLMMessage(role: "user", content: promptContext),
+        ])
+        precondition(response == "Resumo controlado")
+        precondition(fake.lastMessages?.last?.content == promptContext)
+
+        let mapper = LLMRecoverableErrorMapper()
+        let message = mapper.jobErrorMessage(for: LLMClientError.providerStatus(503))
+        precondition(message.contains("Falha recuperável de IA"))
+        precondition(message.contains("HTTP 503"))
     }
 
     private static func checkData() throws {
@@ -628,5 +689,27 @@ struct HypomnemataNativeChecks {
         let remainingCount = try repository.totalItemCount()
         precondition(remainingCount == 9_500)
         precondition(deleteElapsed < 5.0)
+    }
+}
+
+private final class FakeLLMClient: LLMClient, @unchecked Sendable {
+    private let response: String
+    private(set) var lastMessages: [LLMMessage]?
+
+    init(response: String) {
+        self.response = response
+    }
+
+    func complete(messages: [LLMMessage], temperature: Double) async throws -> String {
+        lastMessages = messages
+        return response
+    }
+
+    func streamChat(messages: [LLMMessage], temperature: Double) -> AsyncThrowingStream<String, Error> {
+        lastMessages = messages
+        return AsyncThrowingStream { continuation in
+            continuation.yield(response)
+            continuation.finish()
+        }
     }
 }
