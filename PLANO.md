@@ -153,23 +153,24 @@ Backend escuta só em `127.0.0.1`. CORS: `chrome-extension://<id>` e `http://loc
 
 ## Ondas
 
-### Onda 1 — Fundação (MVP)
-1. Backend FastAPI + SQLAlchemy + Alembic + esquema acima. Rotas CRUD + assets.
+### Onda 1 — Fundação (MVP) ✅ Entregue (2026-04-21)
+1. Backend FastAPI + SQLAlchemy + esquema acima. Rotas CRUD + assets.
 2. Webapp: Library masonry + modal detalhe.
 3. Extensão MV3: popup "Capturar aba" (screenshot viewport + HTML).
 4. Busca FTS5 + trigger de sync.
 5. Modal de captura (⌘K) no webapp.
 
-**Entregável**: capturar, ver, buscar.
+### Onda 2 — Processamento ✅ Entregue (2026-04-21)
+6. OCR em background (pytesseract + pypdf, com fallback Tesseract para PDFs escaneados).
+7. yt-dlp para vídeos + gallery-dl/oEmbed para tweets com foto.
+8. Playwright como fallback para SPAs pesadas.
+9. Scraping de artigos via trafilatura.
+10. Thumbnails de uploads (PDF/vídeo).
 
-### Onda 2 — Processamento
-6. OCR em background (fila em SQLite ou RQ).
-7. yt-dlp para vídeos.
-8. Playwright opcional para SPAs pesadas.
-
-### Onda 3 — Inteligência
-9. Ollama: `POST /items/{id}/summarize` (disparo manual).
-10. Auto-tagging com revisão humana.
+### Onda 3 — Inteligência ✅ Entregue (2026-04-21)
+11. MLX-LM: `POST /items/{id}/summarize` (streaming), auto-resumo na captura.
+12. Auto-tagging na captura; chat com documento persistente.
+13. Zettelkasten, pastas, seleção em lote, backup ZIP.
 
 ### Onda 4 — Busca semântica (Adiada)
 *Nota: A implementação da busca semântica (sqlite-vec + embeddings via Ollama) ficou para depois. É um requisito muito complexo para o escopo de um projeto menor neste momento.*

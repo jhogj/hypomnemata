@@ -39,7 +39,7 @@ Variáveis de ambiente (prefixo `HYPO_`):
 | `HYPO_MAX_ASSET_MB` | `100` | tamanho máximo por upload |
 | `HYPO_HOST` / `HYPO_PORT` | `127.0.0.1` / `8787` | onde o uvicorn escuta |
 
-Testes: `uv run pytest` (15 testes, todas as rotas cobertas + guard de path-traversal).
+Testes: `uv run pytest` (42 testes, todas as rotas cobertas + workers de OCR/download/IA + guard de path-traversal).
 
 ## Subir o webapp
 
@@ -94,21 +94,23 @@ Para mudar o backend padrão da extensão (ex: rodar em outra porta), clique em 
 
 ```
 Hypomnemata/
-├── CLAUDE.md              memória viva do projeto
-├── PLANO.md               plano aprovado
+├── CLAUDE.md              memória viva (app legado)
+├── AGENTS.md              memória viva (rewrite nativo)
+├── PLANO.md               plano aprovado (app legado)
+├── PLAN-completo.md       plano do rewrite nativo
 ├── README.md              você está aqui
 ├── descricao_hypomnemata.txt  esboço técnico original
 ├── design/                wireframes (3 telas)
 ├── backend/               FastAPI + SQLite + FTS5
 ├── webapp/                React + Vite + Tailwind
-└── extension/             Chrome MV3
+├── extension/             Chrome MV3
+└── native/                rewrite nativo Swift/SwiftUI (trilha principal)
 ```
 
-## Próximas ondas
+## Estado atual
 
-Ver `PLANO.md` para o roadmap completo. Resumo:
+- **App legado** (FastAPI/React): Ondas 1, 2 e 3 entregues — captura, OCR, yt-dlp, scraping, IA local, chat, Zettelkasten, pastas, backup ZIP.
+- **Rewrite nativo** (`native/`): Sprints 0–5 + 6.1 + 6.2 concluídas. Próxima: Sprint 6.3.
+- **Onda 4** (busca semântica) adiada.
 
-- **Onda 2** — OCR (Tesseract/EasyOCR), yt-dlp, Playwright opcional.
-- **Onda 3** — Ollama (summarize + auto-tagging).
-- **Onda 4** — Busca semântica com `sqlite-vec`.
-- **Onda 5** — Export/import, hotkey global (possível migração pra Tauri), empacotamento launchd.
+Ver `PLANO.md` e `PLAN-completo.md` para o roadmap detalhado.

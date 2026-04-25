@@ -111,14 +111,10 @@ python3.12 -m mlx_lm server --model mlx-community/gemma-4-e2b-it-4bit --port 808
 - ⌘⇧Y é livre e funciona. Usuário pode remapear em `chrome://extensions/shortcuts`.
 
 ### 2026-04-21 — OCR em background (Onda 2, item 6)
-- **Arquivo novo**: `backend/hypomnemata/ocr.py`.
-- **Como funciona**: após o commit de uma captura com asset (imagem ou PDF), o route handler enfileira `ocr_item(item_id)` como `BackgroundTask` do FastAPI. `ocr_item` chama `asyncio.to_thread(_run_ocr_sync, item_id)`, que roda numa thread do pool e usa um engine SQLAlchemy **síncrono** separado (`settings.sync_db_url`) para não disputar o event loop. O engine síncrono é criado e descartado por chamada (simples, sem pool sharing com o engine async).
-- **Imagens** (`_ocr_image`): `pytesseract.image_to_string(img, lang="por+eng")`, com fallback para `lang="eng"` se `por` não estiver instalado. Requer Tesseract no PATH (`brew install tesseract tesseract-lang`).
-- **PDFs** (`_ocr_pdf`): `pypdf.PdfReader` — extração de texto nativo. Não renderiza páginas (sem poppler). PDFs escaneados sem texto ficam com `body_text` vazio, não geram erro.
-- **`ocr_status`**: nova coluna `TEXT` no Item. Valores: `NULL` (sem asset ou tipo não suportado), `"pending"` (ao fazer commit da captura), `"done"` (OCR concluído), `"error:<tipo>"` (falhou). A migration é um `ALTER TABLE items ADD COLUMN ocr_status TEXT` com try/except em `init_db()` — SQLite não suporta `IF NOT EXISTS` em colunas.
-- **Deps novas**: `pytesseract>=0.3`, `Pillow>=10.0`, `pypdf>=4.0` em `pyproject.toml`.
-- **FTS5**: o trigger `items_au` já existente (`AFTER UPDATE ON items`) mantém o FTS sincronizado com o novo `body_text` que o OCR grava via `UPDATE` direto — nenhuma mudança necessária no trigger.
-- **Testes em `tests/test_ocr.py`**: imports do módulo hypomnemata ficam DENTRO das funções de teste (não no topo do arquivo) para evitar que `config.py` seja instanciado na fase de coleta do pytest, antes de o fixture `_isolated_data_dir` definir `HYPO_MAX_ASSET_MB=10`. Isso era bug pré-existente que só apareceu ao adicionar o arquivo de teste.
+- **Arquitetura**: `BackgroundTask` do FastAPI enfileira `ocr_item(item_id)` após commit; roda via `asyncio.to_thread` com engine SQLAlchemy síncrono separado para não disputar o event loop.
+- **Imagens**: pytesseract, `lang="por+eng"` com fallback `"eng"`. **PDFs**: pypdf extração nativa; se texto < 150 chars → fallback: PyMuPDF renderiza páginas + Tesseract (para PDFs escaneados).
+- **`ocr_status`**: coluna `TEXT` adicionada via `ALTER TABLE` com try/except (SQLite não suporta `IF NOT EXISTS` em colunas). Valores: `NULL` | `"pending"` | `"done"` | `"error:<tipo>"`.
+- **Testes**: imports do módulo ficam dentro das funções de teste para evitar que `config.py` seja instanciado antes do fixture `_isolated_data_dir` setar `HYPO_MAX_ASSET_MB`.
 
 ### 2026-04-21 — body_text: escondido nos cards, collapsible no modal
 - **Motivação**: texto extraído por OCR é longo, técnico e não é bom resumo para card. Só faz sentido no contexto do item aberto.
@@ -128,25 +124,10 @@ python3.12 -m mlx_lm server --model mlx-community/gemma-4-e2b-it-4bit --port 808
   - Controle: botão com ▸/▾ alterna `ocrOpen`. Um `useEffect` com `document.addEventListener("mousedown", ...)` fecha o collapsible ao clicar fora do `ref` (`ocrRef`). O listener só é registrado quando `ocrOpen === true` (não desperdiça evento quando fechado).
 - **api.ts**: campo `ocr_status: string | null` adicionado ao tipo `Item`.
 
-### 2026-04-21 — Fotos de tweets: gallery-dl + oEmbed + extração de texto
-
-**Problema raiz**: yt-dlp é um baixador de *vídeos*. Para tweets com só foto ele retorna `DownloadError: No video could be found in this tweet` — não é falha de autenticação, é limitação de design do extrator Twitter do yt-dlp.
-
-**Solução em cascata** (`ytdlp.py`):
-1. Tenta yt-dlp normalmente (funciona para tweets com vídeo).
-2. Se yt-dlp levanta `DownloadError` com "No video" para um tweet → chama `_download_tweet_images()`:
-   - **gallery-dl** (`pip install gallery-dl` / `uv add gallery-dl`): baixa todas as fotos da galeria via subprocess. Renomeia para `001.jpg`, `002.jpg`, etc. Retorna lista de paths.
-   - **oEmbed fallback** (sem dep extra): `https://publish.twitter.com/oembed?url=...` → campo `thumbnail_url` → download direto da imagem com `urllib.request`. Acessa qualidade `name=orig`.
-3. Texto do tweet extraído do HTML da resposta oEmbed em ambos os caminhos: parseia a tag `<p>` do blockquote com `html.parser` da stdlib; remove links `pic.twitter.com/xxx` (já representados pela imagem).
-
-**Storage**: cada item usa subdiretório próprio `assets/{ano}/{mês}/{item_id}/` — múltiplos arquivos sem conflito de nome. `asset_path` = primeira imagem (ou vídeo se existir). Quando há 2+ arquivos → `meta_json["media_paths"]` lista todos os caminhos.
-
-**Frontend (`DetailModal.tsx`)**:
-- Painel esquerdo: se `meta_json.media_paths` tiver 2+ itens → `grid-cols-2`. Com 3 imagens: primeira tem `row-span-2` (layout estilo Twitter).
-- `downloadLabel()`: removido catch-all que mostrava "Tweet sem vídeo para baixar" para qualquer erro — escondia a causa real. Agora mostra o erro completo.
-- Card.tsx inalterado — `asset_path` já aponta para a primeira imagem.
-
-**Testes**: `_find_video_file` → `_find_media_files` (3 unit tests) + teste de graceful fallback quando gallery-dl e rede estão ausentes. 32/32 passando.
+### 2026-04-21 — Fotos de tweets: gallery-dl + oEmbed
+- **Problema**: yt-dlp não suporta tweets com só foto (erro "No video could be found") — é limitação de design do extrator Twitter, não de autenticação.
+- **Cascata** (`ytdlp.py`): (1) yt-dlp para tweets com vídeo; (2) gallery-dl para fotos via subprocess; (3) oEmbed (`publish.twitter.com/oembed`) como fallback — baixa `thumbnail_url` com urllib. Texto do tweet extraído da tag `<p>` do HTML oEmbed.
+- **Storage**: `asset_path` = primeira imagem/vídeo; `meta_json["media_paths"]` lista todas quando há 2+. Layout em `grid-cols-2` no DetailModal quando múltiplas imagens.
 
 ### 2026-04-21 — Play inline de vídeos nos cards
 
@@ -196,52 +177,14 @@ python3.12 -m mlx_lm server --model mlx-community/gemma-4-e2b-it-4bit --port 808
 **Implementação** (`Card.tsx` + `Library.tsx`):
 - **Card.tsx**: novo prop `onDelete`. Botão com `stopPropagation` (não abre o modal). Confirmação via `confirm()` nativo. SVG de lixeira (Heroicons outline). Hover: fundo vermelho claro + texto vermelho.
 - **Library.tsx**: cada `<Card>` recebe `onDelete` que chama `api.deleteItem(it.id)` e depois `refresh()`. Erros são capturados e exibidos no banner de erro existente.
-### 2026-04-21 — Scraping de artigos de portais de notícias
-
-**Funcionalidade**: ao capturar uma URL de portal de notícias, o sistema extrai automaticamente título, texto, hero image e metadados do artigo. O usuário pode ler o artigo inteiro dentro do Hypomnemata.
-
-**Implementação**:
-
-- **Backend** (`article.py`): novo worker `scrape_article()`, mesma arquitetura do `ytdlp.py`:
-  - `trafilatura.fetch_url()` + `trafilatura.extract()` para texto.
-  - `trafilatura.extract_metadata()` para título, autor, data de publicação, nome do site, descrição.
-  - Hero image: download da URL `og:image` (campo `metadata.image`) para `assets/{ano}/{mês}/{item_id}/hero.{ext}`.
-  - Threshold: texto < 200 chars → scrape considerado insuficiente (item mantido, mas sem promoção visual).
-  - Metadados salvos em `meta_json`: `author`, `pub_date`, `sitename`, `description`, `thumbnail_path`.
-  - `download_status`: `pending` → `done` / `error:*`.
-
-- **Backend** (`captures.py`): `kind == "article"` + `source_url` + sem `asset_path` → `download_status = "pending"` → enfileira `scrape_article()`. Dispatch separado do `download_video()` via check de kind.
-
-- **Frontend** (`CaptureModal.tsx`): `inferKind()` retorna `"article"` para URLs genéricas (antes retornava `"bookmark"`). Toda URL que não é tweet/vídeo agora tenta scraping.
-
-- **Frontend** (`Card.tsx`): `"article"` adicionado ao array `hasImage` → hero images aparecem nos cards.
-
-- **Frontend** (`DetailModal.tsx`): **reader view** para artigos:
-  - Condição: `kind === "article" && body_text && download_status === "done"`.
-  - Hero image no topo (se houver `asset_path`).
-  - Título em `<h1>` bold.
-  - Metadados (sitename, author, pub_date) em linha discreta.
-  - Separador horizontal.
-  - Texto do artigo formatado como parágrafos (`\n\n` → `<p>`) com scroll nativo.
-  - `downloadLabel()` atualizado: `"Extraindo artigo..."` para pending, `"trafilatura não instalado"` para missing_dep.
-
-**Dep nova**: `trafilatura>=2.0` em `pyproject.toml`.
+### 2026-04-21 — Scraping de artigos (Onda 2)
+- **Worker** (`article.py`): trafilatura para texto + metadados (autor, data, site); hero image baixada de `og:image`. Threshold: texto < 200 chars → scrape insuficiente (item mantido, sem promoção visual). Metadados em `meta_json`: `author`, `pub_date`, `sitename`, `description`, `thumbnail_path`.
+- **Dispatch**: `inferKind()` retorna `"article"` para qualquer URL genérica (antes retornava `"bookmark"`). `download_status = "pending"` dispara `scrape_article()` em background.
+- **Frontend**: reader view no DetailModal (`kind === "article" && body_text && status === "done"`): hero → título → metadados → parágrafos.
 
 ### 2026-04-21 — Thumbnails de uploads e Visualizador de PDF
-
-**Funcionalidade**: Quando o usuário faz upload manual de um PDF ou Vídeo, o sistema agora gera e mostra uma thumbnail no card (primeira página do PDF ou frame em `t=1s` do vídeo). Ao clicar em um PDF, ele abre direto no modal para leitura, em vez de só mostrar um link de download.
-
-**Implementação**:
-- **Backend** (`thumbgen.py`): Novo background worker. Usa `PyMuPDF` (`fitz`) para PDFs e `ffmpeg` para vídeos. A imagem é salva como `thumb.jpg` na pasta do asset e registrada no `meta_json.thumbnail_path`. O item fica como `download_status = "pending"` até terminar para usar o auto-refresh já implementado no webapp.
-- **Backend** (`captures.py`): Arquivos uploadados do tipo PDF/Video agora passam pelo `download_status = "pending"` e disparam o `generate_upload_thumbnail()`.
-- **Frontend** (`Card.tsx`): Removido o bug onde PDFs mostravam botão de "play" sobreposto. O ícone de play só renderiza se `isVideoKind` for verdadeiro, independentemente de ter thumbnail.
-- **Frontend** (`Card.tsx`): Aprimorada a UX dos vídeos na visão de cards. Se um vídeo estiver tocando no grid e o usuário clicar fora do card ou der play em outro vídeo, o player do primeiro é desativado e ele volta a mostrar apenas a miniatura, evitando múltiplos vídeos tocando simultaneamente e mantendo o grid limpo.
-- **Frontend** (`DetailModal.tsx`): Adicionado `<object type="application/pdf">` para renderizar o leitor nativo de PDFs do navegador no painel esquerdo do modal.
-- **Testes** (`test_ytdlp.py`): O teste `test_capture_video_file_only_no_download` foi atualizado para esperar o `download_status = "pending"` em uploads diretos de vídeo, refletindo a nova regra para acionar o `thumbgen`.
-
-- **Bugfix**: Corrigido um problema onde uploads de diferentes itens sobrescreviam a mesma miniatura na pasta do mês (colisão de `thumb.jpg`). A miniatura agora usa o nome original com o sufixo `.thumb.jpg` (ex: `ID.thumb.jpg`).
-
-**Dep nova**: `pymupdf>=1.24` adicionada em `pyproject.toml`.
+- **Worker** (`thumbgen.py`): PyMuPDF para primeira página de PDF; ffmpeg para frame em t=1s de vídeo. Salvo como `{ID}.thumb.jpg` (sufixo evita colisão) em `meta_json.thumbnail_path`. `download_status = "pending"` para acionar auto-refresh.
+- **Frontend**: viewer nativo de PDF via `<object type="application/pdf">` no DetailModal. Ícone de play só aparece para `isVideoKind` — PDFs com thumbnail não mostram play.
 
 ### 2026-04-21 — Visão em Lista e Hover Preview
 
@@ -258,18 +201,10 @@ python3.12 -m mlx_lm server --model mlx-community/gemma-4-e2b-it-4bit --port 808
 - `node_modules/` foi adicionado ao git antes do `.gitignore` existir; remoção feita com `git rm -r --cached webapp/node_modules extension/node_modules` antes do primeiro commit.
 
 ### 2026-04-21 — yt-dlp em background (Onda 2, item 7)
-- **Arquivo novo**: `backend/hypomnemata/ytdlp.py`.
-- **Gatilho**: `kind == "video"` E `source_url` preenchida → `download_status = "pending"` antes do commit → `BackgroundTask` enfileira `download_video(item_id)` após o commit. Mesma arquitetura do OCR: thread pool via `asyncio.to_thread`, engine SQLAlchemy síncrono separado criado e descartado por chamada.
-- **Formato de saída**: preferência `best[ext=mp4]` (stream único, sem merge). Fallback: `bestvideo[ext=mp4]+bestaudio[ext=m4a]` (requer ffmpeg para merge). `noplaylist=True` para não baixar playlists inteiras por acidente.
-- **Arquivo salvo em**: `assets/yyyy/mm/{item_id}/{nnn}.{ext}` — subdiretório por item. Após o download, se havia um screenshot (capturado pela extensão), ele é deletado e `asset_path` é atualizado para o vídeo/imagem primária.
-- **Metadados extraídos**: `title` (se vazio no item) e `description` → `body_text` (sempre sobrescreve para vídeos, limitado a 5000 chars). Título e descrição vêm do objeto `info` retornado por `ydl.extract_info`.
-- **`download_status`**: nova coluna `TEXT`. Valores: `NULL`, `"pending"`, `"done"`, `"error:missing_dep"`, `"error:too_large"`, `"error:PostprocessingError"` (ffmpeg ausente), `"error:<ExcType>"`. Migration via `ALTER TABLE` com try/except em `init_db()`.
-- **Deps novas**: `yt-dlp>=2024.1` em `pyproject.toml`. `ffmpeg` externo necessário para maioria dos vídeos do YouTube (`brew install ffmpeg`). Sem ffmpeg, status vira `error:PostprocessingError` e o modal exibe mensagem específica.
-- **Extensão** (`client.ts`): `detectKind` atualizado para retornar `"video"` para YouTube (`youtube.com/watch`, `/shorts`, `/live`, `youtu.be`) e Vimeo (`vimeo.com/\d`). Vem antes dos checks de extensão de arquivo, depois do check de tweet (Twitter/X continua como `"tweet"`).
-- **Webapp** (`DetailModal.tsx`):
-  - Painel esquerdo: `<video controls>` para assets com extensão de vídeo. Durante `download_status === "pending"` sem asset ainda, mostra "Baixando vídeo..." no centro.
-  - Painel direito: indicador discreto com mensagens legíveis por status (`"pending"` → fundo cinza; erro → fundo âmbar com texto específico incluindo instrução de ffmpeg).
-- **Testes em `tests/test_ytdlp.py`**: `_find_video_file` (unit), 4 testes de integração via API, 1 teste de `_run_ytdlp_sync` com `builtins.__import__` mockado para simular yt-dlp ausente.
+- **Arquitetura**: mesma do OCR — `BackgroundTask` + `asyncio.to_thread` + engine síncrono separado por chamada.
+- **Formato**: preferência `best[ext=mp4]`; fallback `bestvideo+bestaudio` (requer ffmpeg). `noplaylist=True`.
+- **`download_status`**: coluna `TEXT` adicionada via `ALTER TABLE` com try/except. Valores: `NULL` | `"pending"` | `"done"` | `"error:missing_dep"` | `"error:too_large"` | `"error:PostprocessingError"` | `"error:<ExcType>"`.
+- **Legendas**: segunda chamada separada com `skip_download=True` para evitar abort em HTTP 429. Legenda → `body_text`; descrição → `meta_json["description"]`.
 
 ### 2026-04-21 — Masonry: CSS columns → colunas flex explícitas
 - **Problema**: `columns-2 md:columns-3 xl:columns-4 2xl:columns-5` (CSS columns) distribui cards em colunas re-balanceando alturas globalmente. Quando uma imagem carrega (lazy: altura 0 → altura real), o browser re-faz o layout inteiro. Em Chrome isso produz um frame com tudo em coluna única (o "blink"). Não é bug de React nem de dados — é comportamento do CSS columns com conteúdo de altura dinâmica.
@@ -282,33 +217,12 @@ python3.12 -m mlx_lm server --model mlx-community/gemma-4-e2b-it-4bit --port 808
 
 ---
 
-## Questões em aberto
-
-*(todas as 5 iniciais resolvidas em 2026-04-21 — ver decisões 8-12)*
-
----
-
 ## Bugs conhecidos
 
 ### [2026-04-21] Atalho ⌘⇧Y não funcionou no Chrome
 - **Repro**: usuário carregou a extensão e tentou acionar o atalho (relatou "cmd control y").
 - **Hipótese**: duas possíveis causas — (a) Chrome não aplica automaticamente a `suggested_key` do manifest; o usuário precisa ir em `chrome://extensions/shortcuts` e configurar manualmente. (b) O usuário pode ter pressionado ⌘⌃Y em vez de ⌘⇧Y.
 - **Status**: aberto — não prioritário, só anotar. Workaround: usar o popup (ícone) ou ir em `chrome://extensions/shortcuts`.
-
-### [2026-04-21] Tweet do x.com salvo como kind="bookmark"
-- **Repro**: salvar uma página de `https://x.com/...` gera um item com `kind="bookmark"` em vez de `kind="tweet"`.
-- **Hipótese**: regex em `extension/src/lib/client.ts:60` — `(?:^|\.)x\.com\/` — exige ponto ou início de string antes de `x.com`. A URL real é `https://x.com/...` (tem `://x`, não `.x`), então o match falha e cai no fallback `"bookmark"`.
-- **Status**: resolvido — trocado para `/\/\/(?:www\.)?x\.com\//`. Extensão rebuildada.
-
-### [2026-04-21] Masonry piscava e colapsava para coluna única
-- **Repro**: cards aparecem em múltiplas colunas, depois piscam e ficam todos empilhados verticalmente; recarregar a página restaura o layout.
-- **Causa**: CSS `columns` redistribui todos os cards globalmente toda vez que qualquer card muda de altura. Imagens lazy-loaded começam com altura 0 e crescem ao carregar — cada carga dispara um re-flow do layout inteiro. Em Chrome esse re-flow produzia um frame com coluna única visível ao usuário.
-- **Status**: resolvido — substituído por colunas flex explícitas (ver decisão "Masonry: CSS columns → colunas flex explícitas").
-
-### [2026-04-21] Fotos de tweet não apareciam (yt-dlp não suporta imagens estáticas)
-- **Repro**: salvar URL de tweet com só foto → `download_status = "error:DownloadError: No video could be found"` → modal mostrava "Tweet sem vídeo para baixar" (mensagem de erro genérica mascarava o problema).
-- **Causa**: yt-dlp é um baixador de vídeos; o extrator do Twitter retorna erro quando não há vídeo, mesmo que haja fotos. Além disso, o `downloadLabel()` usava um catch-all para qualquer erro em tweets, escondendo a mensagem real.
-- **Status**: resolvido — fallback para gallery-dl + oEmbed; `downloadLabel` agora mostra o erro completo.
 
 Formato quando aparecerem mais:
 ```
@@ -326,14 +240,9 @@ Formato quando aparecerem mais:
 - Legenda vira `body_text` (preferida sobre descrição para busca FTS5); descrição vai para `meta_json["description"]`. `meta_json["subtitle_lang"]` guarda o idioma detectado.
 - Frontend: collapsible "Legenda (pt)" ou "Descrição do vídeo" no DetailModal conforme disponibilidade.
 
-### 2026-04-21 — Polimento da IA: auto-resumo, indicador de loading e thumbnail no modal
-
-- **Auto-resumo ao capturar**: após scraping de artigo ou download de vídeo com legenda, `article.py` e `ytdlp.py` chamam `summarize_sync()` (versão síncrona do `llm.py`) no mesmo thread. Falha silenciosa se MLX-LM não estiver rodando.
-- **`ai_status = "pending"`**: antes de chamar o LLM, o backend seta `meta_json["ai_status"] = "pending"` e faz commit. Remove a chave no `finally` após concluir (com ou sem erro). Isso permite o frontend saber que o resumo está sendo gerado.
-- **Polling no DetailModal**: o `useEffect` de polling agora também ativa quando `meta_json["ai_status"] === "pending"` — não só `download_status === "pending"`. Fica checando a cada 5s até o resumo chegar.
-- **Indicador visual**: botão mostra "IA processando..." e fica desabilitado; box pulsante "▌ Gerando resumo com IA..." aparece na seção IA enquanto `ai_status` está pending.
-- **Erros do LLM em amber**: quando LLM não está rodando e usuário clica "Resumir", o texto `[Erro: ...]` que vinha como texto de resumo agora aparece como badge amber com mensagem legível.
-- **Poster do vídeo no modal**: `<video>` no DetailModal recebe `poster={api.assetUrl(thumbnailPath)}` extraído de `meta_json.thumbnail_path`. Corrige bug onde o modal mostrava frame aleatório em vez do thumbnail ao abrir o item.
+### 2026-04-21 — Polimento da IA: auto-resumo e indicadores
+- Auto-resumo disparado no worker (`article.py` / `ytdlp.py`) após ingestão. `meta_json["ai_status"] = "pending"` antes de chamar LLM, removido no `finally`.
+- Polling no DetailModal ativado também para `ai_status === "pending"`. Erros do LLM aparecem como badge amber. `<video>` recebe `poster` de `meta_json.thumbnail_path`.
 
 ### 2026-04-21 — MLX-LM em vez de Ollama para IA local
 - **Problema**: Ollama com qwen2.5:7b (4.7 GB) travou o MacBook Air M2 8GB.
@@ -343,11 +252,9 @@ Formato quando aparecerem mais:
 - **Config**: `HYPO_LLM_URL=http://localhost:8080`, `HYPO_LLM_MODEL=mlx-community/gemma-4-e2b-it-4bit`. Para Ollama basta trocar a URL para `http://localhost:11434`.
 - **Mac Mini M4 16GB**: pode usar `mlx-community/gemma-4-e4b-it-4bit` (~2.5 GB, mais qualidade) via `.env`.
 
-### 2026-04-21 — IA: resumo streaming + auto-tagging (Onda 3, itens 9 e 10)
-- **`llm.py`**: cliente agnóstico de provider. `stream_summary()` usa SSE streaming (`data: ...` chunks). `get_autotags()` retorna lista de tags via chamada não-streaming. `max_tokens`: 4096 para resumo, 1024 para tags (sem limite artificial — é local).
-- **Rotas**: `POST /items/{id}/summarize` → `StreamingResponse` text/plain; salva resumo em `meta_json["summary"]` ao terminar. `POST /items/{id}/autotag` → `{"tags": [...]}`.
-- **Frontend**: seção "IA" no painel direito do DetailModal (visível quando item tem conteúdo). Botão "Resumir" mostra texto aparecendo token a token com cursor piscante. Botão "Sugerir tags" retorna chips clicáveis (+ individual ou "Adicionar todas"). Resumo persiste ao reabrir modal via `meta_json["summary"]`.
-- **Bug corrigido**: `max_tokens` não definido → MLX-LM usava padrão de 256 tokens → resumos cortados no meio da frase.
+### 2026-04-21 — IA: resumo streaming + auto-tagging (Onda 3)
+- `llm.py`: cliente OpenAI-compatible. `stream_summary()` → SSE; `get_autotags_sync()` → lista. `max_tokens` 4096/1024 explícito — sem isso MLX-LM usava 256 tokens e cortava o resumo.
+- Tags geradas automaticamente na captura via `get_autotags_sync()` + `set_item_tags_sync()` nos workers. Geradas uma vez; sem regeneração automática nem botão.
 
 ### 2026-04-21 — Exportação de Backup em ZIP (Onda 5)
 - **Funcionalidade**: Capacidade de baixar o banco de dados inteiro e a pasta de assets (`~/Hypomnemata/`) como um arquivo ZIP.
@@ -362,134 +269,33 @@ Formato quando aparecerem mais:
 
 ## Ideias discutidas
 
-### Aprovadas (ainda não implementadas)
+### Aprovadas e implementadas
+
+- **Pastas (Coleções)** — many-to-many, drag & drop nos cards, seleção em lote para adicionar, `SelectionToolbar` e filtro `GET /items?folder=<id>`.
+- **Refinamento do DetailModal** — ordem Título → Descrição → Etiquetas → Nota → Fonte; "Texto extraído" e "Legenda" removidos do painel direito; campo "Descrição" ligado a `meta_json["summary"]`, editável.
+- **Chat com Documento** — conversa multi-turn com contexto do item (≥ 300 chars) via `POST /items/{id}/chat`; histórico persistido em `meta_json["chat_history"]`.
+- **Conexão de Ideias (Zettelkasten)** — `[[uuid|título]]` nas notas com autocomplete via `react-mentions` + FTS5; tabela `item_links` sincronizada em PATCH. UUID permanente; display é cache que resolve o nome atual.
+- **Ações em Lote** — modo de seleção com checkboxes, delete e pasta em lote.
+
+### Aprovadas, ainda não implementadas
 
 ### 2026-04-22 — Backup Incremental para iCloud
 
-**Mecanismo**: `rsync -a --delete <data_dir>/ <backup_dir>/` — copia só o que mudou, remove o que foi deletado. Antes do rsync faz `PRAGMA wal_checkpoint(TRUNCATE)` para garantir consistência do `.db`.
+**Mecanismo**: `rsync -a --delete <data_dir>/ <backup_dir>/` — copia só o que mudou. Antes do rsync faz `PRAGMA wal_checkpoint(TRUNCATE)` para consistência do `.db`.
 
-**Config**: `HYPO_BACKUP_DIR` no `backend/.env`. Caminho configurado: `~/Library/Mobile Documents/com~apple~CloudDocs/Minhas pastas/backup-hypomnemata`.
+**Config**: `HYPO_BACKUP_DIR` no `backend/.env`. Exemplo: `~/Library/Mobile Documents/com~apple~CloudDocs/Minhas pastas/backup-hypomnemata`.
 
-**Backend**:
-- `config.py`: campo `backup_dir: Path | None`
-- `backup.py`: `run_backup()` — checkpoint WAL + subprocess rsync. Levanta `RuntimeError` com mensagem legível em falha.
-- `routes/system.py`: `POST /system/backup` (retorna `{ok, message}`, erro 503 em falha) + `GET /system/backup/status` (retorna se está configurado)
-- `main.py`: dispara `run_backup()` em background no startup se `backup_dir` configurado. Falha silenciosa (não bloqueia servidor).
+**Backend**: `config.py` campo `backup_dir: Path | None`; `backup.py` `run_backup()` — WAL checkpoint + subprocess rsync; `POST /system/backup` + `GET /system/backup/status`; startup dispara backup silencioso se configurado.
 
-**Frontend** (`Sidebar.tsx`):
-- Botão de sync (ícone de setas circulares) ao lado do "Exportar ZIP" no footer
-- Estados: `idle` / `running` (spinner) / `ok` (✓ verde por 3s) / `error` (⚠ vermelho)
-- Desabilitado e tooltip explicativo quando `HYPO_BACKUP_DIR` não configurado
-- Horário da última sync salvo no `localStorage` e exibido no tooltip
-
-### 2026-04-22 — Pastas (Coleções)
-
-**Modelo**: many-to-many — um item pode estar em nenhuma, uma ou várias pastas.
-
-**Backend:**
-- `models.py`: tabelas `Folder (id, name, created_at)` e `FolderItem (folder_id, item_id, added_at)` com `ON DELETE CASCADE`
-- `routes/folders.py`: `GET /folders`, `POST /folders`, `PATCH /folders/{id}`, `DELETE /folders/{id}`, `POST /folders/{id}/items {item_ids:[]}`, `DELETE /folders/{id}/items/{item_id}`
-- `routes/items.py`: `GET /items?folder=<id>` (filtro novo) + `GET /items/{id}/folders` (pastas de um item)
-- As tabelas são criadas via `Base.metadata.create_all` no startup — sem migration manual
-
-**Frontend:**
-- `api.ts`: `listFolders`, `createFolder`, `renameFolder`, `deleteFolder`, `addItemsToFolder`, `removeItemFromFolder`, `getItemFolders`; `listItems` aceita `folder?`
-- `Sidebar.tsx`: seção "Pastas" abaixo de Etiquetas; botão `+` inline para criar; renomear via clique no lápis (hover); excluir via ×; drop target HTML5 (recebe drag de cards, destaca com anel âmbar); badge de contagem por pasta
-- `Library.tsx`: estados `activeFolder`, `selectionMode`, `selectedItems: Set<string>`, `draggingItemId`; botão de modo seleção no header; Esc para sair do modo
-- `Card.tsx`: `draggable={true}` — `onDragStart` injeta `item_id` no dataTransfer; checkbox visível quando `selectionMode` ativo (destaque visual quando selecionado)
-- `SelectionToolbar.tsx` (novo): toolbar fixo na base da tela quando há itens selecionados — "Adicionar à pasta" (dropdown com lista + criar nova inline), "Excluir selecionados", "Cancelar"
-- `DetailModal.tsx`: campo "Pastas" no painel direito (abaixo de Fonte) — chips removíveis, botão `+` com dropdown para adicionar
-
-### 2026-04-22 — Refinamento do DetailModal
-
-**Motivação**: painel direito estava poluído com dados internos (OCR, legendas) e com UX confusa (dois botões de IA, tags manuais).
-
-**Mudanças implementadas**:
-
-**Removidos do painel direito:**
-- Collapsible "Texto extraído" (OCR) — dado interno para FTS5 e chat, não para leitura
-- Collapsible "Legenda (pt)" / "Descrição do vídeo" — mesma lógica
-- Botão "Sugerir tags" e chips de sugestão — substituído por geração automática no backend
-
-**Campo "Descrição" (substitui seção IA):**
-- Posição: abaixo do Título, acima das Etiquetas
-- Fonte: `meta_json["summary"]` — mesmo campo do auto-resumo
-- Editável livremente pelo usuário
-- Botão "Gerar com IA" aparece **apenas** se o campo estiver vazio E o item tiver conteúdo
-- Link "× limpar" aparece **apenas** se o campo tiver conteúdo — limpa + marca dirty
-- Erro do LLM: exibido no banner `err`, campo volta para vazio (botão reaparece)
-- Streaming renderiza diretamente na textarea (não em painel separado)
-- `save()` inclui `summary: description` → `PATCH /items/{id}` → persiste em `meta_json["summary"]`
-
-**Nova ordem dos campos:**
-Título → Descrição → Etiquetas → Nota pessoal → Fonte
-
-**Tags automáticas na captura:**
-- `llm.py`: `get_autotags_sync()` — versão síncrona de `get_autotags()` para uso em workers (httpx síncrono, falha silenciosa)
-- `crud.py`: `set_item_tags_sync(db_sync, item_id, names)` — versão síncrona de `set_item_tags` para uso em workers com Session síncrona
-- `article.py`: chama `get_autotags_sync()` após scraping + resumo; salva tags no banco com `set_item_tags_sync()`
-- `ytdlp.py`: chama `get_autotags_sync()` após download (incluindo vídeos sem legenda — usa título quando body_text indisponível); salva com `set_item_tags_sync()`
-- Regra: tags geradas uma vez na captura. Se o usuário apagar tudo e salvar, ficam vazias — sem regeneração automática, sem botão
-
-**Schema:** `ItemPatch` ganhou campo `summary: str | None`. PATCH handler atualiza `meta_json["summary"]` ao receber esse campo.
-
-### 2026-04-22 — Chat com Documento (conversa persistente)
-
-**Funcionalidade**: em qualquer item com `body_text` suficiente (≥ 300 chars — artigos, vídeos com legenda, PDFs com OCR), aparece um ícone de chat bubble no header do painel direito do DetailModal. Ao clicar, o painel direito é substituído temporariamente pela interface de chat; clicar novamente volta para notas/tags/IA. O histórico da conversa persiste indefinidamente no banco.
-
-**Implementação**:
-
-- **Backend** (`llm.py`): nova função `stream_chat(title, body_text, messages)`. Monta um system prompt com o conteúdo do item (até 6000 chars) e a instrução de responder só com base no conteúdo. Inclui o histórico completo de mensagens como contexto multi-turn. Streaming SSE idêntico ao `stream_summary`.
-
-- **Backend** (`routes/items.py`): `POST /items/{id}/chat`. Recebe `{ messages: [{role, content}] }` (histórico completo até e incluindo a última mensagem do usuário). Após o streaming terminar, salva o histórico completo + resposta do assistente em `meta_json["chat_history"]` (mesmo padrão de persistência do `summary`). Erros de LLM chegam como texto na stream (não levantam exceção HTTP) para não interromper o streaming já iniciado.
-
-- **Frontend** (`api.ts`): `chatStream(id, messages, onChunk)` — mesmo padrão do `summarizeStream`.
-
-- **Frontend** (`DetailModal.tsx`):
-  - `chatMode: boolean` — alterna o painel direito entre notas e chat.
-  - `chatMessages` — estado local; inicializado a partir de `meta_json.chat_history` ao abrir o modal. Se houver histórico salvo, o modal abre já em modo chat.
-  - `streamingMsg` — texto parcial da resposta em andamento, exibido como bolha em construção com cursor `▌`.
-  - Auto-scroll via `messagesEndRef` a cada nova mensagem ou chunk.
-  - Input: `Enter` envia, `Shift+Enter` seria nova linha (padrão esperado). Desabilitado durante `chatBusy`.
-  - Erros do LLM aparecem como bolha âmbar (mesmo padrão do resto do app).
-  - Ícone de chat bubble só aparece quando `body_text.length >= 300` — itens sem conteúdo suficiente não exibem o botão.
-  - O histórico é salvo após cada turno completo (não em tempo real durante streaming) para evitar escritas parciais no banco.
-
-**Persistência**: `meta_json["chat_history"]` — array de `{role: "user"|"assistant", content: string}`. Sobrescreve a cada novo turno (acumula). Sobrevive a fechar o modal, fechar o browser e reiniciar o backend. Não há limite de tamanho por ora.
-
-### 2026-04-22 — Conexão de Ideias (Zettelkasten / Links)
-- **Proposta**: Mencionar itens diretamente no texto das notas com `[[nome]]`, com IDs únicos por trás para que renomear um item atualize todas as referências automaticamente.
-- **Decisão**: Aprovada e **implementada**.
-- **Implementação**:
-  - `models.py`: tabela `item_links (source_id, target_id)` com `ON DELETE CASCADE`.
-  - `crud.py`: `sync_item_links()` — varre `note` e `body_text` via Regex, extrai `[[uuid|display]]` e recria os relacionamentos.
-  - `routes/items.py`: `PATCH /items/{id}` chama `sync_item_links()` antes de commitar. Rotas `POST /items/{id}/links` e `DELETE /items/{id}/links/{target_id}` mantidas para futura API direta.
-  - `NoteEditor.tsx`: modo Leitura (renderiza título atualizado em âmbar, clicável) e Edição (usa `react-mentions` com portal no `body` para autocomplete acima de modais).
-  - `webapp/src/index.css`: estilos do `react-mentions` integrados ao design system.
-  - `react-mentions` + `@types/react-mentions` adicionados ao frontend.
-- **Formato gravado**: `[[550e8400-e29b-41d4-a716-446655440000|Nome do Item]]` — o UUID é permanente; o display é cache.
-- **Bugs corrigidos**: portal z-index via `style` inline; dropdown cortado pelo `overflow:hidden` do modal; `handleClickOutside` fechando antes da seleção via verificação do elemento `.mentions-editor__suggestions`; largura do dropdown via `ResizeObserver`.
-
-### 2026-04-21 — Ações em Lote e Pastas
-- **Proposta**: Adicionar checkboxes na listagem para deleções e tags em lote, e a capacidade de organizar itens em pastas/listas.
-- **Decisão**: Aprovada e **implementada** (2026-04-22).
-- **Motivo**: Organização de grandes volumes de itens.
+**Frontend** (`Sidebar.tsx`): botão de sync ao lado do "Exportar ZIP"; estados `idle` / `running` / `ok` (✓ 3s) / `error`; desabilitado com tooltip quando `HYPO_BACKUP_DIR` não configurado.
 
 ### 2026-04-21 — Visão de Linha do Tempo (Timeline)
-- **Proposta**: Uma visualização alternativa que agrupa os cards por cabeçalhos temporais dinâmicos ("Hoje", "Semana Passada", "Março de 2026").
+- **Proposta**: visualização alternativa agrupando cards por cabeçalhos temporais dinâmicos ("Hoje", "Semana Passada", "Março de 2026").
 - **Decisão**: Aprovada.
-- **Motivo**: Auxilia na recuperação temporal de itens.
+- **Motivo**: auxilia na recuperação temporal de itens.
 
 ### Rejeitadas (salvas a pedido)
 *(nenhuma)*
-
-Formato quando aparecerem:
-```
-### [2026-MM-DD] <ideia>
-- **Proposta**: descrição
-- **Decisão**: aprovada / rejeitada / adiada
-- **Motivo**: por quê
-```
 
 ---
 
