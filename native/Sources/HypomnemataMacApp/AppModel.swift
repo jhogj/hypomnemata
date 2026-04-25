@@ -16,10 +16,17 @@ final class AppModel: ObservableObject {
     @Published var state: VaultState = .locked
     @Published var items: [Item] = []
     @Published var activeKind: ItemKind?
+    @Published var activeTag: String?
+    @Published var activeFolderID: String?
     @Published var query = ""
     @Published var showCapture = false
     @Published var showChangePassword = false
     @Published var dependencyStatuses: [DependencyStatus] = []
+    @Published var kindCounts: [ItemKind: Int] = Dictionary(uniqueKeysWithValues: ItemKind.allCases.map { ($0, 0) })
+    @Published var tagCounts: [TagCount] = []
+    @Published var folders: [Folder] = []
+    @Published var totalItemCount = 0
+    @Published var storageBytes: Int64 = 0
 
     private var database: NativeDatabase?
     private var repository: SQLiteItemRepository?
@@ -35,6 +42,10 @@ final class AppModel: ObservableObject {
             return true
         }
         return false
+    }
+
+    var activeFolder: Folder? {
+        folders.first { $0.id == activeFolderID }
     }
 
     init() {
@@ -82,7 +93,7 @@ final class AppModel: ObservableObject {
             assetStore = store
             state = .unlocked
             resetAutoLockTimer()
-            refreshItems()
+            refreshLibrary()
         } catch {
             discardUnlockedState()
             state = .failed(unlockFailureMessage(error, databaseExists: databaseExists))
@@ -123,7 +134,14 @@ final class AppModel: ObservableObject {
         appPaths = nil
         query = ""
         activeKind = nil
+        activeTag = nil
+        activeFolderID = nil
         items = []
+        kindCounts = Dictionary(uniqueKeysWithValues: ItemKind.allCases.map { ($0, 0) })
+        tagCounts = []
+        folders = []
+        totalItemCount = 0
+        storageBytes = 0
         showCapture = false
         showChangePassword = false
     }
@@ -168,19 +186,59 @@ final class AppModel: ObservableObject {
         }
     }
 
+    func refreshLibrary() {
+        refreshItems()
+        refreshSidebarData()
+    }
+
     func refreshItems() {
         guard let repository else {
             return
         }
         do {
+            let filter = ItemListFilter(
+                kind: activeKind,
+                tag: activeTag,
+                folderID: activeFolderID
+            )
             if query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                items = try repository.listItems(filter: ItemListFilter(kind: activeKind))
+                items = try repository.listItems(filter: filter)
             } else {
-                items = try repository.search(query)
+                items = try repository.search(query, filter: filter)
             }
         } catch {
             state = .failed(error.localizedDescription)
         }
+    }
+
+    func clearFilters() {
+        activeKind = nil
+        activeTag = nil
+        activeFolderID = nil
+        recordUserActivity()
+        refreshItems()
+    }
+
+    func toggleKindFilter(_ kind: ItemKind) {
+        activeKind = activeKind == kind ? nil : kind
+        recordUserActivity()
+        refreshItems()
+    }
+
+    func toggleTagFilter(_ tag: String) {
+        activeTag = activeTag == tag ? nil : tag
+        recordUserActivity()
+        refreshItems()
+    }
+
+    func toggleFolderFilter(_ folderID: String) {
+        activeFolderID = activeFolderID == folderID ? nil : folderID
+        recordUserActivity()
+        refreshItems()
+    }
+
+    func count(for kind: ItemKind) -> Int {
+        kindCounts[kind, default: 0]
     }
 
     func createCapture(_ draft: CaptureDraft) {
@@ -210,10 +268,51 @@ final class AppModel: ObservableObject {
                 tags: draft.tags
             )
             showCapture = false
-            refreshItems()
+            refreshLibrary()
         } catch {
             state = .failed(error.localizedDescription)
         }
+    }
+
+    private func refreshSidebarData() {
+        guard let repository else {
+            return
+        }
+        do {
+            totalItemCount = try repository.totalItemCount()
+            kindCounts = try repository.itemCountsByKind()
+            tagCounts = try repository.tagCounts()
+            folders = try repository.listFolders()
+            if let appPaths {
+                storageBytes = try storageByteCount(at: appPaths.assetsDirectory)
+            } else {
+                storageBytes = 0
+            }
+        } catch {
+            state = .failed(error.localizedDescription)
+        }
+    }
+
+    private func storageByteCount(at directory: URL) throws -> Int64 {
+        guard FileManager.default.fileExists(atPath: directory.path) else {
+            return 0
+        }
+        guard let enumerator = FileManager.default.enumerator(
+            at: directory,
+            includingPropertiesForKeys: [.isRegularFileKey, .fileSizeKey],
+            options: [.skipsHiddenFiles]
+        ) else {
+            return 0
+        }
+
+        var total: Int64 = 0
+        for case let fileURL as URL in enumerator {
+            let values = try fileURL.resourceValues(forKeys: [.isRegularFileKey, .fileSizeKey])
+            if values.isRegularFile == true {
+                total += Int64(values.fileSize ?? 0)
+            }
+        }
+        return total
     }
 
     private func clearTemporaryCache() -> Error? {

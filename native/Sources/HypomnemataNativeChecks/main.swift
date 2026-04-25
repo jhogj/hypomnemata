@@ -57,17 +57,70 @@ struct HypomnemataNativeChecks {
             metadataJSON: nil,
             tags: ["Filosofia", "grega"]
         )
+        let article = try repository.createItem(
+            kind: .article,
+            sourceURL: "https://example.com/platao",
+            title: "Academia de Platão",
+            note: nil,
+            bodyText: "Diálogos políticos e teoria das ideias.",
+            summary: nil,
+            metadataJSON: nil,
+            tags: ["filosofia", "platao"]
+        )
+        let bookmark = try repository.createItem(
+            kind: .bookmark,
+            sourceURL: "https://example.com/grdb",
+            title: "GRDB",
+            note: "Referência técnica",
+            bodyText: nil,
+            summary: nil,
+            metadataJSON: nil,
+            tags: ["dev"]
+        )
+        let folder = try repository.createFolder(name: "Estudos")
+        try repository.addItems([item.id, article.id], toFolder: folder.id)
+        do {
+            _ = try repository.createFolder(name: " ")
+            preconditionFailure("Empty folder name was accepted.")
+        } catch DataError.emptyFolderName {
+            // Expected: folders need a visible name.
+        }
 
         let storedItem = try repository.item(id: item.id)
         let noteItems = try repository.listItems(filter: ItemListFilter(kind: .note))
         let searchIDs = try repository.search("filosofia").map(\.id)
+        let filteredArticleIDs = try repository.listItems(
+            filter: ItemListFilter(kind: .article, tag: "filosofia", folderID: folder.id)
+        ).map(\.id)
+        let filteredBookmarkIDs = try repository.listItems(
+            filter: ItemListFilter(kind: .bookmark, tag: "filosofia", folderID: folder.id)
+        ).map(\.id)
+        let filteredSearchIDs = try repository.search(
+            "platao",
+            filter: ItemListFilter(kind: .article, tag: "filosofia", folderID: folder.id)
+        ).map(\.id)
+        let folders = try repository.listFolders()
+        let kindCounts = try repository.itemCountsByKind()
         let tagCounts = try repository.tagCounts()
+        let totalItemCount = try repository.totalItemCount()
         precondition(storedItem.tags == ["filosofia", "grega"])
+        precondition(bookmark.kind == .bookmark)
         precondition(noteItems.count == 1)
         precondition(searchIDs == [item.id])
+        precondition(filteredArticleIDs == [article.id])
+        precondition(filteredBookmarkIDs.isEmpty)
+        precondition(filteredSearchIDs == [article.id])
+        precondition(folders == [Folder(id: folder.id, name: "Estudos", itemCount: 2, createdAt: folder.createdAt)])
+        precondition(totalItemCount == 3)
+        precondition(kindCounts[.note] == 1)
+        precondition(kindCounts[.article] == 1)
+        precondition(kindCounts[.bookmark] == 1)
+        precondition(kindCounts[.video] == 0)
         precondition(tagCounts == [
-            TagCount(name: "filosofia", count: 1),
+            TagCount(name: "dev", count: 1),
+            TagCount(name: "filosofia", count: 2),
             TagCount(name: "grega", count: 1),
+            TagCount(name: "platao", count: 1),
         ])
 
         let firstAssetKey = try database.loadOrCreateAssetKeyData()

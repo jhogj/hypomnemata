@@ -20,9 +20,9 @@
 ## Status atual
 
 - **Onda**: 1 (MVP), 2, 3 entregues. Onda 4 (busca semântica) adiada. Onda 5 (Polimento) em andamento.
-- **Rewrite nativo**: Sprint 0 entregue; Sprint 1 concluída em 2026-04-25. Próxima fase: Sprint 2 — Biblioteca Nativa.
-- **Última sessão**: 2026-04-25 — Sprint 1 do rewrite nativo concluída.
-- **Próxima tarefa**: Sprint 2 — Biblioteca Nativa. Timeline segue como ideia aprovada para o app legado/web.
+- **Rewrite nativo**: Sprint 0 e Sprint 1 entregues. Sprint 2 em andamento; primeira rodada concluída em 2026-04-25.
+- **Última sessão**: 2026-04-25 — Sprint 2.1/2.2: queries da biblioteca + sidebar nativa real.
+- **Próxima tarefa**: Sprint 2.3 — Lista/Grid e Detalhe Básico. Timeline segue como ideia aprovada para o app legado/web.
 
 ### Deps externas necessárias (além do `uv sync`)
 | Ferramenta | Uso | Instalação |
@@ -150,6 +150,27 @@ python3.12 -m mlx_lm server --model mlx-community/gemma-4-e2b-it-4bit --port 808
   - `swift run --disable-sandbox HypomnemataNativeChecks` — passou.
   - `swift build --disable-sandbox --product HypomnemataMacApp` — passou.
 - **Status**: Sprint 1 concluída. Próxima etapa de produto: Sprint 2 — Biblioteca Nativa.
+
+### 2026-04-25 — Sprint 2.1/2.2: queries da biblioteca e sidebar nativa
+- **Implementado em `SQLiteItemRepository`**:
+  - busca FTS5 agora aceita `ItemListFilter`, permitindo combinar query textual com tipo, tag e pasta;
+  - listagem também suporta filtro combinado por `kind`, `tag` e `folderID`;
+  - `totalItemCount()`, `itemCountsByKind()`, `tagCounts()`, `listFolders()`, `createFolder(name:)` e `addItems(_:toFolder:)`;
+  - nomes vazios de pasta são rejeitados com `DataError.emptyFolderName`.
+- **Implementado em `AppModel`**:
+  - estado de filtros ativos: tipo, tag e pasta;
+  - contagens por tipo, tags, pastas, total de itens e bytes usados em `Assets`;
+  - `refreshLibrary()` atualiza itens e dados da sidebar;
+  - helpers para limpar/trocar filtros preservando o auto-lock de atividade.
+- **Implementado em SwiftUI**:
+  - sidebar real com "Todos", tipos, tags, pastas, contagens e armazenamento usado;
+  - filtros combináveis por clique na sidebar;
+  - barra de filtros ativos removíveis no detalhe da biblioteca;
+  - header com busca e botão de nova captura usando SF Symbols.
+- **Validação rodada**:
+  - `swift run --disable-sandbox HypomnemataNativeChecks` — passou.
+  - `swift build --disable-sandbox --product HypomnemataMacApp` — passou.
+- **Status**: primeira rodada da Sprint 2 concluída. Próxima rodada: Sprint 2.3 — Lista/Grid e Detalhe Básico.
 
 ### 2026-04-21 — Bun não instalado; usando npm por ora
 - Decisão 9 (`bun`) permanece, mas no momento da primeira sessão o `bun` não estava instalado no sistema (só `npm 11.12.1` e `node 25.9.0`).

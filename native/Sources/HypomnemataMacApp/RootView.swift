@@ -72,6 +72,7 @@ struct LibraryShellView: View {
         } detail: {
             VStack(spacing: 0) {
                 SearchHeaderView()
+                ActiveFilterBar()
                 Divider()
                 ItemListView(items: model.items)
             }
@@ -83,35 +84,128 @@ struct SidebarView: View {
     @EnvironmentObject private var model: AppModel
 
     var body: some View {
-        List(selection: $model.activeKind) {
-            Section("Tipos") {
-                Button("Recentes") {
-                    model.activeKind = nil
-                    model.refreshItems()
+        List {
+            Section {
+                SidebarFilterRow(
+                    title: "Todos",
+                    systemImage: "tray.full",
+                    count: model.totalItemCount,
+                    isSelected: model.activeKind == nil && model.activeTag == nil && model.activeFolderID == nil
+                ) {
+                    model.clearFilters()
                 }
+            }
+
+            Section("Tipos") {
                 ForEach(ItemKind.allCases) { kind in
-                    Button(kind.displayName) {
-                        model.activeKind = kind
-                        model.refreshItems()
+                    SidebarFilterRow(
+                        title: kind.displayName,
+                        systemImage: kind.systemImage,
+                        count: model.count(for: kind),
+                        isSelected: model.activeKind == kind
+                    ) {
+                        model.toggleKindFilter(kind)
+                    }
+                }
+            }
+
+            if !model.tagCounts.isEmpty {
+                Section("Tags") {
+                    ForEach(model.tagCounts) { tag in
+                        SidebarFilterRow(
+                            title: "#\(tag.name)",
+                            systemImage: "tag",
+                            count: tag.count,
+                            isSelected: model.activeTag == tag.name
+                        ) {
+                            model.toggleTagFilter(tag.name)
+                        }
+                    }
+                }
+            }
+
+            if !model.folders.isEmpty {
+                Section("Pastas") {
+                    ForEach(model.folders) { folder in
+                        SidebarFilterRow(
+                            title: folder.name,
+                            systemImage: "folder",
+                            count: folder.itemCount,
+                            isSelected: model.activeFolderID == folder.id
+                        ) {
+                            model.toggleFolderFilter(folder.id)
+                        }
                     }
                 }
             }
         }
         .safeAreaInset(edge: .bottom) {
             VStack(alignment: .leading, spacing: 8) {
-                Button("Nova captura") {
+                Label(formatBytes(model.storageBytes), systemImage: "externaldrive")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+
+                Button {
                     model.showCapture = true
+                } label: {
+                    Label("Nova captura", systemImage: "plus")
                 }
                 .buttonStyle(.borderedProminent)
-                Button("Bloquear") {
+
+                Button {
                     model.lock()
+                } label: {
+                    Label("Bloquear", systemImage: "lock")
                 }
-                Button("Trocar senha") {
+
+                Button {
                     model.showChangePassword = true
+                } label: {
+                    Label("Trocar senha", systemImage: "key")
                 }
             }
             .padding()
         }
+    }
+}
+
+struct SidebarFilterRow: View {
+    var title: String
+    var systemImage: String
+    var count: Int
+    var isSelected: Bool
+    var action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 8) {
+                Image(systemName: systemImage)
+                    .foregroundStyle(.secondary)
+                    .frame(width: 18)
+                Text(title)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                Spacer(minLength: 8)
+                CountBadge(count: count)
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .listRowBackground(isSelected ? Color.accentColor.opacity(0.14) : Color.clear)
+    }
+}
+
+struct CountBadge: View {
+    var count: Int
+
+    var body: some View {
+        Text(count.formatted())
+            .font(.caption2.monospacedDigit())
+            .foregroundStyle(.secondary)
+            .padding(.horizontal, 6)
+            .padding(.vertical, 2)
+            .background(.quaternary, in: Capsule())
     }
 }
 
@@ -177,15 +271,77 @@ struct SearchHeaderView: View {
                 .onSubmit {
                     model.refreshItems()
                 }
-            Button("Buscar") {
+            Button {
                 model.refreshItems()
+            } label: {
+                Label("Buscar", systemImage: "magnifyingglass")
             }
-            Button("Nova captura") {
+            Button {
                 model.showCapture = true
+            } label: {
+                Label("Nova captura", systemImage: "plus")
             }
             .keyboardShortcut("k", modifiers: [.command])
         }
         .padding()
+    }
+}
+
+struct ActiveFilterBar: View {
+    @EnvironmentObject private var model: AppModel
+
+    var body: some View {
+        if model.activeKind != nil || model.activeTag != nil || model.activeFolderID != nil {
+            HStack(spacing: 8) {
+                if let kind = model.activeKind {
+                    FilterChip(title: kind.displayName, systemImage: kind.systemImage) {
+                        model.toggleKindFilter(kind)
+                    }
+                }
+                if let tag = model.activeTag {
+                    FilterChip(title: "#\(tag)", systemImage: "tag") {
+                        model.toggleTagFilter(tag)
+                    }
+                }
+                if let folder = model.activeFolder {
+                    FilterChip(title: folder.name, systemImage: "folder") {
+                        model.toggleFolderFilter(folder.id)
+                    }
+                }
+                Spacer()
+                Button {
+                    model.clearFilters()
+                } label: {
+                    Label("Limpar", systemImage: "xmark.circle")
+                }
+                .buttonStyle(.borderless)
+            }
+            .padding(.horizontal)
+            .padding(.bottom, 10)
+        }
+    }
+}
+
+struct FilterChip: View {
+    var title: String
+    var systemImage: String
+    var onRemove: () -> Void
+
+    var body: some View {
+        Button(action: onRemove) {
+            HStack(spacing: 6) {
+                Image(systemName: systemImage)
+                Text(title)
+                    .lineLimit(1)
+                Image(systemName: "xmark")
+                    .font(.caption2)
+            }
+            .font(.caption)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 5)
+            .background(.quaternary, in: Capsule())
+        }
+        .buttonStyle(.plain)
     }
 }
 
@@ -210,6 +366,12 @@ struct ItemListView: View {
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
+                    if let sourceURL = item.sourceURL, !sourceURL.isEmpty {
+                        Text(sourceURL)
+                            .font(.caption)
+                            .lineLimit(1)
+                            .foregroundStyle(.secondary)
+                    }
                     if let note = item.note, !note.isEmpty {
                         Text(note)
                             .lineLimit(2)
@@ -223,6 +385,36 @@ struct ItemListView: View {
                 }
                 .padding(.vertical, 5)
             }
+        }
+    }
+}
+
+private func formatBytes(_ bytes: Int64) -> String {
+    let formatter = ByteCountFormatter()
+    formatter.allowedUnits = [.useKB, .useMB, .useGB, .useTB]
+    formatter.countStyle = .file
+    formatter.includesUnit = true
+    formatter.includesCount = true
+    return formatter.string(fromByteCount: bytes)
+}
+
+private extension ItemKind {
+    var systemImage: String {
+        switch self {
+        case .image:
+            "photo"
+        case .article:
+            "doc.text"
+        case .video:
+            "play.rectangle"
+        case .tweet:
+            "quote.bubble"
+        case .bookmark:
+            "bookmark"
+        case .note:
+            "note.text"
+        case .pdf:
+            "doc.richtext"
         }
     }
 }

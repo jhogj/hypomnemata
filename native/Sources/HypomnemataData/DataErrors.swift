@@ -8,6 +8,7 @@ public enum DataError: LocalizedError, Equatable {
     case invalidStoredAssetKey
     case assetKeyGenerationFailed(Int32)
     case emptyPassphrase
+    case emptyFolderName
 
     public var errorDescription: String? {
         switch self {
@@ -25,6 +26,8 @@ public enum DataError: LocalizedError, Equatable {
             "Falha ao gerar chave de assets segura: OSStatus \(status)"
         case .emptyPassphrase:
             "A senha não pode ficar vazia."
+        case .emptyFolderName:
+            "O nome da pasta não pode ficar vazio."
         }
     }
 }

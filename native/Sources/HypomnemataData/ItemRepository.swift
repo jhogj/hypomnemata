@@ -48,10 +48,16 @@ public protocol ItemRepository: Sendable {
 
     func listItems(filter: ItemListFilter) throws -> [Item]
     func search(_ query: String, limit: Int) throws -> [Item]
+    func search(_ query: String, filter: ItemListFilter) throws -> [Item]
     func item(id: String) throws -> Item
     func patchItem(id: String, patch: ItemPatch) throws -> Item
     func deleteItems(ids: [String]) throws
+    func totalItemCount() throws -> Int
+    func itemCountsByKind() throws -> [ItemKind: Int]
     func tagCounts() throws -> [TagCount]
+    func listFolders() throws -> [Folder]
+    func createFolder(name: String) throws -> Folder
+    func addItems(_ itemIDs: [String], toFolder folderID: String) throws
 }
 
 public final class SQLiteItemRepository: ItemRepository, @unchecked Sendable {
@@ -97,25 +103,12 @@ public final class SQLiteItemRepository: ItemRepository, @unchecked Sendable {
 
     public func listItems(filter: ItemListFilter = ItemListFilter()) throws -> [Item] {
         try database.writer.read { db in
-            var sql = "SELECT items.* FROM items"
+            var sql = "SELECT DISTINCT items.* FROM items"
             var joins: [String] = []
             var clauses: [String] = []
             var arguments = StatementArguments()
 
-            if let tag = filter.tag?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(), !tag.isEmpty {
-                joins.append("JOIN item_tags ON item_tags.item_id = items.id JOIN tags ON tags.id = item_tags.tag_id")
-                clauses.append("tags.name = ?")
-                _ = arguments.append(contentsOf: [tag])
-            }
-            if let folderID = filter.folderID {
-                joins.append("JOIN folder_items ON folder_items.item_id = items.id")
-                clauses.append("folder_items.folder_id = ?")
-                _ = arguments.append(contentsOf: [folderID])
-            }
-            if let kind = filter.kind {
-                clauses.append("items.kind = ?")
-                _ = arguments.append(contentsOf: [kind.rawValue])
-            }
+            appendFilterClauses(filter, joins: &joins, clauses: &clauses, arguments: &arguments)
 
             if !joins.isEmpty {
                 sql += " " + joins.joined(separator: " ")
@@ -132,22 +125,37 @@ public final class SQLiteItemRepository: ItemRepository, @unchecked Sendable {
     }
 
     public func search(_ query: String, limit: Int = 200) throws -> [Item] {
+        try search(query, filter: ItemListFilter(limit: limit))
+    }
+
+    public func search(_ query: String, filter: ItemListFilter) throws -> [Item] {
         let pattern = ftsPattern(query)
         guard !pattern.isEmpty else {
             return []
         }
         return try database.writer.read { db in
+            var sql = """
+                SELECT DISTINCT items.*
+                FROM items_fts
+                JOIN items ON items.rowid = items_fts.rowid
+                """
+            var joins: [String] = []
+            var clauses = ["items_fts MATCH ?"]
+            var arguments: StatementArguments = [pattern]
+
+            appendFilterClauses(filter, joins: &joins, clauses: &clauses, arguments: &arguments)
+
+            if !joins.isEmpty {
+                sql += "\n" + joins.joined(separator: "\n")
+            }
+            sql += "\nWHERE " + clauses.joined(separator: " AND ")
+            sql += "\nORDER BY rank LIMIT ? OFFSET ?"
+            _ = arguments.append(contentsOf: [filter.limit, filter.offset])
+
             let rows = try Row.fetchAll(
                 db,
-                sql: """
-                    SELECT items.*
-                    FROM items_fts
-                    JOIN items ON items.rowid = items_fts.rowid
-                    WHERE items_fts MATCH ?
-                    ORDER BY rank
-                    LIMIT ?
-                    """,
-                arguments: [pattern, limit]
+                sql: sql,
+                arguments: arguments
             )
             return try hydrateTags(for: rows.map(Self.item(from:)), db: db)
         }
@@ -217,6 +225,28 @@ public final class SQLiteItemRepository: ItemRepository, @unchecked Sendable {
         }
     }
 
+    public func totalItemCount() throws -> Int {
+        try database.writer.read { db in
+            try Int.fetchOne(db, sql: "SELECT count(*) FROM items") ?? 0
+        }
+    }
+
+    public func itemCountsByKind() throws -> [ItemKind: Int] {
+        try database.writer.read { db in
+            var counts = Dictionary(uniqueKeysWithValues: ItemKind.allCases.map { ($0, 0) })
+            let rows = try Row.fetchAll(
+                db,
+                sql: "SELECT kind, count(*) AS count FROM items GROUP BY kind"
+            )
+            for row in rows {
+                if let kind = ItemKind(rawValue: row["kind"]) {
+                    counts[kind] = row["count"]
+                }
+            }
+            return counts
+        }
+    }
+
     public func tagCounts() throws -> [TagCount] {
         try database.writer.read { db in
             try Row.fetchAll(
@@ -230,6 +260,59 @@ public final class SQLiteItemRepository: ItemRepository, @unchecked Sendable {
                     """
             ).map { row in
                 TagCount(name: row["name"], count: row["count"])
+            }
+        }
+    }
+
+    public func listFolders() throws -> [Folder] {
+        try database.writer.read { db in
+            try Row.fetchAll(
+                db,
+                sql: """
+                    SELECT folders.id, folders.name, folders.created_at, count(folder_items.item_id) AS item_count
+                    FROM folders
+                    LEFT JOIN folder_items ON folder_items.folder_id = folders.id
+                    GROUP BY folders.id
+                    ORDER BY lower(folders.name)
+                    """
+            ).map { row in
+                Folder(
+                    id: row["id"],
+                    name: row["name"],
+                    itemCount: row["item_count"],
+                    createdAt: row["created_at"]
+                )
+            }
+        }
+    }
+
+    public func createFolder(name: String) throws -> Folder {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            throw DataError.emptyFolderName
+        }
+
+        let folder = Folder(name: trimmed)
+        try database.writer.write { db in
+            try db.execute(
+                sql: "INSERT INTO folders(id, name, created_at) VALUES (?, ?, ?)",
+                arguments: [folder.id, folder.name, folder.createdAt]
+            )
+        }
+        return folder
+    }
+
+    public func addItems(_ itemIDs: [String], toFolder folderID: String) throws {
+        guard !itemIDs.isEmpty else {
+            return
+        }
+        let now = ClockTimestamp.nowISO8601()
+        try database.writer.write { db in
+            for itemID in itemIDs {
+                try db.execute(
+                    sql: "INSERT OR IGNORE INTO folder_items(folder_id, item_id, added_at) VALUES (?, ?, ?)",
+                    arguments: [folderID, itemID, now]
+                )
             }
         }
     }
@@ -257,6 +340,28 @@ public final class SQLiteItemRepository: ItemRepository, @unchecked Sendable {
                 item.updatedAt,
             ]
         )
+    }
+
+    private func appendFilterClauses(
+        _ filter: ItemListFilter,
+        joins: inout [String],
+        clauses: inout [String],
+        arguments: inout StatementArguments
+    ) {
+        if let tag = filter.tag?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(), !tag.isEmpty {
+            joins.append("JOIN item_tags ON item_tags.item_id = items.id JOIN tags ON tags.id = item_tags.tag_id")
+            clauses.append("tags.name = ?")
+            _ = arguments.append(contentsOf: [tag])
+        }
+        if let folderID = filter.folderID {
+            joins.append("JOIN folder_items ON folder_items.item_id = items.id")
+            clauses.append("folder_items.folder_id = ?")
+            _ = arguments.append(contentsOf: [folderID])
+        }
+        if let kind = filter.kind {
+            clauses.append("items.kind = ?")
+            _ = arguments.append(contentsOf: [kind.rawValue])
+        }
     }
 
     private func setTags(_ tags: [String], for itemID: String, db: Database) throws {
