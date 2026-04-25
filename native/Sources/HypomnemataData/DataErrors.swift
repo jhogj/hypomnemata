@@ -5,6 +5,8 @@ public enum DataError: LocalizedError, Equatable {
     case itemNotFound(String)
     case invalidKind(String)
     case invalidDatabasePath(URL)
+    case invalidStoredAssetKey
+    case assetKeyGenerationFailed(Int32)
 
     public var errorDescription: String? {
         switch self {
@@ -16,6 +18,10 @@ public enum DataError: LocalizedError, Equatable {
             "Tipo inválido: \(kind)"
         case let .invalidDatabasePath(url):
             "Caminho de banco inválido: \(url.path)"
+        case .invalidStoredAssetKey:
+            "Chave de assets armazenada no vault está inválida."
+        case let .assetKeyGenerationFailed(status):
+            "Falha ao gerar chave de assets segura: OSStatus \(status)"
         }
     }
 }

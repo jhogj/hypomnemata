@@ -14,6 +14,7 @@ reference while the native app is built out.
 - SQLite via vendored GRDB 7.10.0 configured for SQLCipher.swift
 - SQLCipher required for production vaults
 - AES-GCM encrypted assets through CryptoKit
+- Asset encryption key stored inside the SQLCipher vault, not in a plaintext file
 
 ## External commands expected in product builds
 

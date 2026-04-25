@@ -1,8 +1,11 @@
 import Foundation
 import GRDB
 import HypomnemataCore
+import Security
 
 public final class NativeDatabase: @unchecked Sendable {
+    private static let assetKeySetting = "asset_key_v1"
+
     public let writer: DatabaseQueue
     public let databaseURL: URL
 
@@ -58,6 +61,28 @@ public final class NativeDatabase: @unchecked Sendable {
         try writer.close()
     }
 
+    public func loadOrCreateAssetKeyData() throws -> Data {
+        try writer.write { db in
+            if let encoded = try String.fetchOne(
+                db,
+                sql: "SELECT value FROM settings WHERE key = ?",
+                arguments: [Self.assetKeySetting]
+            ) {
+                guard let keyData = Data(base64Encoded: encoded), keyData.count == 32 else {
+                    throw DataError.invalidStoredAssetKey
+                }
+                return keyData
+            }
+
+            let keyData = try Self.generateAssetKeyData()
+            try db.execute(
+                sql: "INSERT INTO settings(key, value) VALUES (?, ?)",
+                arguments: [Self.assetKeySetting, keyData.base64EncodedString()]
+            )
+            return keyData
+        }
+    }
+
     private func seedVaultSettings(passphraseMarker: String) throws {
         try writer.write { db in
             try db.execute(
@@ -70,7 +95,12 @@ public final class NativeDatabase: @unchecked Sendable {
         }
     }
 
-    private static func sqlLiteral(_ value: String) -> String {
-        "'\(value.replacingOccurrences(of: "'", with: "''"))'"
+    private static func generateAssetKeyData() throws -> Data {
+        var bytes = [UInt8](repeating: 0, count: 32)
+        let status = SecRandomCopyBytes(kSecRandomDefault, bytes.count, &bytes)
+        guard status == errSecSuccess else {
+            throw DataError.assetKeyGenerationFailed(status)
+        }
+        return Data(bytes)
     }
 }

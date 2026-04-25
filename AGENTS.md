@@ -103,6 +103,12 @@ python3.12 -m mlx_lm server --model mlx-community/gemma-4-e2b-it-4bit --port 808
 - **Validação**: `HypomnemataNativeChecks` abre banco com SQLCipher e verifica que `/usr/bin/sqlite3` não consegue ler `Hypomnemata.sqlite`.
 - **Sem fallback**: removido o toggle de desenvolvimento plaintext da UI; produção exige SQLCipher.
 
+### 2026-04-25 — Sprint 1.1: chave de assets persistida no vault
+- **Implementado**: `NativeDatabase.loadOrCreateAssetKeyData()` cria uma chave AES de 32 bytes com `SecRandomCopyBytes`, salva em `settings.asset_key_v1` como Base64 e reutiliza a mesma chave após reabrir o banco.
+- **Motivo**: assets criptografados precisam de chave estável protegida pelo SQLCipher, não chave ad hoc em memória nem arquivo plaintext.
+- **App**: no unlock, `AppModel` cria `EncryptedAssetStore` usando a chave persistida no vault.
+- **Validação esperada**: `HypomnemataNativeChecks` confirma tamanho da chave, estabilidade dentro da sessão e estabilidade após reopen do banco.
+
 ### 2026-04-21 — Bun não instalado; usando npm por ora
 - Decisão 9 (`bun`) permanece, mas no momento da primeira sessão o `bun` não estava instalado no sistema (só `npm 11.12.1` e `node 25.9.0`).
 - `package.json` de `webapp/` e `extension/` foi escrito sem lockfile específico.

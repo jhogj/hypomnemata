@@ -70,10 +70,25 @@ struct HypomnemataNativeChecks {
             TagCount(name: "grega", count: 1),
         ])
 
+        let firstAssetKey = try database.loadOrCreateAssetKeyData()
+        let secondAssetKey = try database.loadOrCreateAssetKeyData()
+        precondition(firstAssetKey.count == 32)
+        precondition(secondAssetKey == firstAssetKey)
+
         let tools = DependencyDoctor.productionRequirements.map(\.executable)
         precondition(tools == ["sqlcipher", "ffmpeg", "yt-dlp", "gallery-dl", "trafilatura"])
 
         try database.close()
+
+        let reopened = try NativeDatabase(
+            appPaths: AppPaths(rootDirectory: root),
+            passphrase: "test",
+            requireSQLCipher: true
+        )
+        let reopenedAssetKey = try reopened.loadOrCreateAssetKeyData()
+        precondition(reopenedAssetKey == firstAssetKey)
+        try reopened.close()
+
         let sqliteRead = Process()
         sqliteRead.executableURL = URL(fileURLWithPath: "/usr/bin/sqlite3")
         sqliteRead.arguments = [

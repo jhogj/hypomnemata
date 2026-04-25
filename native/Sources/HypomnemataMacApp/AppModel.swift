@@ -2,6 +2,7 @@ import Foundation
 import HypomnemataCore
 import HypomnemataData
 import HypomnemataIngestion
+import HypomnemataMedia
 
 @MainActor
 final class AppModel: ObservableObject {
@@ -20,6 +21,7 @@ final class AppModel: ObservableObject {
 
     private var database: NativeDatabase?
     private var repository: SQLiteItemRepository?
+    private var assetStore: EncryptedAssetStore?
 
     var isUnlocked: Bool {
         if case .unlocked = state {
@@ -44,8 +46,14 @@ final class AppModel: ObservableObject {
                 passphrase: passphrase,
                 requireSQLCipher: true
             )
+            let assetKeyData = try db.loadOrCreateAssetKeyData()
             database = db
             repository = SQLiteItemRepository(database: db)
+            assetStore = try EncryptedAssetStore(
+                rootDirectory: paths.assetsDirectory,
+                cacheDirectory: paths.temporaryCacheDirectory,
+                keyData: assetKeyData
+            )
             state = .unlocked
             refreshItems()
         } catch {
@@ -61,6 +69,7 @@ final class AppModel: ObservableObject {
         }
         database = nil
         repository = nil
+        assetStore = nil
         items = []
         state = .locked
     }
