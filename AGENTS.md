@@ -20,9 +20,9 @@
 ## Status atual
 
 - **App legado** (FastAPI/React): Ondas 1, 2, 3 entregues. Onda 4 adiada. Ver `CLAUDE.md` para detalhes.
-- **Rewrite nativo**: Sprints 0–6 + 7.1 + 7.2 concluídas em 2026-04-25.
-- **Última sessão**: 2026-04-25 — Sprint 7.2: chat persistente com documento (tabela `chat_messages` + `ItemChatService` + UI no detalhe com streaming).
-- **Próxima tarefa**: Sprint 7.3 — streaming do resumo na sheet de detalhe.
+- **Rewrite nativo**: Sprints 0–6 + 7.1 + 7.2 + 7.3 concluídas em 2026-04-25.
+- **Última sessão**: 2026-04-25 — Sprint 7.3: resumo na sheet de detalhe agora chega via streaming (`ItemAIService.streamSummary` + `AppModel.streamSummary` + UI populando o campo conforme os chunks).
+- **Próxima tarefa**: Sprint 7 fechado. Próximo bloco do plano nativo é a Sprint 8 (backup, exportação e restore do próprio app).
 
 ### Comandos (nativo)
 
@@ -49,7 +49,7 @@ CLANG_MODULE_CACHE_PATH=/tmp/hypo-clang-cache SWIFTPM_HOME=/tmp/hypo-swiftpm-cac
 | 6.3 | Automação: `JobAutomation` roda `summarize`/`autotag` em background pós-captura; autotag automático só se `tags.isEmpty`; retry manual de jobs falhos; seção "Tarefas" no detalhe com status colorido |
 | 7.1 | Settings de IA: `LLMSettingsStore` no vault SQLCipher; `LLMConfiguration.resolve(overrides:env:)` em camadas (vault > env > default); UI em "IA local" com salvar/limpar e validação |
 | 7.2 | Chat com documento: `ItemChatService` (gate de 300 chars + system prompt em pt), métodos `chatHistory/appendChatMessage/clearChatHistory` no repositório, `AppModel.sendChatMessage` com streaming, painel de chat no detalhe com bubbles, cursor piscante e limpar conversa |
-| **7.3** | **Próximo**: streaming do resumo na sheet de detalhe |
+| 7.3 | Resumo em streaming: `ItemAIService.streamSummary` (mesmo prompt do `summarize`, mas via `streamChat`), `AppModel.streamSummary` com `onChunk`, campo "Resumo" do detalhe é zerado e preenchido em tempo real conforme os chunks chegam |
 
 ---
 
@@ -87,6 +87,12 @@ CLANG_MODULE_CACHE_PATH=/tmp/hypo-clang-cache SWIFTPM_HOME=/tmp/hypo-swiftpm-cac
 - **Prioridade**: `LLMConfiguration.resolve(overrides:env:)` resolve campo por campo — vault > env > default. Vault é fonte de verdade do app; env vira fallback global do shell.
 - **Validação**: `saveLLMSettings` chama `resolve(...)` antes de gravar; URL/modelo/limite inválidos não são persistidos.
 - **UI**: nova seção "IA local" em `SettingsView` com placeholders mostrando o valor atualmente em uso (env ou default), botões salvar/limpar overrides, e linha de resumo "Em uso: <url> · <modelo> · <limite>".
+
+### 2026-04-25 — Resumo em streaming na sheet de detalhe (Sprint 7.3)
+- **Decisão**: `ItemAIService` ganha `streamSummary(context:)` que retorna `AsyncThrowingStream<String, Error>` reaproveitando exatamente os mesmos `summaryMessages(for:)` do `summarize` síncrono — só muda o transporte (`streamChat` no lugar de `complete`). Isso garante que o resumo gerado pelo botão e o resumo gerado pelos jobs de background convergem para o mesmo prompt.
+- **Camada de app**: `AppModel.streamSummary(title:note:bodyText:onChunk:)` segue o mesmo desenho de `sendChatMessage` — recupera serviço, faz `for try await chunk in stream`, acumula localmente e devolve a string final consolidada (também trim/empty-check). Erros viram mensagem via `LLMRecoverableErrorMapper`. `JobAutomation` continua usando `summarize` síncrono — sem mudança de comportamento em jobs.
+- **UI**: `ItemDetailSheet.generateSummary()` zera o `summary` antes de iniciar e cada `onChunk` faz `summary += chunk`. Quando o stream termina, a versão final consolidada (já trim) substitui o conteúdo. `ProgressView()` ao lado do botão "Gerar resumo" segue como indicador de atividade — o próprio campo em crescimento já comunica progresso.
+- **Erro de stream vazio**: se o provider devolver string em branco a UI mostra "Resposta vazia do provider de IA." e o campo permanece zerado — não persistimos resumo vazio em cima de um valor anterior.
 
 ### 2026-04-25 — Chat persistente com documento (Sprint 7.2)
 - **Decisão**: `ItemChatService` (módulo `HypomnemataAI`) monta system prompt em português que restringe a resposta ao conteúdo do item; histórico vai para a tabela `chat_messages` (já existente desde Sprint 0) via `appendChatMessage`/`chatHistory`/`clearChatHistory` no `ItemRepository`.

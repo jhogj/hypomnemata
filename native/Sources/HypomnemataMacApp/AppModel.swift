@@ -621,6 +621,43 @@ final class AppModel: ObservableObject {
         }
     }
 
+    func streamSummary(
+        title: String,
+        note: String,
+        bodyText: String,
+        onChunk: @escaping @MainActor (String) -> Void
+    ) async -> (String?, String?) {
+        let service: ItemAIService
+        let stream: AsyncThrowingStream<String, Error>
+        do {
+            service = try makeItemAIService()
+            stream = try service.streamSummary(context: LLMItemContext(
+                title: title,
+                note: note,
+                bodyText: bodyText
+            ))
+        } catch {
+            return (nil, LLMRecoverableErrorMapper().jobErrorMessage(for: error))
+        }
+
+        var collected = ""
+        do {
+            for try await chunk in stream {
+                collected += chunk
+                onChunk(chunk)
+            }
+        } catch {
+            return (nil, LLMRecoverableErrorMapper().jobErrorMessage(for: error))
+        }
+
+        let final = collected.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !final.isEmpty else {
+            return (nil, "Resposta vazia do provider de IA.")
+        }
+        recordUserActivity()
+        return (final, nil)
+    }
+
     func generateAutotags(title: String, note: String, bodyText: String, existingTags: [String]) async -> ([String], String?) {
         do {
             let service = try makeItemAIService()

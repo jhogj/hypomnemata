@@ -1441,8 +1441,15 @@ struct ItemDetailSheet: View {
     private func generateSummary() {
         aiBusy = true
         errorMessage = nil
+        summary = ""
         Task {
-            let result = await model.generateSummary(title: title, note: note, bodyText: bodyText)
+            let result = await model.streamSummary(
+                title: title,
+                note: note,
+                bodyText: bodyText
+            ) { chunk in
+                summary += chunk
+            }
             if let generated = result.0 {
                 summary = generated
             }

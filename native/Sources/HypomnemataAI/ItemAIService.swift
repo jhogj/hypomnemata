@@ -10,8 +10,21 @@ public struct ItemAIService: Sendable {
     }
 
     public func summarize(context: LLMItemContext) async throws -> String {
+        let response = try await client.complete(
+            messages: try summaryMessages(for: context),
+            temperature: 0.2
+        )
+        return response.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    public func streamSummary(context: LLMItemContext) throws -> AsyncThrowingStream<String, Error> {
+        let messages = try summaryMessages(for: context)
+        return client.streamChat(messages: messages, temperature: 0.2)
+    }
+
+    private func summaryMessages(for context: LLMItemContext) throws -> [LLMMessage] {
         let content = try context.promptContext(limit: configuration.contextCharacterLimit)
-        let response = try await client.complete(messages: [
+        return [
             LLMMessage(
                 role: "system",
                 content: "Resuma em português, com precisão, sem inventar fatos. Use no máximo 5 frases."
@@ -20,8 +33,7 @@ public struct ItemAIService: Sendable {
                 role: "user",
                 content: "Título: \(context.title?.trimmedNonEmpty ?? "sem título")\n\nConteúdo:\n\(content)"
             ),
-        ], temperature: 0.2)
-        return response.trimmingCharacters(in: .whitespacesAndNewlines)
+        ]
     }
 
     public func autotags(context: LLMItemContext, existingTags: [String] = []) async throws -> [String] {

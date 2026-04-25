@@ -160,6 +160,29 @@ struct HypomnemataNativeChecks {
         precondition(summaryClient.lastMessages?.first?.role == "system")
         precondition(summaryClient.lastMessages?.last?.content.contains("abcabc") == true)
 
+        let streamingClient = FakeLLMClient(response: "Resumo em streaming.")
+        let streamingService = ItemAIService(client: streamingClient, configuration: configured)
+        let summaryStream = try streamingService.streamSummary(context: context)
+        var streamedSummary = ""
+        for try await chunk in summaryStream {
+            streamedSummary += chunk
+        }
+        precondition(streamedSummary == "Resumo em streaming.")
+        precondition(streamingClient.lastMessages?.first?.role == "system")
+        precondition(streamingClient.lastMessages?.last?.role == "user")
+        precondition(streamingClient.lastMessages?.last?.content.contains("abcabc") == true)
+
+        do {
+            _ = try streamingService.streamSummary(context: LLMItemContext(
+                title: nil,
+                note: nil,
+                bodyText: nil
+            ))
+            preconditionFailure("streamSummary deve falhar quando não há conteúdo.")
+        } catch LLMClientError.emptyContent {
+            // Expected: streaming exige conteúdo, igual ao summarize síncrono.
+        }
+
         let tagClient = FakeLLMClient(response: #"["Filosofia", "Leitura", "dev"]"#)
         let tagService = ItemAIService(client: tagClient, configuration: configured)
         let generatedTags = try await tagService.autotags(context: context, existingTags: ["Dev"])
