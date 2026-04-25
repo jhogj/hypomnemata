@@ -62,8 +62,14 @@ public protocol ItemRepository: Sendable {
     func itemCountsByKind() throws -> [ItemKind: Int]
     func tagCounts() throws -> [TagCount]
     func listFolders() throws -> [Folder]
+    func folders(forItemID itemID: String) throws -> [Folder]
     func createFolder(name: String) throws -> Folder
+    func renameFolder(id: String, name: String) throws -> Folder
+    func deleteFolder(id: String) throws
     func addItems(_ itemIDs: [String], toFolder folderID: String) throws
+    func removeItems(_ itemIDs: [String], fromFolder folderID: String) throws
+    func linkedItems(from itemID: String) throws -> [ItemSummary]
+    func backlinks(to itemID: String) throws -> [ItemSummary]
 }
 
 public final class SQLiteItemRepository: ItemRepository, @unchecked Sendable {
@@ -398,13 +404,26 @@ public final class SQLiteItemRepository: ItemRepository, @unchecked Sendable {
                     ORDER BY lower(folders.name)
                     """
             ).map { row in
-                Folder(
-                    id: row["id"],
-                    name: row["name"],
-                    itemCount: row["item_count"],
-                    createdAt: row["created_at"]
-                )
+                Self.folder(from: row)
             }
+        }
+    }
+
+    public func folders(forItemID itemID: String) throws -> [Folder] {
+        try database.writer.read { db in
+            try Row.fetchAll(
+                db,
+                sql: """
+                    SELECT folders.id, folders.name, folders.created_at, count(folder_items.item_id) AS item_count
+                    FROM folders
+                    JOIN folder_items selected ON selected.folder_id = folders.id
+                    LEFT JOIN folder_items ON folder_items.folder_id = folders.id
+                    WHERE selected.item_id = ?
+                    GROUP BY folders.id
+                    ORDER BY lower(folders.name)
+                    """,
+                arguments: [itemID]
+            ).map(Self.folder(from:))
         }
     }
 
@@ -424,6 +443,29 @@ public final class SQLiteItemRepository: ItemRepository, @unchecked Sendable {
         return folder
     }
 
+    public func renameFolder(id: String, name: String) throws -> Folder {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            throw DataError.emptyFolderName
+        }
+        try database.writer.write { db in
+            try db.execute(
+                sql: "UPDATE folders SET name = ? WHERE id = ?",
+                arguments: [trimmed, id]
+            )
+        }
+        guard let folder = try listFolders().first(where: { $0.id == id }) else {
+            throw DataError.folderNotFound(id)
+        }
+        return folder
+    }
+
+    public func deleteFolder(id: String) throws {
+        try database.writer.write { db in
+            try db.execute(sql: "DELETE FROM folders WHERE id = ?", arguments: [id])
+        }
+    }
+
     public func addItems(_ itemIDs: [String], toFolder folderID: String) throws {
         guard !itemIDs.isEmpty else {
             return
@@ -436,6 +478,52 @@ public final class SQLiteItemRepository: ItemRepository, @unchecked Sendable {
                     arguments: [folderID, itemID, now]
                 )
             }
+        }
+    }
+
+    public func removeItems(_ itemIDs: [String], fromFolder folderID: String) throws {
+        guard !itemIDs.isEmpty else {
+            return
+        }
+        try database.writer.write { db in
+            for itemID in itemIDs {
+                try db.execute(
+                    sql: "DELETE FROM folder_items WHERE folder_id = ? AND item_id = ?",
+                    arguments: [folderID, itemID]
+                )
+            }
+        }
+    }
+
+    public func linkedItems(from itemID: String) throws -> [ItemSummary] {
+        try database.writer.read { db in
+            try Row.fetchAll(
+                db,
+                sql: """
+                    SELECT target.id, target.title, target.kind, target.captured_at
+                    FROM item_links
+                    JOIN items target ON target.id = item_links.target_id
+                    WHERE item_links.source_id = ?
+                    ORDER BY lower(coalesce(target.title, '')), target.captured_at DESC, target.id
+                    """,
+                arguments: [itemID]
+            ).map(Self.itemSummary(from:))
+        }
+    }
+
+    public func backlinks(to itemID: String) throws -> [ItemSummary] {
+        try database.writer.read { db in
+            try Row.fetchAll(
+                db,
+                sql: """
+                    SELECT source.id, source.title, source.kind, source.captured_at
+                    FROM item_links
+                    JOIN items source ON source.id = item_links.source_id
+                    WHERE item_links.target_id = ?
+                    ORDER BY lower(coalesce(source.title, '')), source.captured_at DESC, source.id
+                    """,
+                arguments: [itemID]
+            ).map(Self.itemSummary(from:))
         }
     }
 
@@ -551,6 +639,24 @@ public final class SQLiteItemRepository: ItemRepository, @unchecked Sendable {
             createdAt: row["created_at"],
             updatedAt: row["updated_at"],
             tags: []
+        )
+    }
+
+    private static func itemSummary(from row: Row) -> ItemSummary {
+        ItemSummary(
+            id: row["id"],
+            title: row["title"],
+            kind: ItemKind(rawValue: row["kind"]) ?? .note,
+            capturedAt: row["captured_at"]
+        )
+    }
+
+    private static func folder(from row: Row) -> Folder {
+        Folder(
+            id: row["id"],
+            name: row["name"],
+            itemCount: row["item_count"],
+            createdAt: row["created_at"]
         )
     }
 

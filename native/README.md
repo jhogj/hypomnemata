@@ -2,7 +2,7 @@
 
 This is the native macOS rewrite track for Hypomnemata.
 
-Current status: Sprint 3 of the native rewrite is complete. The existing
+Current status: Sprint 4.1 of the native rewrite is complete. The existing
 FastAPI/React app remains untouched and can keep serving as behavioral
 reference while the native app is built out.
 
@@ -32,6 +32,8 @@ reference while the native app is built out.
 - Capture creates real pending `jobs` rows instead of storing planned jobs in item metadata
 - Jobs with missing executable dependencies are stored as recoverable `failed` rows with an actionable Homebrew command
 - External capture entry points accept `http/https`, `hypomnemata://capture?url=...`, `hypomnemata://capture?text=...`, and AppKit Services pasteboard text/URLs
+- Folder repository contracts support rename, delete, per-item listing, add, and remove
+- Zettelkasten repository contracts expose linked items and backlinks from `[[uuid|title]]` references
 - Individual delete removes encrypted asset files associated with the item
 - Batch selection and batch delete for visible library items
 - Synthetic 10k-item check for list, FTS5 search, and batch delete
@@ -55,7 +57,7 @@ CLANG_MODULE_CACHE_PATH=/tmp/hypo-clang-cache SWIFTPM_HOME=/tmp/hypo-swiftpm-cac
 
 `HypomnemataNativeChecks` opens a real SQLCipher database, exercises CRUD,
 FTS5, edit/delete flows, dependency checks, combined filters, folder queries,
-persistent asset keys, asset table registration, AES-GCM asset encryption,
+folder rename/remove/delete flows, linked items and backlinks, persistent asset keys, asset table registration, AES-GCM asset encryption,
 encrypted asset removal, batch delete, a synthetic 10k-item performance
 scenario, recoverable job failures for missing dependencies, temporary cache
 cleanup, SQLCipher rekey, old-passphrase rejection, and then verifies that
@@ -79,4 +81,5 @@ its Info.plist during packaging so macOS exposes it in the Services/Share UI.
 - Sprint 3.2: complete as of 2026-04-25.
 - Sprint 3.3: complete as of 2026-04-25.
 - Sprint 3: complete as of 2026-04-25.
-- Next step: Sprint 4, organization and Zettelkasten.
+- Sprint 4.1: complete as of 2026-04-25.
+- Next step: Sprint 4.2, folder UI and organization operations.

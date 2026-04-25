@@ -20,9 +20,9 @@
 ## Status atual
 
 - **Onda**: 1 (MVP), 2, 3 entregues. Onda 4 (busca semântica) adiada. Onda 5 (Polimento) em andamento.
-- **Rewrite nativo**: Sprint 0, Sprint 1, Sprint 2 e Sprint 3 entregues em 2026-04-25.
-- **Última sessão**: 2026-04-25 — Sprint 3.3: jobs com erro recuperável + entrada externa URL/texto.
-- **Próxima tarefa**: Sprint 4 — Organização e Zettelkasten. Timeline segue como ideia aprovada para o app legado/web.
+- **Rewrite nativo**: Sprint 0, Sprint 1, Sprint 2, Sprint 3 e Sprint 4.1 entregues em 2026-04-25.
+- **Última sessão**: 2026-04-25 — Sprint 4.1: contratos nativos de pastas, links e backlinks.
+- **Próxima tarefa**: Sprint 4.2 — UI de pastas e operações de organização. Timeline segue como ideia aprovada para o app legado/web.
 
 ### Deps externas necessárias (além do `uv sync`)
 | Ferramenta | Uso | Instalação |
@@ -306,6 +306,22 @@ python3.12 -m mlx_lm server --model mlx-community/gemma-4-e2b-it-4bit --port 808
   - `swift run --disable-sandbox HypomnemataNativeChecks` — passou.
   - `swift build --disable-sandbox --product HypomnemataMacApp` — passou.
 - **Status**: Sprint 3 funcionalmente concluída no app nativo. Próxima etapa: Sprint 4 — Organização e Zettelkasten.
+
+### 2026-04-25 — Sprint 4.1: contratos de organização e Zettelkasten
+- **Implementado em `SQLiteItemRepository`**:
+  - operações completas de pasta para a próxima UI: `folders(forItemID:)`, `renameFolder(id:name:)`, `deleteFolder(id:)` e `removeItems(_:fromFolder:)`;
+  - `DataError.folderNotFound` para rename de pasta inexistente;
+  - leitura de links e backlinks como `ItemSummary` via `linkedItems(from:)` e `backlinks(to:)`;
+  - links continuam sincronizados automaticamente ao criar/editar item a partir de `note` + `bodyText` com sintaxe `[[uuid|título]]`;
+  - links/backlinks retornam título atual do item alvo/origem, então renomear item linkado não congela display antigo.
+- **Checks ampliados**:
+  - renomear pasta, remover/adicionar item em pasta, listar pastas de item e excluir pasta;
+  - criar link em nota, ler links e backlinks, renomear alvo e confirmar título atualizado;
+  - excluir item alvo remove relações por cascade e deixa links/backlinks vazios.
+- **Validação rodada**:
+  - `swift run --disable-sandbox HypomnemataNativeChecks` — passou.
+  - `swift build --disable-sandbox --product HypomnemataMacApp` — passou.
+- **Status**: Sprint 4.1 concluída. Próxima rodada: Sprint 4.2 — UI de pastas e operações.
 
 ### 2026-04-21 — Bun não instalado; usando npm por ora
 - Decisão 9 (`bun`) permanece, mas no momento da primeira sessão o `bun` não estava instalado no sistema (só `npm 11.12.1` e `node 25.9.0`).

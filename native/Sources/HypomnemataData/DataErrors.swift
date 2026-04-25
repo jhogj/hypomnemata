@@ -9,6 +9,7 @@ public enum DataError: LocalizedError, Equatable {
     case assetKeyGenerationFailed(Int32)
     case emptyPassphrase
     case emptyFolderName
+    case folderNotFound(String)
     case assetStoreUnavailable
 
     public var errorDescription: String? {
@@ -29,6 +30,8 @@ public enum DataError: LocalizedError, Equatable {
             "A senha não pode ficar vazia."
         case .emptyFolderName:
             "O nome da pasta não pode ficar vazio."
+        case let .folderNotFound(id):
+            "Pasta não encontrada: \(id)"
         case .assetStoreUnavailable:
             "Storage criptografado de assets não está disponível."
         }

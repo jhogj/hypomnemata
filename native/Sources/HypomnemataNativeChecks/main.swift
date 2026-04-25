@@ -137,11 +137,23 @@ struct HypomnemataNativeChecks {
         )
         let folder = try repository.createFolder(name: "Estudos")
         try repository.addItems([item.id, article.id], toFolder: folder.id)
+        let renamedFolder = try repository.renameFolder(id: folder.id, name: " Estudos antigos ")
+        precondition(renamedFolder.name == "Estudos antigos")
+        try repository.removeItems([article.id], fromFolder: folder.id)
+        let articleFoldersAfterRemoval = try repository.folders(forItemID: article.id)
+        precondition(articleFoldersAfterRemoval.isEmpty)
+        try repository.addItems([article.id], toFolder: folder.id)
         do {
             _ = try repository.createFolder(name: " ")
             preconditionFailure("Empty folder name was accepted.")
         } catch DataError.emptyFolderName {
             // Expected: folders need a visible name.
+        }
+        do {
+            _ = try repository.renameFolder(id: folder.id, name: " ")
+            preconditionFailure("Empty folder rename was accepted.")
+        } catch DataError.emptyFolderName {
+            // Expected: folder rename needs a visible name.
         }
 
         let storedItem = try repository.item(id: item.id)
@@ -194,7 +206,9 @@ struct HypomnemataNativeChecks {
         precondition(filteredArticleIDs == [article.id])
         precondition(filteredBookmarkIDs.isEmpty)
         precondition(filteredSearchIDs == [article.id])
-        precondition(folders == [Folder(id: folder.id, name: "Estudos", itemCount: 2, createdAt: folder.createdAt)])
+        precondition(folders == [Folder(id: folder.id, name: "Estudos antigos", itemCount: 2, createdAt: folder.createdAt)])
+        let itemFolders = try repository.folders(forItemID: item.id)
+        precondition(itemFolders == [Folder(id: folder.id, name: "Estudos antigos", itemCount: 2, createdAt: folder.createdAt)])
         precondition(totalItemCount == 3)
         precondition(kindCounts[.note] == 1)
         precondition(kindCounts[.article] == 1)
@@ -231,7 +245,7 @@ struct HypomnemataNativeChecks {
             id: item.id,
             patch: ItemPatch(
                 title: "Ética socrática",
-                note: "Maiêutica",
+                note: "Maiêutica com [[\(article.id)|Academia antiga]]",
                 bodyText: "Virtude e conhecimento caminham juntos.",
                 tags: ["etica", "filosofia"]
             )
@@ -239,7 +253,7 @@ struct HypomnemataNativeChecks {
         let patchedSearchIDs = try repository.search("maieutica").map(\.id)
         let patchedTagCounts = try repository.tagCounts()
         precondition(patchedItem.title == "Ética socrática")
-        precondition(patchedItem.note == "Maiêutica")
+        precondition(patchedItem.note == "Maiêutica com [[\(article.id)|Academia antiga]]")
         precondition(patchedItem.bodyText == "Virtude e conhecimento caminham juntos.")
         precondition(patchedItem.tags == ["etica", "filosofia"])
         precondition(patchedSearchIDs == [item.id])
@@ -248,6 +262,23 @@ struct HypomnemataNativeChecks {
             TagCount(name: "etica", count: 1),
             TagCount(name: "filosofia", count: 2),
             TagCount(name: "platao", count: 1),
+        ])
+        let itemLinkedItems = try repository.linkedItems(from: item.id)
+        let articleBacklinks = try repository.backlinks(to: article.id)
+        precondition(itemLinkedItems == [
+            ItemSummary(id: article.id, title: article.title, kind: .article, capturedAt: article.capturedAt),
+        ])
+        precondition(articleBacklinks == [
+            ItemSummary(id: item.id, title: patchedItem.title, kind: .note, capturedAt: item.capturedAt),
+        ])
+
+        let renamedArticle = try repository.patchItem(
+            id: article.id,
+            patch: ItemPatch(title: "Academia atualizada")
+        )
+        let renamedLinkedItems = try repository.linkedItems(from: item.id)
+        precondition(renamedLinkedItems == [
+            ItemSummary(id: article.id, title: renamedArticle.title, kind: .article, capturedAt: article.capturedAt),
         ])
 
         try repository.deleteItems(ids: [bookmark.id])
@@ -268,7 +299,16 @@ struct HypomnemataNativeChecks {
             TagCount(name: "filosofia", count: 2),
             TagCount(name: "platao", count: 1),
         ])
-        precondition(postDeleteFolders == [Folder(id: folder.id, name: "Estudos", itemCount: 2, createdAt: folder.createdAt)])
+        precondition(postDeleteFolders == [Folder(id: folder.id, name: "Estudos antigos", itemCount: 2, createdAt: folder.createdAt)])
+
+        try repository.deleteItems(ids: [article.id])
+        let linksAfterTargetDelete = try repository.linkedItems(from: item.id)
+        let backlinksAfterTargetDelete = try repository.backlinks(to: article.id)
+        precondition(linksAfterTargetDelete.isEmpty)
+        precondition(backlinksAfterTargetDelete.isEmpty)
+        try repository.deleteFolder(id: folder.id)
+        let foldersAfterDelete = try repository.listFolders()
+        precondition(foldersAfterDelete.isEmpty)
 
         let firstAssetKey = try database.loadOrCreateAssetKeyData()
         let secondAssetKey = try database.loadOrCreateAssetKeyData()
