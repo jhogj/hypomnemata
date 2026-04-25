@@ -843,7 +843,8 @@ final class AppModel: ObservableObject {
             automation = JobAutomation(
                 service: try makeItemAIService(),
                 articleScraper: TrafilaturaArticleScraper(renderer: WKWebViewPageRenderer()),
-                mediaDownloader: YTDLPMediaDownloader()
+                mediaDownloader: YTDLPMediaDownloader(),
+                remoteThumbnailFetcher: GalleryDLThumbnailFetcher()
             )
         } catch {
             let message = LLMRecoverableErrorMapper().jobErrorMessage(for: error)
@@ -911,6 +912,8 @@ final class AppModel: ObservableObject {
             try applyArticleScrapeResult(result, to: item)
         case let .mediaDownloaded(result):
             try applyMediaDownloadResult(result, to: item)
+        case let .thumbnailFetched(result):
+            try applyRemoteThumbnailResult(result, to: item)
         }
     }
 
@@ -991,6 +994,11 @@ final class AppModel: ObservableObject {
 
         do {
             try repository.insertAsset(storedVideo)
+            _ = try createThumbnailIfSupported(
+                for: storedVideo,
+                itemID: item.id,
+                originalFilename: result.originalFilename
+            )
             for subtitle in result.subtitles {
                 let storedSubtitle = try assetStore.write(
                     data: subtitle.data,
@@ -1033,6 +1041,56 @@ final class AppModel: ObservableObject {
             return nil
         }
         let data = try JSONSerialization.data(withJSONObject: metadata, options: [.sortedKeys])
+        return String(data: data, encoding: .utf8)
+    }
+
+    private func applyRemoteThumbnailResult(_ result: RemoteThumbnailResult, to item: Item) throws {
+        guard let repository, let assetStore else {
+            return
+        }
+        let storedSource = try assetStore.write(
+            data: result.data,
+            itemID: item.id,
+            role: .original,
+            originalFilename: result.originalFilename,
+            mimeType: result.mimeType
+        )
+        do {
+            try repository.insertAsset(storedSource.record)
+            if !(try createThumbnailIfSupported(
+                for: storedSource.record,
+                itemID: item.id,
+                originalFilename: result.originalFilename
+            )) {
+                let storedThumbnail = try assetStore.write(
+                    data: result.data,
+                    itemID: item.id,
+                    role: .thumbnail,
+                    originalFilename: result.originalFilename,
+                    mimeType: result.mimeType
+                )
+                do {
+                    try repository.insertAsset(storedThumbnail.record)
+                } catch {
+                    try? assetStore.remove(record: storedThumbnail.record)
+                    throw error
+                }
+            }
+            if let sourceURL = result.sourceURL {
+                let metadata = try remoteThumbnailMetadataJSON(sourceURL: sourceURL)
+                _ = try repository.patchItem(id: item.id, patch: ItemPatch(metadataJSON: metadata))
+            }
+        } catch {
+            try? assetStore.remove(record: storedSource.record)
+            throw error
+        }
+    }
+
+    private func remoteThumbnailMetadataJSON(sourceURL: String) throws -> String? {
+        let data = try JSONSerialization.data(
+            withJSONObject: ["thumbnail_source_url": sourceURL],
+            options: [.sortedKeys]
+        )
         return String(data: data, encoding: .utf8)
     }
 

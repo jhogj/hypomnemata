@@ -119,9 +119,16 @@ public enum CapturePlanner {
             if draft.sourceURL != nil {
                 jobs.append(.scrapeArticle)
             }
-        case .video, .tweet:
+        case .video:
             if draft.sourceURL != nil {
                 jobs.append(.downloadMedia)
+            } else if draft.fileURL != nil {
+                jobs.append(.generateThumbnail)
+            }
+        case .tweet:
+            if draft.sourceURL != nil {
+                jobs.append(.downloadMedia)
+                jobs.append(.generateThumbnail)
             } else if draft.fileURL != nil {
                 jobs.append(.generateThumbnail)
             }

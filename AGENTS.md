@@ -20,9 +20,9 @@
 ## Status atual
 
 - **App legado** (FastAPI/React): Ondas 1, 2, 3 entregues. Onda 4 adiada. Ver `CLAUDE.md` para detalhes.
-- **Rewrite nativo**: Sprints 0–5 entregues; Sprint 6 tem IA (6.1/6.2/6.3) e ingestão web reaberta. Sprints 6.4 (`scrapeArticle`) e 6.5 (`downloadMedia`) entregues; Sprint 7 (7.1/7.2/7.3) fechado.
-- **Última sessão**: 2026-04-25 — Sprint 6.5: `downloadMedia` agora tem runner via `YTDLPMediaDownloader`; usa `yt-dlp --dump-json` para metadata, baixa mídia com merge MP4 e legendas pt/en, salva vídeo como asset criptografado `.original`, legendas como `.subtitle`, persiste duração/webpage em `meta_json`, e `DependencyDoctor` exige `yt-dlp` + `ffmpeg`.
-- **Próxima tarefa**: Sprint 6.6 — runner de `generateThumbnail` para mídia baixada e tweets (`yt-dlp` info-thumb + ffmpeg fallback; `gallery-dl` + oEmbed para tweets com foto). Sprint 8 (backup) vai depois desse bloco.
+- **Rewrite nativo**: Sprints 0–7 entregues, incluindo o bloco de ingestão reaberto da Sprint 6: 6.4 (`scrapeArticle`), 6.5 (`downloadMedia`) e 6.6 (`generateThumbnail`/tweets).
+- **Última sessão**: 2026-04-25 — Sprint 6.6: vídeos baixados agora geram thumbnail criptografada automaticamente; tweets por URL criam `downloadMedia` + `generateThumbnail`; `generateThumbnail` usa `GalleryDLThumbnailFetcher` com `gallery-dl` e fallback oEmbed (`publish.twitter.com/oembed`) para fotos. Checks cobrem gallery-dl, fallback oEmbed, fetcher ausente e planejamento de tweet.
+- **Próxima tarefa**: Sprint 8 — backup, exportação e restore do app nativo.
 
 ### Comandos (nativo)
 
@@ -52,8 +52,8 @@ CLANG_MODULE_CACHE_PATH=/tmp/hypo-clang-cache SWIFTPM_HOME=/tmp/hypo-swiftpm-cac
 | 7.3 | Resumo em streaming: `ItemAIService.streamSummary` (mesmo prompt do `summarize`, mas via `streamChat`), `AppModel.streamSummary` com `onChunk`, campo "Resumo" do detalhe é zerado e preenchido em tempo real conforme os chunks chegam |
 | 6.4 | Runner de `scrapeArticle`: subprocess `trafilatura` (JSON), fallback WKWebView para SPA, metadata persistida e hero image criptografada |
 | 6.5 | Runner de `downloadMedia`: `yt-dlp` + `ffmpeg` para merge, legendas pt/en, asset criptografado via `EncryptedAssetStore`, polling/erros recuperáveis |
-| **6.6** | **Próximo**: runner de `generateThumbnail` para mídia baixada e tweets — `gallery-dl` + fallback oEmbed, thumb encriptada compartilhada com a lib |
-| 8+ | Backup, exportação e restore (originalmente Sprint 8) — só depois do bloco 6.4–6.6 |
+| 6.6 | Runner de `generateThumbnail`: thumbnail automática de mídia baixada; tweets com foto via `gallery-dl` + fallback oEmbed |
+| **8+** | **Próximo**: backup, exportação e restore |
 
 ---
 
@@ -117,6 +117,14 @@ CLANG_MODULE_CACHE_PATH=/tmp/hypo-clang-cache SWIFTPM_HOME=/tmp/hypo-swiftpm-cac
 - **Dependências**: `downloadMedia` agora exige `yt-dlp` e `ffmpeg`; captura sem algum deles continua criando job `failed` recuperável com comando Homebrew.
 - **Validação**: `HypomnemataNativeChecks` cobre runner configurado, runner ausente, URL vazia, subprocess fake criando vídeo+legenda, falha de subprocesso e download sem arquivo final. `swift build --product HypomnemataMacApp` e `swift run HypomnemataNativeChecks` passaram em 2026-04-25.
 - **Pendente**: 6.6 (`generateThumbnail` de mídia/tweets) ainda não tem executor.
+
+### 2026-04-25 — Runner de miniatura/tweet entregue (Sprint 6.6)
+- **Decisão**: `generateThumbnail` entrou em `JobAutomation.supportedKinds`. Para tweets por URL, o plano de captura agora cria `downloadMedia` e `generateThumbnail`; assim tweet com vídeo tenta baixar vídeo, e tweet com foto ainda tem caminho por `gallery-dl`/oEmbed.
+- **Implementação**: `GalleryDLThumbnailFetcher` roda `gallery-dl -D <temp> <url>` e usa a maior imagem baixada. Se `gallery-dl` falhar ou não gerar imagem, tenta `https://publish.twitter.com/oembed?omit_script=true&url=<tweet>` e baixa `thumbnail_url` ou o primeiro `img src` do HTML retornado.
+- **App**: `.thumbnailFetched` grava a imagem original criptografada e gera asset `.thumbnail` com `NativeThumbnailGenerator`; se a imagem já estiver em formato pronto mas o gerador não suportar, grava a própria imagem como `.thumbnail`. `.mediaDownloaded` também chama `createThumbnailIfSupported` logo depois de salvar o vídeo original.
+- **Dependências**: `generateThumbnail` exige `ffmpeg` e `gallery-dl`; falha de dependência continua sendo job recuperável. Para uploads locais, a geração síncrona anterior continua igual.
+- **Validação**: `HypomnemataNativeChecks` cobre planejamento de tweet, `JobAutomation.canRun(.generateThumbnail)`, fetcher fake, `gallery-dl` fake gerando imagem, fallback oEmbed e build do app. `swift build --product HypomnemataMacApp` e `swift run HypomnemataNativeChecks` passaram em 2026-04-25.
+- **Resultado**: bloco 6.4–6.6 fechado; próxima frente documentada é Sprint 8.
 
 ### 2026-04-25 — Resumo em streaming na sheet de detalhe (Sprint 7.3)
 - **Decisão**: `ItemAIService` ganha `streamSummary(context:)` que retorna `AsyncThrowingStream<String, Error>` reaproveitando exatamente os mesmos `summaryMessages(for:)` do `summarize` síncrono — só muda o transporte (`streamChat` no lugar de `complete`). Isso garante que o resumo gerado pelo botão e o resumo gerado pelos jobs de background convergem para o mesmo prompt.

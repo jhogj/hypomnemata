@@ -8,6 +8,7 @@ public enum JobAutomationOutcome: Sendable, Equatable {
     case taggedAutomatically(tags: [String])
     case articleScraped(ArticleScrapeResult)
     case mediaDownloaded(MediaDownloadResult)
+    case thumbnailFetched(RemoteThumbnailResult)
 }
 
 public enum JobAutomationError: LocalizedError, Equatable, Sendable {
@@ -28,20 +29,23 @@ public enum JobAutomationError: LocalizedError, Equatable, Sendable {
 }
 
 public struct JobAutomation: Sendable {
-    public static let supportedKinds: Set<JobKind> = [.summarize, .autotag, .scrapeArticle, .downloadMedia]
+    public static let supportedKinds: Set<JobKind> = [.summarize, .autotag, .scrapeArticle, .downloadMedia, .generateThumbnail]
 
     private let service: ItemAIService
     private let articleScraper: (any ArticleScraper)?
     private let mediaDownloader: (any MediaDownloader)?
+    private let remoteThumbnailFetcher: (any RemoteThumbnailFetcher)?
 
     public init(
         service: ItemAIService,
         articleScraper: (any ArticleScraper)? = nil,
-        mediaDownloader: (any MediaDownloader)? = nil
+        mediaDownloader: (any MediaDownloader)? = nil,
+        remoteThumbnailFetcher: (any RemoteThumbnailFetcher)? = nil
     ) {
         self.service = service
         self.articleScraper = articleScraper
         self.mediaDownloader = mediaDownloader
+        self.remoteThumbnailFetcher = remoteThumbnailFetcher
     }
 
     public static func canRun(_ kind: JobKind) -> Bool {
@@ -89,7 +93,17 @@ public struct JobAutomation: Sendable {
             }
             let result = try await mediaDownloader.download(url: trimmedURL)
             return .mediaDownloaded(result)
-        case .generateThumbnail, .runOCR:
+        case .generateThumbnail:
+            guard let remoteThumbnailFetcher else {
+                throw JobAutomationError.missingExecutor(kind)
+            }
+            let trimmedURL = item.sourceURL?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            guard !trimmedURL.isEmpty else {
+                throw JobAutomationError.missingSourceURL
+            }
+            let result = try await remoteThumbnailFetcher.fetchThumbnail(url: trimmedURL)
+            return .thumbnailFetched(result)
+        case .runOCR:
             throw JobAutomationError.unsupportedJobKind(kind)
         }
     }

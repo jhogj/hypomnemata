@@ -44,6 +44,10 @@ struct HypomnemataNativeChecks {
         precondition(urlPlan.1.kind == .video)
         precondition(urlPlan.1.jobs == [.downloadMedia, .summarize, .autotag])
 
+        let tweetPlan = try CapturePlanner.validateAndPlan(CaptureDraft(sourceURL: "https://x.com/user/status/1"))
+        precondition(tweetPlan.1.kind == .tweet)
+        precondition(tweetPlan.1.jobs == [.downloadMedia, .generateThumbnail])
+
         let pdfPlan = try CapturePlanner.validateAndPlan(CaptureDraft(fileURL: URL(fileURLWithPath: "/tmp/documento.pdf")))
         precondition(pdfPlan.1.kind == .pdf)
         precondition(pdfPlan.1.jobs == [.generateThumbnail, .runOCR, .summarize, .autotag])
@@ -195,7 +199,7 @@ struct HypomnemataNativeChecks {
         precondition(JobAutomation.canRun(.autotag))
         precondition(JobAutomation.canRun(.scrapeArticle))
         precondition(JobAutomation.canRun(.downloadMedia))
-        precondition(!JobAutomation.canRun(.generateThumbnail))
+        precondition(JobAutomation.canRun(.generateThumbnail))
         precondition(!JobAutomation.canRun(.runOCR))
 
         let summaryAutomation = JobAutomation(
@@ -257,6 +261,13 @@ struct HypomnemataNativeChecks {
             preconditionFailure("downloadMedia without configured downloader should fail.")
         } catch JobAutomationError.missingExecutor(.downloadMedia) {
             // Expected: sem MediaDownloader configurado, o job falha de forma identificável.
+        }
+
+        do {
+            _ = try await summaryAutomation.run(.generateThumbnail, on: articleItem)
+            preconditionFailure("generateThumbnail without configured fetcher should fail.")
+        } catch JobAutomationError.missingExecutor(.generateThumbnail) {
+            // Expected: sem RemoteThumbnailFetcher configurado, o job falha de forma identificável.
         }
 
         let scrapedFixture = ArticleScrapeResult(
@@ -481,6 +492,70 @@ struct HypomnemataNativeChecks {
         } catch MediaDownloadError.outputNotFound {
             // Expected.
         }
+
+        let thumbnailFixture = RemoteThumbnailResult(
+            data: Data([0xFF, 0xD8, 0xFF, 0xD9]),
+            mimeType: "image/jpeg",
+            originalFilename: "tweet.jpg",
+            sourceURL: "https://pbs.twimg.com/media/tweet.jpg"
+        )
+        let thumbnailAutomation = JobAutomation(
+            service: ItemAIService(
+                client: FakeLLMClient(response: "Resumo automático"),
+                configuration: configured
+            ),
+            remoteThumbnailFetcher: FakeRemoteThumbnailFetcher(
+                result: thumbnailFixture,
+                expectedURL: "https://x.com/user/status/1"
+            )
+        )
+        let tweetURLItem = Item(
+            kind: .tweet,
+            sourceURL: "https://x.com/user/status/1",
+            title: nil,
+            bodyText: nil,
+            tags: []
+        )
+        let thumbnailOutcome = try await thumbnailAutomation.run(.generateThumbnail, on: tweetURLItem)
+        guard case let .thumbnailFetched(thumbnail) = thumbnailOutcome else {
+            preconditionFailure("generateThumbnail outcome deve ser .thumbnailFetched.")
+        }
+        precondition(thumbnail.mimeType == "image/jpeg")
+        precondition(thumbnail.originalFilename == "tweet.jpg")
+
+        let galleryStub = GalleryDLThumbnailFetcher(
+            galleryDLPath: "/usr/bin/false",
+            runProcess: { _, _, workingDirectory in
+                try Data([0xFF, 0xD8, 0xFF, 0xD9]).write(
+                    to: workingDirectory.appendingPathComponent("gallery.jpg")
+                )
+                return (0, Data(), Data())
+            },
+            fetchData: { _ in
+                preconditionFailure("gallery-dl success should not call oEmbed fallback.")
+            }
+        )
+        let galleryResult = try await galleryStub.fetchThumbnail(url: "https://x.com/user/status/2")
+        precondition(galleryResult.originalFilename == "gallery.jpg")
+        precondition(galleryResult.mimeType == "image/jpeg")
+
+        let oembedStub = GalleryDLThumbnailFetcher(
+            galleryDLPath: "/usr/bin/false",
+            runProcess: { _, _, _ in
+                (1, Data(), Data("rate limited".utf8))
+            },
+            fetchData: { url in
+                if url.contains("publish.twitter.com/oembed") {
+                    let json = #"{"html":"<blockquote><img src=\"https://pbs.twimg.com/media/fallback.jpg\"></blockquote>"}"#
+                    return (Data(json.utf8), "application/json")
+                }
+                precondition(url == "https://pbs.twimg.com/media/fallback.jpg")
+                return (Data([0xFF, 0xD8, 0xFF, 0xD9]), "image/jpeg")
+            }
+        )
+        let oembedResult = try await oembedStub.fetchThumbnail(url: "https://x.com/user/status/3")
+        precondition(oembedResult.originalFilename == "fallback.jpg")
+        precondition(oembedResult.mimeType == "image/jpeg")
 
         let envOnly = try LLMConfiguration.resolve(
             overrides: LLMOverrides(),
@@ -1268,6 +1343,16 @@ private struct FakeMediaDownloader: MediaDownloader {
     var expectedURL: String
 
     func download(url: String) async throws -> MediaDownloadResult {
+        precondition(url == expectedURL)
+        return result
+    }
+}
+
+private struct FakeRemoteThumbnailFetcher: RemoteThumbnailFetcher {
+    var result: RemoteThumbnailResult
+    var expectedURL: String
+
+    func fetchThumbnail(url: String) async throws -> RemoteThumbnailResult {
         precondition(url == expectedURL)
         return result
     }

@@ -3,10 +3,10 @@
 This is the native macOS rewrite track for Hypomnemata.
 
 Current status: Sprint 7 of the native rewrite is complete (7.1, 7.2 and 7.3
-landed on 2026-04-25), and the reopened Sprint 6.4 article ingestion runner
-plus Sprint 6.5 media download runner are complete. The existing FastAPI/React
-app remains untouched and can keep serving as behavioral reference while the
-native app is built out.
+landed on 2026-04-25), and the reopened Sprint 6 ingestion block is complete
+with 6.4 article scraping, 6.5 media download, and 6.6 thumbnails/tweet photos.
+The existing FastAPI/React app remains untouched and can keep serving as
+behavioral reference while the native app is built out.
 
 ## Target
 
@@ -56,6 +56,7 @@ native app is built out.
 - "Gerar resumo" in the detail sheet streams the summary into the field as chunks arrive, sharing the same prompt as the synchronous summarize used by background jobs
 - `scrapeArticle` jobs run through `trafilatura --json --URL`, fall back to WKWebView-rendered HTML for short/SPA extraction, update item title/body/metadata, and store the article hero image as an encrypted `heroImage` asset when available
 - `downloadMedia` jobs run through `yt-dlp`, merge to MP4 through the system ffmpeg integration, prefer pt/en subtitles, store the video as an encrypted original asset, and store subtitles as encrypted subtitle assets
+- Downloaded videos get encrypted thumbnails automatically, and tweet URL thumbnail jobs use `gallery-dl` with a `publish.twitter.com/oembed` fallback for photo tweets
 
 ## External commands expected in product builds
 
@@ -83,7 +84,9 @@ running summary/autotag with the IA fake client (including conservative
 autotag), `scrapeArticle` execution with fake and trafilatura-backed scrapers,
 fallback from rendered HTML, subprocess failures and missing URL handling,
 `downloadMedia` execution with fake and yt-dlp-backed downloaders, subtitle
-collection, missing output and subprocess failures, job retry via
+collection, missing output and subprocess failures, `generateThumbnail`
+execution with fake and gallery-dl-backed thumbnail fetchers, oEmbed fallback,
+tweet capture planning, job retry via
 `incrementJobAttempts` + status reset, vault-backed LLM settings round-trip
 plus vault-vs-env-vs-default precedence, `ItemChatService` streaming with
 the system prompt grounding, history replay and rejection of empty content
@@ -133,6 +136,35 @@ its Info.plist during packaging so macOS exposes it in the Services/Share UI.
 - Sprint 6 reopened on 2026-04-25 — the IA work shipped as 6.1/6.2/6.3 was the only part of the original Sprint 6 plan that landed; web/video ingestion runners were never written, so URL captures stay stuck on `pending`. Three follow-up sub-sprints are queued before Sprint 8:
   - 6.4: complete as of 2026-04-25. `scrapeArticle` runner via `trafilatura` subprocess with WKWebView fallback for SPA pages, metadata persistence, plus encrypted hero image asset.
   - 6.5: complete as of 2026-04-25. `downloadMedia` runner via `yt-dlp` + `ffmpeg`, with subtitle preference (pt/en), encrypted video/subtitle assets and recoverable failures.
-  - 6.6 (next): `generateThumbnail` runner for downloaded media and tweet photos (`gallery-dl` + oEmbed fallback), wiring encrypted thumbnails into the library list/grid.
-- Sprint 8 (backup, export, restore) follows once 6.4–6.6 close.
-- Next step: Sprint 6.6.
+  - 6.6: complete as of 2026-04-25. `generateThumbnail` runner for downloaded media and tweet photos (`gallery-dl` + oEmbed fallback), wiring encrypted thumbnails into the library list/grid.
+- Sprint 8 (backup, export, restore) follows next.
+- Next step: Sprint 8.
+
+## Run and test locally
+
+1. Install external tools:
+
+```sh
+brew install sqlcipher ffmpeg yt-dlp gallery-dl trafilatura
+```
+
+2. Build and run checks:
+
+```sh
+cd native
+CLANG_MODULE_CACHE_PATH=/tmp/hypo-clang-cache SWIFTPM_HOME=/tmp/hypo-swiftpm-cache swift run --disable-sandbox HypomnemataNativeChecks
+CLANG_MODULE_CACHE_PATH=/tmp/hypo-clang-cache SWIFTPM_HOME=/tmp/hypo-swiftpm-cache swift build --disable-sandbox --product HypomnemataMacApp
+```
+
+3. Open the app from SwiftPM:
+
+```sh
+CLANG_MODULE_CACHE_PATH=/tmp/hypo-clang-cache SWIFTPM_HOME=/tmp/hypo-swiftpm-cache swift run --disable-sandbox HypomnemataMacApp
+```
+
+4. On first launch, create/unlock the vault password.
+5. In Settings, confirm the dependency list shows `sqlcipher`, `ffmpeg`, `yt-dlp`, `gallery-dl`, and `trafilatura` installed.
+6. Test article capture: open the capture sheet, choose URL, paste a normal article URL, save, then wait for "Extrair artigo" to finish. The item should gain extracted text, metadata, and possibly a hero image preview.
+7. Test video capture: paste a YouTube/Vimeo URL. The "Baixar mídia" job should store a local encrypted video asset, subtitles when available, and a thumbnail.
+8. Test tweet photo capture: paste an `x.com/.../status/...` or `twitter.com/.../status/...` URL with a photo. If no video is downloadable, "Gerar miniatura" should still try `gallery-dl` and then oEmbed fallback.
+9. For failed jobs, open the item detail, check "Tarefas", read the inline error, install any missing tool shown there, and use "Tentar novamente".

@@ -130,7 +130,7 @@ public struct JobDependencyResolver: Sendable {
         case .downloadMedia:
             ["yt-dlp", "ffmpeg"]
         case .generateThumbnail:
-            ["ffmpeg"]
+            ["ffmpeg", "gallery-dl"]
         case .runOCR, .summarize, .autotag:
             []
         }
