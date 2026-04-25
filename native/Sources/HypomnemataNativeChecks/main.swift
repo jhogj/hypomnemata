@@ -228,6 +228,70 @@ struct HypomnemataNativeChecks {
         } catch JobAutomationError.unsupportedJobKind {
             // Expected: subprocess-backed jobs are not in the IA automation surface.
         }
+
+        let envOnly = try LLMConfiguration.resolve(
+            overrides: LLMOverrides(),
+            environment: [
+                "HYPO_LLM_URL": "http://env.local:9000",
+                "HYPO_LLM_MODEL": "modelo-env",
+                "HYPO_LLM_CONTEXT_LIMIT": "2048",
+            ]
+        )
+        precondition(envOnly.baseURL.absoluteString == "http://env.local:9000")
+        precondition(envOnly.model == "modelo-env")
+        precondition(envOnly.contextCharacterLimit == 2048)
+
+        let overridesWin = try LLMConfiguration.resolve(
+            overrides: LLMOverrides(
+                url: "http://override.local:7000",
+                model: "modelo-vault",
+                contextLimit: "9999"
+            ),
+            environment: [
+                "HYPO_LLM_URL": "http://env.local:9000",
+                "HYPO_LLM_MODEL": "modelo-env",
+                "HYPO_LLM_CONTEXT_LIMIT": "2048",
+            ]
+        )
+        precondition(overridesWin.baseURL.absoluteString == "http://override.local:7000")
+        precondition(overridesWin.model == "modelo-vault")
+        precondition(overridesWin.contextCharacterLimit == 9999)
+
+        let partialOverride = try LLMConfiguration.resolve(
+            overrides: LLMOverrides(model: "só-modelo"),
+            environment: [
+                "HYPO_LLM_URL": "http://env.local:9000",
+                "HYPO_LLM_CONTEXT_LIMIT": "1500",
+            ]
+        )
+        precondition(partialOverride.baseURL.absoluteString == "http://env.local:9000")
+        precondition(partialOverride.model == "só-modelo")
+        precondition(partialOverride.contextCharacterLimit == 1500)
+
+        let trimmedOverrides = LLMOverrides(url: "  ", model: "", contextLimit: "  ")
+        precondition(trimmedOverrides.url == nil)
+        precondition(trimmedOverrides.model == nil)
+        precondition(trimmedOverrides.contextLimit == nil)
+
+        do {
+            _ = try LLMConfiguration.resolve(
+                overrides: LLMOverrides(url: "nada"),
+                environment: [:]
+            )
+            preconditionFailure("Override URL inválida deveria falhar.")
+        } catch LLMConfigurationError.invalidBaseURL {
+            // Expected.
+        }
+
+        do {
+            _ = try LLMConfiguration.resolve(
+                overrides: LLMOverrides(contextLimit: "abc"),
+                environment: [:]
+            )
+            preconditionFailure("Override de limite inválido deveria falhar.")
+        } catch LLMConfigurationError.invalidContextLimit {
+            // Expected.
+        }
     }
 
     private static func checkData() throws {
@@ -371,6 +435,34 @@ struct HypomnemataNativeChecks {
         precondition(retriedB.status == .pending)
         precondition(retriedB.error == nil)
         precondition(retriedB.attempts == 1)
+
+        let llmSettings = LLMSettingsStore(database: database)
+        let initialRecord = try llmSettings.read()
+        precondition(initialRecord.isEmpty)
+
+        try llmSettings.write(LLMSettingsRecord(
+            url: "http://vault.local:5500",
+            model: "modelo-vault",
+            contextLimit: "4096"
+        ))
+        let stored = try llmSettings.read()
+        precondition(stored.url == "http://vault.local:5500")
+        precondition(stored.model == "modelo-vault")
+        precondition(stored.contextLimit == "4096")
+
+        try llmSettings.write(LLMSettingsRecord(
+            url: "  http://vault.local:5500  ",
+            model: "  ",
+            contextLimit: nil
+        ))
+        let trimmedStored = try llmSettings.read()
+        precondition(trimmedStored.url == "http://vault.local:5500")
+        precondition(trimmedStored.model == nil)
+        precondition(trimmedStored.contextLimit == nil)
+
+        try llmSettings.clear()
+        let cleared = try llmSettings.read()
+        precondition(cleared.isEmpty)
 
         let cascadeJobItem = try repository.createItem(
             kind: .article,

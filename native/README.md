@@ -47,6 +47,7 @@ reference while the native app is built out.
 - `JobAutomation` runs `summarize`/`autotag` automatically after capture, with conservative autotag (skipped when manual tags exist)
 - Manual retry of failed AI jobs from the detail sheet, incrementing `attempts`
 - Detail sheet exposes per-job status with colored indicators (`pending`/`running`/`done`/`failed`) and inline retry
+- LLM settings (URL / model / context limit) persisted inside the SQLCipher vault, with vault > env > default precedence resolved per field
 
 ## External commands expected in product builds
 
@@ -72,7 +73,8 @@ native thumbnail generation, native OCR extraction, encrypted asset removal, dec
 scenario, recoverable job failures for missing dependencies, `JobAutomation`
 running summary/autotag with the IA fake client (including conservative
 autotag and `unsupportedJobKind` for subprocess-backed jobs), job retry via
-`incrementJobAttempts` + status reset, temporary cache cleanup, SQLCipher
+`incrementJobAttempts` + status reset, vault-backed LLM settings round-trip
+plus vault-vs-env-vs-default precedence, temporary cache cleanup, SQLCipher
 rekey, old-passphrase rejection, and then verifies that system `sqlite3`
 cannot read the vault. The app path
 requires SQLCipher by default and fails closed when it is unavailable.
@@ -107,4 +109,8 @@ its Info.plist during packaging so macOS exposes it in the Services/Share UI.
   - 6.2: complete as of 2026-04-25. Item summary and autotags in the detail sheet.
   - 6.3: complete as of 2026-04-25. `JobAutomation` runs `summarize`/`autotag` automatically after capture; conservative autotag only when the item has no manual tags; manual retry of failed jobs; "Tarefas" section in the detail sheet with colored status and inline retry.
 - Sprint 6: complete as of 2026-04-25.
-- Next step: Sprint 7 (subprocess runners for `scrapeArticle`/`downloadMedia`/`generateThumbnail`) or Sprint 8 (backup/restore), per `PLAN-completo.md`.
+- Sprint 7 plan:
+  - 7.1: complete as of 2026-04-25. `LLMSettingsStore` persists overrides inside the SQLCipher vault; `LLMConfiguration.resolve(overrides:env:)` resolves URL/model/context limit independently with vault > env > default precedence; "IA local" section in Settings with save/clear and validation.
+  - 7.2: persistent chat with the document (`chat_messages` table + detail UI + streaming).
+  - 7.3: streaming summary in the detail sheet.
+- Next step: Sprint 7.2.

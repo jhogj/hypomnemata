@@ -20,9 +20,9 @@
 ## Status atual
 
 - **App legado** (FastAPI/React): Ondas 1, 2, 3 entregues. Onda 4 adiada. Ver `CLAUDE.md` para detalhes.
-- **Rewrite nativo**: Sprints 0–6 concluídas em 2026-04-25.
-- **Última sessão**: 2026-04-25 — Sprint 6.3: automação pós-captura de IA, retry de jobs, indicadores no detalhe.
-- **Próxima tarefa**: Sprint 7 — runners reais para `scrapeArticle`/`downloadMedia`/`generateThumbnail` (subprocessos Homebrew) ou início da Sprint 8 (backup/restore).
+- **Rewrite nativo**: Sprints 0–6 + 7.1 concluídas em 2026-04-25.
+- **Última sessão**: 2026-04-25 — Sprint 7.1: settings de IA persistidas no vault, com prioridade `vault > env > default`.
+- **Próxima tarefa**: Sprint 7.2 — chat persistente com documento (tabela `chat_messages` + UI no detalhe + streaming).
 
 ### Comandos (nativo)
 
@@ -47,6 +47,8 @@ CLANG_MODULE_CACHE_PATH=/tmp/hypo-clang-cache SWIFTPM_HOME=/tmp/hypo-swiftpm-cac
 | 6.1 | IA infraestrutura: `LLMClient` (protocolo), `OpenAICompatibleClient`, `LLMConfiguration`, erros recuperáveis, checks com `FakeLLMClient` |
 | 6.2 | IA funcional: resumo (`summarize`), autotags conservadoras (preserva tags existentes), campo editável no detalhe |
 | 6.3 | Automação: `JobAutomation` roda `summarize`/`autotag` em background pós-captura; autotag automático só se `tags.isEmpty`; retry manual de jobs falhos; seção "Tarefas" no detalhe com status colorido |
+| 7.1 | Settings de IA: `LLMSettingsStore` no vault SQLCipher; `LLMConfiguration.resolve(overrides:env:)` em camadas (vault > env > default); UI em "IA local" com salvar/limpar e validação |
+| **7.2** | **Próximo**: chat persistente com documento (tabela `chat_messages` + UI no detalhe + streaming) |
 
 ---
 
@@ -77,6 +79,13 @@ CLANG_MODULE_CACHE_PATH=/tmp/hypo-clang-cache SWIFTPM_HOME=/tmp/hypo-swiftpm-cac
 - **Decisão**: `LLMClient` é protocolo. `OpenAICompatibleClient` consome `/v1/chat/completions`. Configuração via `HYPO_LLM_URL`, `HYPO_LLM_MODEL`, `HYPO_LLM_CONTEXT_LIMIT`.
 - **Motivo**: mesmo design do app legado; permite trocar provider sem mudar lógica de produto.
 - **Falha de IA**: indisponibilidade do servidor não quebra captura — vira job recuperável.
+
+### 2026-04-25 — Settings de IA persistidas no vault (Sprint 7.1)
+- **Decisão**: `LLMSettingsStore` grava overrides em chaves `llm_url_v1`/`llm_model_v1`/`llm_context_limit_v1` na tabela `settings` do vault SQLCipher.
+- **Motivo**: settings sensíveis (URL interna, modelo) ficam criptografadas dentro do vault e acompanham backup/restore. Sem arquivos plaintext em `~/Library/Preferences`.
+- **Prioridade**: `LLMConfiguration.resolve(overrides:env:)` resolve campo por campo — vault > env > default. Vault é fonte de verdade do app; env vira fallback global do shell.
+- **Validação**: `saveLLMSettings` chama `resolve(...)` antes de gravar; URL/modelo/limite inválidos não são persistidos.
+- **UI**: nova seção "IA local" em `SettingsView` com placeholders mostrando o valor atualmente em uso (env ou default), botões salvar/limpar overrides, e linha de resumo "Em uso: <url> · <modelo> · <limite>".
 
 ### 2026-04-25 — Automação de jobs (Sprint 6.3)
 - **Decisão**: `JobAutomation` roda apenas `summarize` e `autotag` por enquanto. `scrapeArticle`/`downloadMedia`/`generateThumbnail` continuam sendo criados como `pending` (ou `failed` se faltar binário) mas ficam aguardando o runner de Sprint 7+.

@@ -87,6 +87,7 @@ final class AppModel: ObservableObject {
     private var database: NativeDatabase?
     private var repository: SQLiteItemRepository?
     private var assetStore: EncryptedAssetStore?
+    private var llmSettingsStore: LLMSettingsStore?
     private var appPaths: AppPaths?
     private var localEventMonitor: Any?
     private var securityObservers: [NSObjectProtocol] = []
@@ -152,6 +153,7 @@ final class AppModel: ObservableObject {
 
             database = db
             repository = SQLiteItemRepository(database: db)
+            llmSettingsStore = LLMSettingsStore(database: db)
             appPaths = paths
             assetStore = store
             state = .unlocked
@@ -194,6 +196,7 @@ final class AppModel: ObservableObject {
         database = nil
         repository = nil
         assetStore = nil
+        llmSettingsStore = nil
         appPaths = nil
         query = ""
         activeKind = nil
@@ -974,11 +977,74 @@ final class AppModel: ObservableObject {
     }
 
     private func makeItemAIService() throws -> ItemAIService {
-        let configuration = try LLMConfiguration.fromEnvironment()
+        let overrides = currentLLMOverrides()
+        let configuration = try LLMConfiguration.resolve(overrides: overrides)
         return ItemAIService(
             client: OpenAICompatibleClient(configuration: configuration),
             configuration: configuration
         )
+    }
+
+    private func currentLLMOverrides() -> LLMOverrides {
+        guard let llmSettingsStore else {
+            return LLMOverrides()
+        }
+        let record = (try? llmSettingsStore.read()) ?? LLMSettingsRecord()
+        return LLMOverrides(
+            url: record.url,
+            model: record.model,
+            contextLimit: record.contextLimit
+        )
+    }
+
+    func currentLLMSettings() -> LLMSettingsRecord {
+        (try? llmSettingsStore?.read()) ?? LLMSettingsRecord()
+    }
+
+    func resolvedLLMConfiguration() -> (LLMConfiguration?, String?) {
+        do {
+            let configuration = try LLMConfiguration.resolve(overrides: currentLLMOverrides())
+            return (configuration, nil)
+        } catch {
+            return (nil, error.localizedDescription)
+        }
+    }
+
+    func saveLLMSettings(url: String, model: String, contextLimit: String) -> String? {
+        guard let llmSettingsStore else {
+            return "Vault não está desbloqueado."
+        }
+        let candidate = LLMSettingsRecord(
+            url: url.nilIfEmpty,
+            model: model.nilIfEmpty,
+            contextLimit: contextLimit.nilIfEmpty
+        )
+        let overrides = LLMOverrides(
+            url: candidate.url,
+            model: candidate.model,
+            contextLimit: candidate.contextLimit
+        )
+        do {
+            _ = try LLMConfiguration.resolve(overrides: overrides)
+            try llmSettingsStore.write(candidate)
+            recordUserActivity()
+            return nil
+        } catch {
+            return error.localizedDescription
+        }
+    }
+
+    func clearLLMSettings() -> String? {
+        guard let llmSettingsStore else {
+            return "Vault não está desbloqueado."
+        }
+        do {
+            try llmSettingsStore.clear()
+            recordUserActivity()
+            return nil
+        } catch {
+            return error.localizedDescription
+        }
     }
 
     private func refreshSidebarData() {

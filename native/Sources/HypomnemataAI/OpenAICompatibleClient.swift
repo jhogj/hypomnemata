@@ -75,9 +75,22 @@ public struct LLMConfiguration: Sendable, Equatable {
     }
 
     public static func fromEnvironment(_ environment: [String: String] = ProcessInfo.processInfo.environment) throws -> LLMConfiguration {
-        let baseURL = environment["HYPO_LLM_URL"] ?? "http://localhost:8080"
-        let model = environment["HYPO_LLM_MODEL"] ?? "mlx-community/gemma-4-e2b-it-4bit"
-        let contextLimitValue = environment["HYPO_LLM_CONTEXT_LIMIT"] ?? "6000"
+        try resolve(overrides: LLMOverrides(), environment: environment)
+    }
+
+    public static func resolve(
+        overrides: LLMOverrides,
+        environment: [String: String] = ProcessInfo.processInfo.environment
+    ) throws -> LLMConfiguration {
+        let baseURL = overrides.url
+            ?? environment["HYPO_LLM_URL"]
+            ?? "http://localhost:8080"
+        let model = overrides.model
+            ?? environment["HYPO_LLM_MODEL"]
+            ?? "mlx-community/gemma-4-e2b-it-4bit"
+        let contextLimitValue = overrides.contextLimit
+            ?? environment["HYPO_LLM_CONTEXT_LIMIT"]
+            ?? "6000"
         guard let contextLimit = Int(contextLimitValue), contextLimit > 0 else {
             throw LLMConfigurationError.invalidContextLimit(contextLimitValue)
         }
@@ -86,6 +99,24 @@ public struct LLMConfiguration: Sendable, Equatable {
             model: model,
             contextCharacterLimit: contextLimit
         )
+    }
+}
+
+public struct LLMOverrides: Sendable, Equatable {
+    public var url: String?
+    public var model: String?
+    public var contextLimit: String?
+
+    public init(url: String? = nil, model: String? = nil, contextLimit: String? = nil) {
+        self.url = url.flatMap { $0.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty }
+        self.model = model.flatMap { $0.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty }
+        self.contextLimit = contextLimit.flatMap { $0.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty }
+    }
+}
+
+private extension String {
+    var nilIfEmpty: String? {
+        isEmpty ? nil : self
     }
 }
 
