@@ -20,9 +20,9 @@
 ## Status atual
 
 - **Onda**: 1 (MVP), 2, 3 entregues. Onda 4 (busca semântica) adiada. Onda 5 (Polimento) em andamento.
-- **Rewrite nativo**: Sprint 0, Sprint 1, Sprint 2, Sprint 3, Sprint 4, Sprint 5.1 e Sprint 5.2 entregues em 2026-04-25.
-- **Última sessão**: 2026-04-25 — Sprint 5.2: thumbnails nativos criptografados, lista/grid com thumbnails e play inline de vídeo.
-- **Próxima tarefa**: Sprint 5.3 — OCR nativo de imagens/PDFs. Timeline segue como ideia aprovada para o app legado/web.
+- **Rewrite nativo**: Sprint 0, Sprint 1, Sprint 2, Sprint 3, Sprint 4 e Sprint 5 entregues em 2026-04-25.
+- **Última sessão**: 2026-04-25 — Sprint 5.3: OCR nativo de imagens/PDFs, texto extraído em `bodyText` e asset derivado criptografado.
+- **Próxima tarefa**: Sprint 6 — IA/local LLM e automações nativas, a definir em recortes. Timeline segue como ideia aprovada para o app legado/web.
 
 ### Deps externas necessárias (além do `uv sync`)
 | Ferramenta | Uso | Instalação |
@@ -400,6 +400,26 @@ python3.12 -m mlx_lm server --model mlx-community/gemma-4-e2b-it-4bit --port 808
   - `swift run --disable-sandbox HypomnemataNativeChecks` — passou.
   - `swift build --disable-sandbox --product HypomnemataMacApp` — passou.
 - **Status**: Sprint 5.2 concluída. Próxima rodada: Sprint 5.3 — OCR nativo de imagens/PDFs.
+
+### 2026-04-25 — Sprint 5.3: OCR nativo de imagens/PDFs
+- **Implementado em `HypomnemataMedia`**:
+  - `NativeOCRExtractor` extrai texto de imagens com Vision (`VNRecognizeTextRequest`);
+  - PDFs digitais usam `PDFDocument.string` quando há texto nativo;
+  - PDFs escaneados fazem fallback por página renderizada com `PDFKit` e OCR via Vision;
+  - OCR limita PDFs a 12 páginas por execução para manter o fluxo de captura responsivo.
+- **Implementado em `AppModel`**:
+  - captura de imagem/PDF roda OCR sincronamente após registrar o asset original;
+  - texto extraído atualiza `bodyText`, alimentando FTS5 e detalhe;
+  - texto extraído também é salvo como asset AES-GCM com `role = derivedText`;
+  - quando o OCR roda com sucesso, o job `runOCR` planejado não fica pendente;
+  - falhas recuperáveis de OCR não perdem o item capturado.
+- **Checks ampliados**:
+  - `HypomnemataNativeChecks` gera PDF real em runtime e valida extração nativa do texto;
+  - valida que arquivo sem suporte não é aceito silenciosamente para OCR.
+- **Validação rodada**:
+  - `swift run --disable-sandbox HypomnemataNativeChecks` — passou.
+  - `swift build --disable-sandbox --product HypomnemataMacApp` — passou.
+- **Status**: Sprint 5 concluída.
 
 ### 2026-04-21 — Bun não instalado; usando npm por ora
 - Decisão 9 (`bun`) permanece, mas no momento da primeira sessão o `bun` não estava instalado no sistema (só `npm 11.12.1` e `node 25.9.0`).

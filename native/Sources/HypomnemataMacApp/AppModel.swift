@@ -676,6 +676,14 @@ final class AppModel: ObservableObject {
                     ) {
                         completedJobKinds.insert(.generateThumbnail)
                     }
+                    if plan.jobs.contains(.runOCR),
+                       try runOCRIfSupported(
+                           for: stored.record,
+                           itemID: createdItem.id,
+                           originalFilename: filePayload.originalFilename
+                       ) {
+                        completedJobKinds.insert(.runOCR)
+                    }
                 } catch {
                     try? assetStore.remove(record: stored.record)
                     try? repository.deleteItems(ids: [createdItem.id])
@@ -890,6 +898,46 @@ final class AppModel: ObservableObject {
             return true
         } catch {
             try? assetStore.remove(record: storedThumbnail.record)
+            throw error
+        }
+    }
+
+    private func runOCRIfSupported(
+        for originalRecord: AssetRecord,
+        itemID: String,
+        originalFilename: String
+    ) throws -> Bool {
+        guard let repository, let assetStore else {
+            return false
+        }
+        let sourceURL = try assetStore.decryptToTemporaryFile(record: originalRecord)
+        let extractedText: String
+        do {
+            extractedText = try NativeOCRExtractor()
+                .extractText(from: sourceURL, mimeType: originalRecord.mimeType)
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+        } catch is NativeOCRError {
+            return false
+        }
+
+        guard !extractedText.isEmpty else {
+            return true
+        }
+
+        _ = try repository.patchItem(id: itemID, patch: ItemPatch(bodyText: extractedText))
+        let baseName = (originalFilename as NSString).deletingPathExtension
+        let storedText = try assetStore.write(
+            data: Data(extractedText.utf8),
+            itemID: itemID,
+            role: .derivedText,
+            originalFilename: "\(baseName)-ocr.txt",
+            mimeType: "text/plain; charset=utf-8"
+        )
+        do {
+            try repository.insertAsset(storedText.record)
+            return true
+        } catch {
+            try? assetStore.remove(record: storedText.record)
             throw error
         }
     }

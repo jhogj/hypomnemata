@@ -495,6 +495,18 @@ struct HypomnemataNativeChecks {
             // Expected: only images, PDFs and videos have native thumbnails here.
         }
 
+        let pdfURL = root.appendingPathComponent("ocr-source.pdf")
+        try makePDF(text: "Texto OCR nativo verificavel").write(to: pdfURL)
+        let pdfText = try NativeOCRExtractor().extractText(from: pdfURL, mimeType: "application/pdf")
+        precondition(pdfText.localizedCaseInsensitiveContains("Texto OCR nativo"))
+
+        do {
+            _ = try NativeOCRExtractor().extractText(from: unsupportedURL, mimeType: "text/plain")
+            preconditionFailure("Text file was accepted for OCR.")
+        } catch NativeOCRError.unsupportedAsset {
+            // Expected: OCR is limited to images and PDFs in the native app.
+        }
+
         try store.remove(record: stored.record)
         precondition(!FileManager.default.fileExists(atPath: stored.absoluteURL.path))
         do {
@@ -521,6 +533,32 @@ struct HypomnemataNativeChecks {
             throw ThumbnailGenerationError.encodingFailed
         }
         return data
+    }
+
+    private static func makePDF(text: String) throws -> Data {
+        let data = NSMutableData()
+        guard let consumer = CGDataConsumer(data: data) else {
+            throw ThumbnailGenerationError.encodingFailed
+        }
+        var mediaBox = CGRect(x: 0, y: 0, width: 612, height: 792)
+        guard let context = CGContext(consumer: consumer, mediaBox: &mediaBox, nil) else {
+            throw ThumbnailGenerationError.encodingFailed
+        }
+
+        context.beginPDFPage(nil)
+        NSGraphicsContext.saveGraphicsState()
+        NSGraphicsContext.current = NSGraphicsContext(cgContext: context, flipped: false)
+        (text as NSString).draw(
+            at: CGPoint(x: 72, y: 680),
+            withAttributes: [
+                .font: NSFont.systemFont(ofSize: 24),
+                .foregroundColor: NSColor.black,
+            ]
+        )
+        NSGraphicsContext.restoreGraphicsState()
+        context.endPDFPage()
+        context.closePDF()
+        return data as Data
     }
 
     private static func checkPerformance() throws {
