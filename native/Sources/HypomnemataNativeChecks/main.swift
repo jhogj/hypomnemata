@@ -123,6 +123,49 @@ struct HypomnemataNativeChecks {
             TagCount(name: "platao", count: 1),
         ])
 
+        let patchedItem = try repository.patchItem(
+            id: item.id,
+            patch: ItemPatch(
+                title: "Ética socrática",
+                note: "Maiêutica",
+                bodyText: "Virtude e conhecimento caminham juntos.",
+                tags: ["etica", "filosofia"]
+            )
+        )
+        let patchedSearchIDs = try repository.search("maieutica").map(\.id)
+        let patchedTagCounts = try repository.tagCounts()
+        precondition(patchedItem.title == "Ética socrática")
+        precondition(patchedItem.note == "Maiêutica")
+        precondition(patchedItem.bodyText == "Virtude e conhecimento caminham juntos.")
+        precondition(patchedItem.tags == ["etica", "filosofia"])
+        precondition(patchedSearchIDs == [item.id])
+        precondition(patchedTagCounts == [
+            TagCount(name: "dev", count: 1),
+            TagCount(name: "etica", count: 1),
+            TagCount(name: "filosofia", count: 2),
+            TagCount(name: "platao", count: 1),
+        ])
+
+        try repository.deleteItems(ids: [bookmark.id])
+        do {
+            _ = try repository.item(id: bookmark.id)
+            preconditionFailure("Deleted item was still readable.")
+        } catch DataError.itemNotFound {
+            // Expected: deleted items are not readable.
+        }
+        let postDeleteCounts = try repository.itemCountsByKind()
+        let postDeleteTagCounts = try repository.tagCounts()
+        let postDeleteFolders = try repository.listFolders()
+        let postDeleteTotalItemCount = try repository.totalItemCount()
+        precondition(postDeleteTotalItemCount == 2)
+        precondition(postDeleteCounts[.bookmark] == 0)
+        precondition(postDeleteTagCounts == [
+            TagCount(name: "etica", count: 1),
+            TagCount(name: "filosofia", count: 2),
+            TagCount(name: "platao", count: 1),
+        ])
+        precondition(postDeleteFolders == [Folder(id: folder.id, name: "Estudos", itemCount: 2, createdAt: folder.createdAt)])
+
         let firstAssetKey = try database.loadOrCreateAssetKeyData()
         let secondAssetKey = try database.loadOrCreateAssetKeyData()
         precondition(firstAssetKey.count == 32)

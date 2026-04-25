@@ -24,6 +24,8 @@ reference while the native app is built out.
 - Native library sidebar backed by repository queries
 - Combined filters for type, tag, folder, and FTS5 search
 - Sidebar counts for total items, item kinds, tags, folders, and encrypted asset storage
+- Native list/grid switcher for library items
+- Basic item detail sheet with title, tags, note, body text editing, and individual delete
 
 ## External commands expected in product builds
 
@@ -43,15 +45,16 @@ CLANG_MODULE_CACHE_PATH=/tmp/hypo-clang-cache SWIFTPM_HOME=/tmp/hypo-swiftpm-cac
 ```
 
 `HypomnemataNativeChecks` opens a real SQLCipher database, exercises CRUD,
-FTS5, dependency checks, combined filters, folder queries, persistent asset
-keys, AES-GCM asset encryption, temporary cache cleanup, SQLCipher rekey,
-old-passphrase rejection, and then verifies that system `sqlite3` cannot read
-the vault. The app path requires SQLCipher by default and fails closed when it
-is unavailable.
+FTS5, edit/delete flows, dependency checks, combined filters, folder queries,
+persistent asset keys, AES-GCM asset encryption, temporary cache cleanup,
+SQLCipher rekey, old-passphrase rejection, and then verifies that system
+`sqlite3` cannot read the vault. The app path requires SQLCipher by default and
+fails closed when it is unavailable.
 
 ## Sprint status
 
 - Sprint 0: complete.
 - Sprint 1: complete as of 2026-04-25.
 - Sprint 2.1/2.2: complete as of 2026-04-25.
-- Next step: Sprint 2.3, list/grid and basic item detail.
+- Sprint 2.3: complete as of 2026-04-25.
+- Next step: Sprint 2.4, full capture CRUD and encrypted assets.

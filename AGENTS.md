@@ -20,9 +20,9 @@
 ## Status atual
 
 - **Onda**: 1 (MVP), 2, 3 entregues. Onda 4 (busca semântica) adiada. Onda 5 (Polimento) em andamento.
-- **Rewrite nativo**: Sprint 0 e Sprint 1 entregues. Sprint 2 em andamento; primeira rodada concluída em 2026-04-25.
-- **Última sessão**: 2026-04-25 — Sprint 2.1/2.2: queries da biblioteca + sidebar nativa real.
-- **Próxima tarefa**: Sprint 2.3 — Lista/Grid e Detalhe Básico. Timeline segue como ideia aprovada para o app legado/web.
+- **Rewrite nativo**: Sprint 0 e Sprint 1 entregues. Sprint 2 em andamento; segunda rodada concluída em 2026-04-25.
+- **Última sessão**: 2026-04-25 — Sprint 2.3: Lista/Grid e Detalhe Básico.
+- **Próxima tarefa**: Sprint 2.4 — Captura CRUD completa e assets criptografados. Timeline segue como ideia aprovada para o app legado/web.
 
 ### Deps externas necessárias (além do `uv sync`)
 | Ferramenta | Uso | Instalação |
@@ -171,6 +171,29 @@ python3.12 -m mlx_lm server --model mlx-community/gemma-4-e2b-it-4bit --port 808
   - `swift run --disable-sandbox HypomnemataNativeChecks` — passou.
   - `swift build --disable-sandbox --product HypomnemataMacApp` — passou.
 - **Status**: primeira rodada da Sprint 2 concluída. Próxima rodada: Sprint 2.3 — Lista/Grid e Detalhe Básico.
+
+### 2026-04-25 — Sprint 2.3: Lista/Grid e Detalhe Básico
+- **Implementado em `AppModel`**:
+  - `LibraryViewMode` com modos `list` e `grid`;
+  - `selectedItem` para abrir detalhe em sheet;
+  - `openDetail(_:)`, `saveItem(...)` e `deleteItem(_:)`;
+  - salvar item atualiza título, nota, texto e tags via `SQLiteItemRepository.patchItem`;
+  - excluir item usa `deleteItems(ids:)`, limpa seleção e atualiza biblioteca/sidebar.
+- **Implementado em SwiftUI**:
+  - controle segmentado Lista/Grid no header;
+  - `ItemListView` com linhas clicáveis;
+  - `ItemGridView` com `LazyVGrid` adaptativo e cards compactos;
+  - `ItemDetailSheet` editável com título, fonte read-only, tags, nota e texto;
+  - delete individual com confirmação;
+  - helpers visuais para ícone de tipo, tags e título de fallback.
+- **Checks ampliados**:
+  - `patchItem` atualiza título/nota/texto/tags;
+  - FTS5 reflete edição;
+  - delete individual remove item, atualiza contagens por tipo, tags e total.
+- **Validação rodada**:
+  - `swift run --disable-sandbox HypomnemataNativeChecks` — passou.
+  - `swift build --disable-sandbox --product HypomnemataMacApp` — passou.
+- **Status**: segunda rodada da Sprint 2 concluída. Próxima rodada: Sprint 2.4 — Captura CRUD completa e assets criptografados.
 
 ### 2026-04-21 — Bun não instalado; usando npm por ora
 - Decisão 9 (`bun`) permanece, mas no momento da primeira sessão o `bun` não estava instalado no sistema (só `npm 11.12.1` e `node 25.9.0`).

@@ -5,6 +5,31 @@ import HypomnemataData
 import HypomnemataIngestion
 import HypomnemataMedia
 
+enum LibraryViewMode: String, CaseIterable, Identifiable {
+    case list
+    case grid
+
+    var id: String { rawValue }
+
+    var displayName: String {
+        switch self {
+        case .list:
+            "Lista"
+        case .grid:
+            "Grid"
+        }
+    }
+
+    var systemImage: String {
+        switch self {
+        case .list:
+            "list.bullet"
+        case .grid:
+            "square.grid.2x2"
+        }
+    }
+}
+
 @MainActor
 final class AppModel: ObservableObject {
     enum VaultState: Equatable {
@@ -19,6 +44,8 @@ final class AppModel: ObservableObject {
     @Published var activeTag: String?
     @Published var activeFolderID: String?
     @Published var query = ""
+    @Published var viewMode: LibraryViewMode = .list
+    @Published var selectedItem: Item?
     @Published var showCapture = false
     @Published var showChangePassword = false
     @Published var dependencyStatuses: [DependencyStatus] = []
@@ -137,6 +164,8 @@ final class AppModel: ObservableObject {
         activeTag = nil
         activeFolderID = nil
         items = []
+        selectedItem = nil
+        viewMode = .list
         kindCounts = Dictionary(uniqueKeysWithValues: ItemKind.allCases.map { ($0, 0) })
         tagCounts = []
         folders = []
@@ -239,6 +268,57 @@ final class AppModel: ObservableObject {
 
     func count(for kind: ItemKind) -> Int {
         kindCounts[kind, default: 0]
+    }
+
+    func openDetail(_ item: Item) {
+        selectedItem = item
+        recordUserActivity()
+    }
+
+    func saveItem(
+        id: String,
+        title: String,
+        note: String,
+        bodyText: String,
+        tags: [String]
+    ) -> String? {
+        guard let repository else {
+            return "Vault não está desbloqueado."
+        }
+        do {
+            let updated = try repository.patchItem(
+                id: id,
+                patch: ItemPatch(
+                    title: title.trimmingCharacters(in: .whitespacesAndNewlines),
+                    note: note.trimmingCharacters(in: .whitespacesAndNewlines),
+                    bodyText: bodyText.trimmingCharacters(in: .whitespacesAndNewlines),
+                    tags: tags
+                )
+            )
+            selectedItem = updated
+            refreshLibrary()
+            recordUserActivity()
+            return nil
+        } catch {
+            return error.localizedDescription
+        }
+    }
+
+    func deleteItem(_ item: Item) -> String? {
+        guard let repository else {
+            return "Vault não está desbloqueado."
+        }
+        do {
+            try repository.deleteItems(ids: [item.id])
+            if selectedItem?.id == item.id {
+                selectedItem = nil
+            }
+            refreshLibrary()
+            recordUserActivity()
+            return nil
+        } catch {
+            return error.localizedDescription
+        }
     }
 
     func createCapture(_ draft: CaptureDraft) {

@@ -18,6 +18,9 @@ struct RootView: View {
                 .sheet(isPresented: $model.showChangePassword) {
                     ChangePasswordSheet()
                 }
+                .sheet(item: $model.selectedItem) { item in
+                    ItemDetailSheet(item: item)
+                }
         }
     }
 }
@@ -74,7 +77,7 @@ struct LibraryShellView: View {
                 SearchHeaderView()
                 ActiveFilterBar()
                 Divider()
-                ItemListView(items: model.items)
+                LibraryContentView(items: model.items)
             }
         }
     }
@@ -282,6 +285,15 @@ struct SearchHeaderView: View {
                 Label("Nova captura", systemImage: "plus")
             }
             .keyboardShortcut("k", modifiers: [.command])
+
+            Picker("Visualização", selection: $model.viewMode) {
+                ForEach(LibraryViewMode.allCases) { mode in
+                    Label(mode.displayName, systemImage: mode.systemImage)
+                        .tag(mode)
+                }
+            }
+            .pickerStyle(.segmented)
+            .frame(width: 150)
         }
         .padding()
     }
@@ -345,7 +357,8 @@ struct FilterChip: View {
     }
 }
 
-struct ItemListView: View {
+struct LibraryContentView: View {
+    @EnvironmentObject private var model: AppModel
     var items: [Item]
 
     var body: some View {
@@ -356,35 +369,325 @@ struct ItemListView: View {
                 description: Text("Crie uma captura por URL, arquivo ou texto.")
             )
         } else {
-            List(items) { item in
+            switch model.viewMode {
+            case .list:
+                ItemListView(items: items)
+            case .grid:
+                ItemGridView(items: items)
+            }
+        }
+    }
+}
+
+struct ItemListView: View {
+    var items: [Item]
+
+    var body: some View {
+        List(items) { item in
+            ItemRowView(item: item)
+        }
+    }
+}
+
+struct ItemGridView: View {
+    var items: [Item]
+
+    private let columns = [
+        GridItem(.adaptive(minimum: 220, maximum: 340), spacing: 12, alignment: .top),
+    ]
+
+    var body: some View {
+        ScrollView {
+            LazyVGrid(columns: columns, alignment: .leading, spacing: 12) {
+                ForEach(items) { item in
+                    ItemGridCardView(item: item)
+                }
+            }
+            .padding(14)
+        }
+    }
+}
+
+struct ItemRowView: View {
+    @EnvironmentObject private var model: AppModel
+    var item: Item
+
+    var body: some View {
+        Button {
+            model.openDetail(item)
+        } label: {
+            HStack(alignment: .top, spacing: 12) {
+                KindIcon(kind: item.kind)
                 VStack(alignment: .leading, spacing: 6) {
-                    HStack {
-                        Text(item.title ?? item.sourceURL ?? item.kind.rawValue)
+                    HStack(alignment: .firstTextBaseline) {
+                        Text(item.displayTitle)
                             .font(.headline)
+                            .foregroundStyle(.primary)
+                            .lineLimit(1)
                         Spacer()
                         Text(item.kind.rawValue)
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
-                    if let sourceURL = item.sourceURL, !sourceURL.isEmpty {
+                    if let sourceURL = item.nonEmptySourceURL {
                         Text(sourceURL)
                             .font(.caption)
                             .lineLimit(1)
                             .foregroundStyle(.secondary)
                     }
-                    if let note = item.note, !note.isEmpty {
+                    if let note = item.nonEmptyNote {
                         Text(note)
                             .lineLimit(2)
                             .foregroundStyle(.secondary)
+                    } else if let bodyText = item.nonEmptyBodyText {
+                        Text(bodyText)
+                            .lineLimit(2)
+                            .foregroundStyle(.secondary)
                     }
-                    if !item.tags.isEmpty {
-                        Text(item.tags.map { "#\($0)" }.joined(separator: " "))
-                            .font(.caption)
-                            .foregroundStyle(.tertiary)
+                    TagLine(tags: item.tags)
+                }
+            }
+            .padding(.vertical, 6)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+struct ItemGridCardView: View {
+    @EnvironmentObject private var model: AppModel
+    var item: Item
+
+    var body: some View {
+        Button {
+            model.openDetail(item)
+        } label: {
+            VStack(alignment: .leading, spacing: 10) {
+                HStack {
+                    KindIcon(kind: item.kind)
+                    Spacer()
+                    Text(item.kind.rawValue)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                Text(item.displayTitle)
+                    .font(.headline)
+                    .foregroundStyle(.primary)
+                    .lineLimit(2)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+
+                if let note = item.nonEmptyNote {
+                    Text(note)
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(4)
+                } else if let bodyText = item.nonEmptyBodyText {
+                    Text(bodyText)
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(4)
+                } else if let sourceURL = item.nonEmptySourceURL {
+                    Text(sourceURL)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(2)
+                }
+
+                Spacer(minLength: 0)
+                TagLine(tags: item.tags)
+            }
+            .padding(12)
+            .frame(minHeight: 150, alignment: .topLeading)
+            .background(.background, in: RoundedRectangle(cornerRadius: 8))
+            .overlay {
+                RoundedRectangle(cornerRadius: 8)
+                    .stroke(.quaternary)
+            }
+            .contentShape(RoundedRectangle(cornerRadius: 8))
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+struct ItemDetailSheet: View {
+    @EnvironmentObject private var model: AppModel
+    @Environment(\.dismiss) private var dismiss
+
+    var item: Item
+
+    @State private var title: String
+    @State private var note: String
+    @State private var bodyText: String
+    @State private var tags: String
+    @State private var errorMessage: String?
+    @State private var showDeleteConfirmation = false
+
+    init(item: Item) {
+        self.item = item
+        _title = State(initialValue: item.title ?? "")
+        _note = State(initialValue: item.note ?? "")
+        _bodyText = State(initialValue: item.bodyText ?? "")
+        _tags = State(initialValue: item.tags.joined(separator: ", "))
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(spacing: 10) {
+                KindIcon(kind: item.kind)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Detalhe")
+                        .font(.title2.bold())
+                    Text(item.id)
+                        .font(.caption.monospaced())
+                        .foregroundStyle(.secondary)
+                }
+                Spacer()
+            }
+            .padding([.horizontal, .top], 22)
+            .padding(.bottom, 14)
+
+            Divider()
+
+            ScrollView {
+                VStack(alignment: .leading, spacing: 14) {
+                    DetailFieldLabel("Título")
+                    TextField("Sem título", text: $title)
+                        .textFieldStyle(.roundedBorder)
+
+                    if let sourceURL = item.nonEmptySourceURL {
+                        DetailFieldLabel("Fonte")
+                        Text(sourceURL)
+                            .font(.callout)
+                            .foregroundStyle(.secondary)
+                            .textSelection(.enabled)
+                    }
+
+                    DetailFieldLabel("Etiquetas")
+                    TextField("separadas por vírgula", text: $tags)
+                        .textFieldStyle(.roundedBorder)
+
+                    DetailFieldLabel("Nota")
+                    TextEditor(text: $note)
+                        .frame(minHeight: 110)
+                        .overlay {
+                            RoundedRectangle(cornerRadius: 6).stroke(.quaternary)
+                        }
+
+                    DetailFieldLabel("Texto")
+                    TextEditor(text: $bodyText)
+                        .frame(minHeight: 170)
+                        .overlay {
+                            RoundedRectangle(cornerRadius: 6).stroke(.quaternary)
+                        }
+
+                    if let errorMessage {
+                        Text(errorMessage)
+                            .font(.callout)
+                            .foregroundStyle(.red)
                     }
                 }
-                .padding(.vertical, 5)
+                .padding(22)
             }
+
+            Divider()
+
+            HStack {
+                Button(role: .destructive) {
+                    showDeleteConfirmation = true
+                } label: {
+                    Label("Excluir", systemImage: "trash")
+                }
+
+                Spacer()
+
+                Button("Cancelar") {
+                    dismiss()
+                }
+                Button {
+                    save()
+                } label: {
+                    Label("Salvar", systemImage: "checkmark")
+                }
+                .keyboardShortcut(.defaultAction)
+            }
+            .padding(16)
+        }
+        .frame(width: 680, height: 640)
+        .confirmationDialog(
+            "Excluir este item?",
+            isPresented: $showDeleteConfirmation,
+            titleVisibility: .visible
+        ) {
+            Button("Excluir", role: .destructive) {
+                delete()
+            }
+            Button("Cancelar", role: .cancel) {}
+        } message: {
+            Text("Esta ação remove o item da biblioteca.")
+        }
+    }
+
+    private func save() {
+        let parsedTags = tags
+            .split(separator: ",")
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+        if let message = model.saveItem(
+            id: item.id,
+            title: title,
+            note: note,
+            bodyText: bodyText,
+            tags: parsedTags
+        ) {
+            errorMessage = message
+        } else {
+            dismiss()
+        }
+    }
+
+    private func delete() {
+        if let message = model.deleteItem(item) {
+            errorMessage = message
+        } else {
+            dismiss()
+        }
+    }
+}
+
+struct DetailFieldLabel: View {
+    var text: String
+
+    init(_ text: String) {
+        self.text = text
+    }
+
+    var body: some View {
+        Text(text)
+            .font(.caption.weight(.semibold))
+            .foregroundStyle(.secondary)
+    }
+}
+
+struct KindIcon: View {
+    var kind: ItemKind
+
+    var body: some View {
+        Image(systemName: kind.systemImage)
+            .font(.system(size: 15, weight: .semibold))
+            .foregroundStyle(.secondary)
+            .frame(width: 28, height: 28)
+            .background(.quaternary, in: RoundedRectangle(cornerRadius: 6))
+    }
+}
+
+struct TagLine: View {
+    var tags: [String]
+
+    var body: some View {
+        if !tags.isEmpty {
+            Text(tags.map { "#\($0)" }.joined(separator: " "))
+                .font(.caption)
+                .foregroundStyle(.tertiary)
+                .lineLimit(2)
         }
     }
 }
@@ -396,6 +699,36 @@ private func formatBytes(_ bytes: Int64) -> String {
     formatter.includesUnit = true
     formatter.includesCount = true
     return formatter.string(fromByteCount: bytes)
+}
+
+private extension Item {
+    var displayTitle: String {
+        for candidate in [title, sourceURL, note, bodyText] {
+            if let value = candidate?.trimmingCharacters(in: .whitespacesAndNewlines), !value.isEmpty {
+                return value
+            }
+        }
+        return kind.rawValue
+    }
+
+    var nonEmptySourceURL: String? {
+        sourceURL?.trimmedNonEmpty
+    }
+
+    var nonEmptyNote: String? {
+        note?.trimmedNonEmpty
+    }
+
+    var nonEmptyBodyText: String? {
+        bodyText?.trimmedNonEmpty
+    }
+}
+
+private extension String {
+    var trimmedNonEmpty: String? {
+        let trimmed = trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+    }
 }
 
 private extension ItemKind {
