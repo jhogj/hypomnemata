@@ -189,7 +189,7 @@ public struct FFmpegVideoOptimizer: VideoOptimizer {
 
         let group = DispatchGroup()
         let queue = DispatchQueue(label: "hypomnemata.video-optimizer.io", attributes: .concurrent)
-        let stderrBox = LockedVideoDataBox()
+        let stderrBox = LockedDataBox()
         let cancelBox = LockedBoolBox()
 
         try process.run()
@@ -346,22 +346,5 @@ private final class LockedBoolBox: @unchecked Sendable {
         lock.lock()
         defer { lock.unlock() }
         return storedValue
-    }
-}
-
-private final class LockedVideoDataBox: @unchecked Sendable {
-    private let lock = NSLock()
-    private var value = Data()
-
-    func set(_ data: Data) {
-        lock.lock()
-        value = data
-        lock.unlock()
-    }
-
-    func data() -> Data {
-        lock.lock()
-        defer { lock.unlock() }
-        return value
     }
 }

@@ -139,7 +139,7 @@ public struct SubprocessRunner: Sendable {
     }
 }
 
-private final class LockedDataBox: @unchecked Sendable {
+final class LockedDataBox: @unchecked Sendable {
     private let lock = NSLock()
     private var value = Data()
 
