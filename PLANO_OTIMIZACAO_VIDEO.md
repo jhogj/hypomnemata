@@ -2,7 +2,7 @@
 
 > **Convenção**: este documento é spec viva. Eu (Claude) atualizo conforme avanço; Codex implementa cada sprint. Sprints só podem rodar em ordem. Cada sprint tem critérios de aceite verificáveis.
 > **Status global**: 📝 não iniciado · 🚧 em progresso · ✅ entregue · 🛑 bloqueado
-> **Última atualização**: 2026-04-26 (Sprint 2 entregue)
+> **Última atualização**: 2026-04-26 (Sprint 3 entregue)
 
 ---
 
@@ -113,7 +113,7 @@ Esse é o comando-base. Vamos parametrizar `crf=28`, `preset=slow`, `audio_bitra
 
 ---
 
-### Sprint 3 — UI: botão, modal de progresso, integração com Job system 📝
+### Sprint 3 — UI: botão, modal de progresso, integração com Job system ✅
 **Objetivo**: tornar a feature acessível pelo usuário no DetailModal. Status visível, cancel funcional, comparação após sucesso.
 
 **Entregas**:
@@ -195,3 +195,4 @@ Nenhuma no momento. Se surgir durante a implementação (especialmente sobre o c
 - **2026-04-26**: criação. Decisões D1–D10 fechadas com usuário. Plano com 4 sprints definido. Aguardando início da Sprint 1 (Codex).
 - **2026-04-26**: Sprint 1 entregue. `FFmpegVideoOptimizer` criado com `ffprobe`, `ffmpeg -progress pipe:1`, parser de `out_time_ms` e cancelamento por `SIGTERM`; checks reais com fixture MP4, validação por `ffprobe` e cancelamento passaram.
 - **2026-04-26**: Sprint 2 entregue. `AssetRecord.optimizedAt`, migration `v2_asset_optimized_at`, persistência no `SQLiteItemRepository` e `VideoOptimizationService` headless implementados. Serviço faz decrypt temporário, otimização, D4 quando output não reduz, re-encrypt com mesmo `AssetRecord.id`, update da row, remoção do blob antigo e cleanup de temp. Checks cobrem sucesso real, D4 e falha sem alteração do asset.
+- **2026-04-26**: Sprint 3 entregue. `JobKind.optimizeVideo` adicionado; job é manual e não entra no runner automático pós-captura. A decisão preliminar do broadcaster foi substituída por `AppModel.optimizationState`, que publica progresso/cancelamento por item e mantém estado ao fechar/reabrir a sheet na sessão. Detail mostra botão, progresso real, cancelar, sucesso com comparação, D4 e erro com retry. Checks/build passaram.

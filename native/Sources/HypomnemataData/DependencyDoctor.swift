@@ -42,6 +42,11 @@ public struct DependencyDoctor: Sendable {
             installCommand: "brew install ffmpeg"
         ),
         DependencyRequirement(
+            executable: "ffprobe",
+            purpose: "Leitura de duração de vídeos para progresso da otimização",
+            installCommand: "brew install ffmpeg"
+        ),
+        DependencyRequirement(
             executable: "yt-dlp",
             purpose: "Download de YouTube, Vimeo e tweets com vídeo",
             installCommand: "brew install yt-dlp"
@@ -151,6 +156,8 @@ public struct JobDependencyResolver: Sendable {
             ["yt-dlp", "ffmpeg"]
         case .generateThumbnail:
             ["ffmpeg", "gallery-dl"]
+        case .optimizeVideo:
+            ["ffmpeg", "ffprobe"]
         case .runOCR, .summarize, .autotag:
             []
         }

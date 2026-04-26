@@ -1270,6 +1270,15 @@ struct ItemDetailSheet: View {
                         )
                     }
 
+                    if let optimizationAsset = optimizableVideoAsset ?? statefulOptimizationAsset {
+                        VideoOptimizationControl(
+                            state: model.optimizationState[item.id],
+                            originalBytes: optimizationAsset.byteCount,
+                            onStart: { startVideoOptimization(assetID: optimizationAsset.id) },
+                            onCancel: { model.cancelVideoOptimization(for: item.id) }
+                        )
+                    }
+
                     DetailFieldLabel("Título")
                     TextField("Sem título", text: $title)
                         .textFieldStyle(.roundedBorder)
@@ -1412,6 +1421,27 @@ struct ItemDetailSheet: View {
             || bodyText != (baselineItem.bodyText ?? "")
     }
 
+    private var optimizableVideoAsset: AssetRecord? {
+        let result = model.optimizableVideoAsset(for: item)
+        return result.0
+    }
+
+    private var statefulOptimizationAsset: AssetRecord? {
+        guard model.optimizationState[item.id] != nil else {
+            return nil
+        }
+        return assetPreviews.first { preview in
+            isVideoPreviewRecord(preview.record)
+        }?.record
+    }
+
+    private func isVideoPreviewRecord(_ record: AssetRecord) -> Bool {
+        let filenameExtension = (record.originalFilename as NSString?)?.pathExtension.lowercased() ?? ""
+        return record.role == .original
+            && (record.mimeType?.lowercased().hasPrefix("video/") == true
+                || ["mp4", "mov", "m4v"].contains(filenameExtension))
+    }
+
     private func applyItemUpdate(_ updatedItem: Item) {
         let changedItem = updatedItem.id != baselineItem.id
         if changedItem || !hasUnsavedEdits {
@@ -1487,6 +1517,14 @@ struct ItemDetailSheet: View {
 
     private func retryJob(_ job: Job) {
         if let message = model.retryJob(job) {
+            errorMessage = message
+        }
+        loadJobs()
+        startJobRefreshIfNeeded()
+    }
+
+    private func startVideoOptimization(assetID: String) {
+        if let message = model.startVideoOptimization(for: item, assetID: assetID) {
             errorMessage = message
         }
         loadJobs()
@@ -1741,6 +1779,78 @@ struct JobStatusList: View {
     }
 }
 
+struct VideoOptimizationControl: View {
+    var state: OptimizationState?
+    var originalBytes: Int64
+    var onStart: () -> Void
+    var onCancel: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            switch state {
+            case let .running(progress, _):
+                HStack {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("Otimizando vídeo... \(Int((progress * 100).rounded()))%")
+                            .font(.callout.weight(.medium))
+                        ProgressView(value: progress)
+                            .frame(maxWidth: .infinity)
+                    }
+                    Button {
+                        onCancel()
+                    } label: {
+                        Label("Cancelar", systemImage: "xmark.circle")
+                    }
+                    .controlSize(.small)
+                }
+            case let .succeeded(beforeBytes, afterBytes):
+                Label(successText(beforeBytes: beforeBytes, afterBytes: afterBytes), systemImage: "checkmark.circle.fill")
+                    .font(.callout.weight(.medium))
+                    .foregroundStyle(.green)
+            case let .alreadyOptimized(bytes):
+                Label("Este vídeo já está bem otimizado, mantido o original (\(formatBytes(bytes))).", systemImage: "checkmark.circle")
+                    .font(.callout.weight(.medium))
+                    .foregroundStyle(.secondary)
+            case let .failed(message):
+                HStack(alignment: .top) {
+                    Label("Erro ao otimizar: \(message)", systemImage: "exclamationmark.triangle.fill")
+                        .font(.callout)
+                        .foregroundStyle(.red)
+                    Spacer()
+                    Button {
+                        onStart()
+                    } label: {
+                        Label("Otimizar vídeo", systemImage: "arrow.down.right.and.arrow.up.left")
+                    }
+                    .controlSize(.small)
+                }
+            case .idle, .none:
+                Button {
+                    onStart()
+                } label: {
+                    Label("Otimizar vídeo", systemImage: "arrow.down.right.and.arrow.up.left")
+                }
+                .help("Otimizar vídeo")
+            }
+        }
+        .padding(10)
+        .background(
+            RoundedRectangle(cornerRadius: 6)
+                .fill(.quaternary.opacity(0.35))
+        )
+    }
+
+    private func successText(beforeBytes: Int64, afterBytes: Int64) -> String {
+        let saved = max(beforeBytes - afterBytes, 0)
+        let percent = beforeBytes > 0 ? Int((Double(saved) / Double(beforeBytes) * 100).rounded()) : 0
+        return "Vídeo otimizado: \(formatBytes(beforeBytes)) → \(formatBytes(afterBytes)) (-\(percent)%)"
+    }
+
+    private func formatBytes(_ bytes: Int64) -> String {
+        ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file)
+    }
+}
+
 struct JobStatusRow: View {
     var job: Job
     var onRetry: (Job) -> Void
@@ -1826,6 +1936,7 @@ struct JobStatusRow: View {
         case .scrapeArticle: "Extrair artigo"
         case .downloadMedia: "Baixar mídia"
         case .generateThumbnail: "Gerar miniatura"
+        case .optimizeVideo: "Otimizar vídeo"
         case .runOCR: "Extrair texto (OCR)"
         case .summarize: "Gerar resumo (IA)"
         case .autotag: "Sugerir etiquetas (IA)"

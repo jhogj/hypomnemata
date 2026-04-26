@@ -54,8 +54,33 @@ struct AssetPreview: Identifiable, Equatable {
     var displayName: String
 }
 
+final class OptimizationCancelToken: @unchecked Sendable {
+    private let lock = NSLock()
+    private var cancelled = false
+
+    var isCancelled: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return cancelled
+    }
+
+    func cancel() {
+        lock.lock()
+        cancelled = true
+        lock.unlock()
+    }
+}
+
+enum OptimizationState {
+    case idle
+    case running(progress: Double, cancelToken: OptimizationCancelToken)
+    case succeeded(beforeBytes: Int64, afterBytes: Int64)
+    case alreadyOptimized(bytes: Int64)
+    case failed(message: String)
+}
+
 @MainActor
-final class AppModel: ObservableObject {
+final class AppModel: ObservableObject, @unchecked Sendable {
     enum VaultState: Equatable {
         case locked
         case unlocked
@@ -83,6 +108,7 @@ final class AppModel: ObservableObject {
     @Published var storageBytes: Int64 = 0
     @Published var itemThumbnailURLs: [String: URL] = [:]
     @Published var runningJobIDs: Set<String> = []
+    @Published var optimizationState: [String: OptimizationState] = [:]
 
     private var database: NativeDatabase?
     private var repository: SQLiteItemRepository?
@@ -214,6 +240,7 @@ final class AppModel: ObservableObject {
         storageBytes = 0
         itemThumbnailURLs = [:]
         runningJobIDs = []
+        optimizationState = [:]
         detailVideoStartTimes = [:]
         showCapture = false
         showChangePassword = false
@@ -522,6 +549,56 @@ final class AppModel: ObservableObject {
         detailVideoStartTimes.removeValue(forKey: item.id)
     }
 
+    func optimizableVideoAsset(for item: Item) -> (AssetRecord?, String?) {
+        guard let repository else {
+            return (nil, "Vault não está desbloqueado.")
+        }
+        do {
+            let records = try repository.assets(forItemID: item.id)
+            guard item.kind == .video || item.kind == .tweet else {
+                return (nil, nil)
+            }
+            return (records.first { VideoOptimizationService.isVideoAsset($0) && $0.optimizedAt == nil }, nil)
+        } catch {
+            return (nil, error.localizedDescription)
+        }
+    }
+
+    func startVideoOptimization(for item: Item, assetID: String) -> String? {
+        guard let repository else {
+            return "Vault não está desbloqueado."
+        }
+        guard !isOptimizationRunning(for: item.id) else {
+            return nil
+        }
+        do {
+            guard let record = try repository.assets(forItemID: item.id).first(where: { $0.id == assetID }) else {
+                return "Asset de vídeo não encontrado para otimização."
+            }
+            guard record.optimizedAt == nil else {
+                return "Este vídeo já foi otimizado."
+            }
+            let job = Job(
+                itemID: item.id,
+                kind: .optimizeVideo,
+                payloadJSON: try Self.assetPayloadJSON(assetID: record.id)
+            )
+            try repository.insertJobs([job])
+            recordUserActivity()
+            runVideoOptimization(item: item, record: record, job: job)
+            return nil
+        } catch {
+            return error.localizedDescription
+        }
+    }
+
+    func cancelVideoOptimization(for itemID: String) {
+        guard case let .running(_, token) = optimizationState[itemID] else {
+            return
+        }
+        token.cancel()
+    }
+
     func linkedItems(from item: Item) -> ([ItemSummary], String?) {
         guard let repository else {
             return ([], "Vault não está desbloqueado.")
@@ -804,6 +881,24 @@ final class AppModel: ObservableObject {
         guard let repository, let itemID = job.itemID else {
             return "Vault não está desbloqueado."
         }
+        if job.kind == .optimizeVideo {
+            guard let assetID = Self.assetID(fromPayload: job.payloadJSON) else {
+                return "Tarefa de otimização sem asset associado."
+            }
+            do {
+                let item = try repository.item(id: itemID)
+                guard let record = try repository.assets(forItemID: itemID).first(where: { $0.id == assetID }) else {
+                    return "Asset de vídeo não encontrado para otimização."
+                }
+                try repository.incrementJobAttempts(id: job.id)
+                try repository.updateJobStatus(id: job.id, status: .pending, error: nil)
+                recordUserActivity()
+                runVideoOptimization(item: item, record: record, job: job)
+                return nil
+            } catch {
+                return error.localizedDescription
+            }
+        }
         guard JobAutomation.canRun(job.kind) else {
             return "Esta tarefa não tem executor disponível ainda."
         }
@@ -835,6 +930,7 @@ final class AppModel: ObservableObject {
         do {
             pendingJobs = try repository.jobs(forItemID: itemID).filter { job in
                 job.status == .pending
+                    && Self.isAutomatedJobKind(job.kind)
                     && JobAutomation.canRun(job.kind)
                     && !runningJobIDs.contains(job.id)
             }
@@ -879,7 +975,16 @@ final class AppModel: ObservableObject {
         switch kind {
         case .summarize, .autotag:
             true
-        case .scrapeArticle, .downloadMedia, .generateThumbnail, .runOCR:
+        case .scrapeArticle, .downloadMedia, .generateThumbnail, .optimizeVideo, .runOCR:
+            false
+        }
+    }
+
+    private static func isAutomatedJobKind(_ kind: JobKind) -> Bool {
+        switch kind {
+        case .summarize, .autotag, .scrapeArticle, .downloadMedia, .generateThumbnail:
+            true
+        case .optimizeVideo, .runOCR:
             false
         }
     }
@@ -918,6 +1023,93 @@ final class AppModel: ObservableObject {
         }
         refreshOpenedItemIfMatches(itemID)
         refreshStorageUsage()
+    }
+
+    private func runVideoOptimization(item: Item, record: AssetRecord, job: Job) {
+        guard let repository, let assetStore else {
+            optimizationState[item.id] = .failed(message: "Vault não está desbloqueado.")
+            return
+        }
+        guard !isOptimizationRunning(for: item.id) else {
+            return
+        }
+        let token = OptimizationCancelToken()
+        let itemID = item.id
+        let jobID = job.id
+        let updateProgress: @Sendable (Double) -> Void = { [weak self, token, itemID] progress in
+            Task { @MainActor [weak self, token, itemID] in
+                guard case let .running(_, currentToken) = self?.optimizationState[itemID],
+                      currentToken === token else {
+                    return
+                }
+                self?.optimizationState[itemID] = .running(
+                    progress: progress,
+                    cancelToken: currentToken
+                )
+            }
+        }
+        optimizationState[item.id] = .running(progress: 0, cancelToken: token)
+        runningJobIDs.insert(jobID)
+        refreshOpenedItemIfMatches(itemID)
+
+        Task { [weak self, repository, assetStore] in
+            do {
+                try repository.updateJobStatus(id: jobID, status: .running, error: nil)
+                let service = VideoOptimizationService(repository: repository, assetStore: assetStore)
+                let outcome = try await service.optimizeVideoAsset(
+                    record: record,
+                    optimizer: FFmpegVideoOptimizer(),
+                    progress: updateProgress,
+                    isCancelled: { token.isCancelled }
+                )
+                try repository.updateJobStatus(id: jobID, status: .done, error: nil)
+                await MainActor.run {
+                    self?.applyOptimizationOutcome(outcome, itemID: itemID, jobID: jobID)
+                }
+            } catch VideoOptimizationError.cancelled {
+                try? repository.updateJobStatus(id: jobID, status: .failed, error: "Otimização cancelada.")
+                await MainActor.run {
+                    self?.optimizationState[itemID] = .idle
+                    self?.runningJobIDs.remove(jobID)
+                    self?.refreshOpenedItemIfMatches(itemID)
+                }
+            } catch {
+                let message = Self.optimizationErrorMessage(for: error)
+                try? repository.updateJobStatus(id: jobID, status: .failed, error: message)
+                await MainActor.run {
+                    self?.optimizationState[itemID] = .failed(message: message)
+                    self?.runningJobIDs.remove(jobID)
+                    self?.refreshOpenedItemIfMatches(itemID)
+                }
+            }
+        }
+    }
+
+    private func applyOptimizationOutcome(_ outcome: OptimizeOutcome, itemID: String, jobID: String) {
+        switch outcome {
+        case let .optimized(originalBytes, newBytes, _):
+            optimizationState[itemID] = .succeeded(beforeBytes: originalBytes, afterBytes: newBytes)
+        case let .alreadyOptimized(originalBytes, _):
+            optimizationState[itemID] = .alreadyOptimized(bytes: originalBytes)
+        }
+        runningJobIDs.remove(jobID)
+        refreshOpenedItemIfMatches(itemID)
+        refreshStorageUsage()
+        refreshItemThumbnails(for: items)
+    }
+
+    private func isOptimizationRunning(for itemID: String) -> Bool {
+        if case .running = optimizationState[itemID] {
+            return true
+        }
+        return false
+    }
+
+    private static func optimizationErrorMessage(for error: Error) -> String {
+        if let localized = (error as? LocalizedError)?.errorDescription {
+            return "Falha recuperável de otimização: \(localized)"
+        }
+        return "Falha recuperável de otimização: \(error.localizedDescription)"
     }
 
     private func applyOutcome(_ outcome: JobAutomationOutcome, to item: Item) throws {
@@ -1246,6 +1438,23 @@ final class AppModel: ObservableObject {
         }
         let data = try JSONSerialization.data(withJSONObject: payload, options: [.sortedKeys])
         return String(data: data, encoding: .utf8)
+    }
+
+    private static func assetPayloadJSON(assetID: String) throws -> String {
+        let data = try JSONSerialization.data(withJSONObject: ["asset_id": assetID], options: [.sortedKeys])
+        return String(data: data, encoding: .utf8) ?? #"{"asset_id":"\#(assetID)"}"#
+    }
+
+    private static func assetID(fromPayload payloadJSON: String?) -> String? {
+        guard
+            let payloadJSON,
+            let data = payloadJSON.data(using: .utf8),
+            let object = try? JSONSerialization.jsonObject(with: data),
+            let payload = object as? [String: Any]
+        else {
+            return nil
+        }
+        return payload["asset_id"] as? String
     }
 
     private func makeItemAIService() throws -> ItemAIService {

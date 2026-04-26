@@ -30,6 +30,7 @@ public enum JobKind: String, Codable, CaseIterable, Sendable {
     case scrapeArticle
     case downloadMedia
     case generateThumbnail
+    case optimizeVideo
     case runOCR
     case summarize
     case autotag

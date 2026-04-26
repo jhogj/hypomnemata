@@ -415,6 +415,7 @@ struct HypomnemataNativeChecks {
         precondition(JobAutomation.canRun(.scrapeArticle))
         precondition(JobAutomation.canRun(.downloadMedia))
         precondition(JobAutomation.canRun(.generateThumbnail))
+        precondition(JobAutomation.canRun(.optimizeVideo))
         precondition(!JobAutomation.canRun(.runOCR))
 
         let summaryAutomation = JobAutomation(
@@ -1397,7 +1398,7 @@ struct HypomnemataNativeChecks {
         precondition(!FileManager.default.fileExists(atPath: decryptedTemp.path))
 
         let tools = DependencyDoctor.productionRequirements.map(\.executable)
-        precondition(tools == ["sqlcipher", "ffmpeg", "yt-dlp", "gallery-dl", "trafilatura"])
+        precondition(tools == ["sqlcipher", "ffmpeg", "ffprobe", "yt-dlp", "gallery-dl", "trafilatura"])
 
         do {
             try database.changePassphrase(to: "")
