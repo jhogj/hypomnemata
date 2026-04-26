@@ -103,6 +103,14 @@ struct HypomnemataNativeChecks {
         ).missingDependencyError(for: .runOCR)
         precondition(nativeOCRDependencyError == nil)
 
+        let missingVideoOptimizerTools = VideoOptimizationRequirements.missingDependencyMessage(
+            doctor: DependencyDoctor(
+                environment: ["PATH": "/tmp/hypomnemata-no-tools"],
+                includeDefaultSearchPaths: false
+            )
+        )
+        precondition(missingVideoOptimizerTools?.contains("Instale ffmpeg via Homebrew") == true)
+
         let subprocess = SubprocessRunner(environment: ["PATH": "/bin:/usr/bin"])
         let subprocessResult = try subprocess.run(
             executable: "sh",

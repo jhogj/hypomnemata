@@ -603,14 +603,7 @@ final class AppModel: ObservableObject, @unchecked Sendable {
     }
 
     func videoOptimizationDependencyMessage() -> String? {
-        let doctor = DependencyDoctor()
-        let missing = ["ffmpeg", "ffprobe"].filter { executable in
-            doctor.status(for: executable)?.isInstalled != true
-        }
-        guard !missing.isEmpty else {
-            return nil
-        }
-        return "Instale ffmpeg via Homebrew para usar esta funcionalidade."
+        VideoOptimizationRequirements.missingDependencyMessage()
     }
 
     func cancelVideoOptimization(for itemID: String) {
@@ -1130,7 +1123,7 @@ final class AppModel: ObservableObject, @unchecked Sendable {
         return false
     }
 
-    private static func optimizationErrorMessage(for error: Error) -> String {
+    nonisolated private static func optimizationErrorMessage(for error: Error) -> String {
         if let localized = (error as? LocalizedError)?.errorDescription {
             return "Falha recuperável de otimização: \(localized)"
         }
@@ -1926,7 +1919,14 @@ final class AppModel: ObservableObject, @unchecked Sendable {
     private func runStartupRecovery(repository: SQLiteItemRepository, assetStore: EncryptedAssetStore) {
         cleanupOrphanOptimizationTempFiles()
         recoverInterruptedOptimizationJobs(repository: repository)
-        cleanupOrphanEncryptedBlobs(repository: repository, assetStore: assetStore)
+        let logger = optimizationLogger
+        Task.detached(priority: .utility) {
+            AppModel.cleanupOrphanEncryptedBlobs(
+                repository: repository,
+                assetStore: assetStore,
+                logger: logger
+            )
+        }
     }
 
     private func cleanupOrphanOptimizationTempFiles(fileManager: FileManager = .default) {
@@ -1940,13 +1940,21 @@ final class AppModel: ObservableObject, @unchecked Sendable {
     }
 
     private func recoverInterruptedOptimizationJobs(repository: SQLiteItemRepository) {
-        try? repository.markRunningJobsFailed(
-            kind: .optimizeVideo,
-            error: "App reiniciado durante a otimização."
-        )
+        do {
+            try repository.markRunningJobsFailed(
+                kind: .optimizeVideo,
+                error: "App reiniciado durante a otimização."
+            )
+        } catch {
+            optimizationLogger.error("optimizeVideo recovery failed: \(error.localizedDescription, privacy: .public)")
+        }
     }
 
-    private func cleanupOrphanEncryptedBlobs(repository: SQLiteItemRepository, assetStore: EncryptedAssetStore) {
+    nonisolated private static func cleanupOrphanEncryptedBlobs(
+        repository: SQLiteItemRepository,
+        assetStore: EncryptedAssetStore,
+        logger: Logger
+    ) {
         do {
             let referencedPaths = Set(try repository.allAssets().map(\.encryptedPath))
             let cutoff = Date().addingTimeInterval(-60 * 60)
@@ -1958,7 +1966,7 @@ final class AppModel: ObservableObject, @unchecked Sendable {
                 try? assetStore.removeEncryptedBlob(at: orphan)
             }
         } catch {
-            optimizationLogger.error("optimizeVideo janitor failed: \(error.localizedDescription, privacy: .public)")
+            logger.error("optimizeVideo janitor failed: \(error.localizedDescription, privacy: .public)")
         }
     }
 

@@ -199,7 +199,9 @@ CLANG_MODULE_CACHE_PATH=/tmp/hypo-clang-cache SWIFTPM_HOME=/tmp/hypo-swiftpm-cac
 ### 2026-04-26 — Otimização de vídeo sob demanda Sprint 4
 - **Recovery**: ao desbloquear o vault, `AppModel` remove arquivos temporários `hypomnemata-optimize-*`, marca jobs `optimizeVideo` que ficaram `running` como `failed` com "App reiniciado durante a otimização.", e roda janitor de blobs órfãos antigos.
 - **Janitor**: `EncryptedAssetStore.findOrphanEncryptedBlobs(referencedPaths:olderThan:)` cruza arquivos `.hasset` no diretório de assets com `SQLiteItemRepository.allAssets()`. Só remove órfãos com mais de 1h para evitar corrida com escrita em andamento.
+- **Performance de unlock**: janitor de blobs roda em `Task.detached(priority: .utility)` após o unlock; limpeza de temps e recovery de jobs continuam síncronos porque são rápidos.
 - **Validação pré-execução**: antes de iniciar otimização, `AppModel` exige `ffmpeg`/`ffprobe` e espaço livre >= 2x o tamanho do vídeo. Sem dependência, o botão aparece desabilitado com tooltip "Instale ffmpeg via Homebrew para usar esta funcionalidade."
+- **Checagens revisadas**: `record.byteCount` é tamanho plaintext, então `byteCount * 2` é a base correta para validar espaço. O janitor varre todos os `.hasset`, não só blobs de otimização; isso é intencional porque qualquer blob sem row em `assets` é órfão.
 - **Log**: sucesso/D4 emite log estruturado `optimizeVideo` com `item_id`, bytes antes/depois, duração, tempo de ffmpeg e ratio.
 - **Validação**: `swift build --product HypomnemataMacApp` e `swift run HypomnemataNativeChecks` passaram em 2026-04-26. Checks cobrem recovery de job running, `allAssets()` e janitor de órfãos antigos preservando órfãos recentes.
 - **Resultado**: `PLANO_OTIMIZACAO_VIDEO.md` fechado nas quatro sprints.
