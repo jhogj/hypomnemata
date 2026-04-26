@@ -473,6 +473,24 @@ struct HypomnemataNativeChecks {
         precondition(media.durationSeconds == 42)
         precondition(media.subtitles.first?.originalFilename == "video.pt.vtt")
 
+        let tweetWithoutVideoAutomation = JobAutomation(
+            mediaDownloader: FakeMediaDownloader(
+                error: MediaDownloadError.outputNotFound,
+                expectedURL: "https://x.com/user/status/sem-video"
+            )
+        )
+        let tweetWithoutVideo = Item(
+            kind: .tweet,
+            sourceURL: "https://x.com/user/status/sem-video",
+            title: nil,
+            bodyText: nil,
+            tags: []
+        )
+        let tweetWithoutVideoOutcome = try await tweetWithoutVideoAutomation.run(.downloadMedia, on: tweetWithoutVideo)
+        guard case .skipped = tweetWithoutVideoOutcome else {
+            preconditionFailure("Tweet sem arquivo de vídeo deve virar skipped, não failed permanente.")
+        }
+
         do {
             _ = try await mediaAutomation.run(.downloadMedia, on: articleURLEmpty)
             preconditionFailure("downloadMedia deve falhar quando o item não tem URL.")
@@ -610,6 +628,9 @@ struct HypomnemataNativeChecks {
             },
             fetchData: { url in
                 if url.contains("publish.twitter.com/oembed") {
+                    let components = URLComponents(string: url)
+                    let queryURL = components?.queryItems?.first(where: { $0.name == "url" })?.value
+                    precondition(queryURL == "https://x.com/user/status/3?foo=bar&x=y")
                     let json = #"{"html":"<blockquote><img src=\"https://pbs.twimg.com/media/fallback.jpg\"></blockquote>"}"#
                     return (Data(json.utf8), "application/json")
                 }
@@ -617,7 +638,7 @@ struct HypomnemataNativeChecks {
                 return (Data([0xFF, 0xD8, 0xFF, 0xD9]), "image/jpeg")
             }
         )
-        let oembedResult = try await oembedStub.fetchThumbnail(url: "https://x.com/user/status/3")
+        let oembedResult = try await oembedStub.fetchThumbnail(url: "https://x.com/user/status/3?foo=bar&x=y")
         precondition(oembedResult.originalFilename == "fallback.jpg")
         precondition(oembedResult.mimeType == "image/jpeg")
 
@@ -1195,7 +1216,7 @@ struct HypomnemataNativeChecks {
         let store = try EncryptedAssetStore(
             rootDirectory: root.appendingPathComponent("assets", isDirectory: true),
             cacheDirectory: root.appendingPathComponent("cache", isDirectory: true),
-            keyData: EncryptedAssetStore.generateKeyData()
+            keyData: try EncryptedAssetStore.generateKeyData()
         )
 
         let plaintext = Data("conteúdo sensível".utf8)
@@ -1419,12 +1440,28 @@ private struct FakePageRenderer: JSPageRenderer {
 }
 
 private struct FakeMediaDownloader: MediaDownloader {
-    var result: MediaDownloadResult
+    var result: MediaDownloadResult?
+    var error: Error?
     var expectedURL: String
+
+    init(result: MediaDownloadResult, expectedURL: String) {
+        self.result = result
+        self.error = nil
+        self.expectedURL = expectedURL
+    }
+
+    init(error: Error, expectedURL: String) {
+        self.result = nil
+        self.error = error
+        self.expectedURL = expectedURL
+    }
 
     func download(url: String) async throws -> MediaDownloadResult {
         precondition(url == expectedURL)
-        return result
+        if let error {
+            throw error
+        }
+        return result!
     }
 }
 

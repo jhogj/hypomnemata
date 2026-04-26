@@ -97,8 +97,12 @@ public struct JobAutomation: Sendable {
             guard !trimmedURL.isEmpty else {
                 throw JobAutomationError.missingSourceURL
             }
-            let result = try await mediaDownloader.download(url: trimmedURL)
-            return .mediaDownloaded(result)
+            do {
+                let result = try await mediaDownloader.download(url: trimmedURL)
+                return .mediaDownloaded(result)
+            } catch MediaDownloadError.outputNotFound where item.kind == .tweet {
+                return .skipped(reason: "Tweet sem vídeo local; miniatura remota será usada quando disponível.")
+            }
         case .generateThumbnail:
             guard let remoteThumbnailFetcher else {
                 throw JobAutomationError.missingExecutor(kind)

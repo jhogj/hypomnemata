@@ -1071,6 +1071,14 @@ final class AppModel: ObservableObject {
         guard let repository, let assetStore else {
             return
         }
+        let existingAssets = try repository.assets(forItemID: item.id)
+        if existingAssets.contains(where: { $0.role == .thumbnail }) {
+            if let sourceURL = result.sourceURL {
+                let metadata = try remoteThumbnailMetadataJSON(sourceURL: sourceURL)
+                _ = try repository.patchItem(id: item.id, patch: ItemPatch(metadataJSON: metadata))
+            }
+            return
+        }
         let storedSource = try assetStore.write(
             data: result.data,
             itemID: item.id,

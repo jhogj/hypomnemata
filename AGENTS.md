@@ -151,6 +151,13 @@ CLANG_MODULE_CACHE_PATH=/tmp/hypo-clang-cache SWIFTPM_HOME=/tmp/hypo-swiftpm-cac
 - **Correção**: captura com OCR planejado sempre consome `.runOCR` no caminho síncrono e insere o job já `done`, extraindo texto quando possível e nunca deixando pendência sem executor.
 - **Validação**: `swift build --product HypomnemataMacApp` e `swift run HypomnemataNativeChecks` passaram em 2026-04-26. Checks cobrem remoção explícita de rows de asset para suportar rollback.
 
+### 2026-04-26 — Mitigação P2 da revisão de ingestão
+- **Tweets**: `downloadMedia` em tweet sem arquivo de vídeo agora vira `.skipped` quando o downloader termina sem mídia; `generateThumbnail` continua cobrindo foto remota. `applyRemoteThumbnailResult` não cria outra miniatura quando o item já tem thumbnail local, evitando duplicação após vídeo baixado.
+- **oEmbed**: fallback de tweet passou a montar `publish.twitter.com/oembed` com `URLComponents`/`URLQueryItem`, preservando URLs com `?`, `&` e outros caracteres reservados.
+- **Detalhe**: `ItemDetailSheet` agora mantém um snapshot base e só atualiza campos com mudanças de background quando não há edição local suja; assets/jobs/chat continuam recarregando.
+- **Chave de assets**: `EncryptedAssetStore.generateKeyData()` virou `throws` e valida o retorno de `SecRandomCopyBytes`, alinhando a API pública ao caminho de produção do vault.
+- **Validação**: `swift build --product HypomnemataMacApp` e `swift run HypomnemataNativeChecks` passaram em 2026-04-26. Checks cobrem tweet sem vídeo como skipped, query oEmbed com caracteres reservados e geração falhável de chave.
+
 ### 2026-04-25 — Resumo em streaming na sheet de detalhe (Sprint 7.3)
 - **Decisão**: `ItemAIService` ganha `streamSummary(context:)` que retorna `AsyncThrowingStream<String, Error>` reaproveitando exatamente os mesmos `summaryMessages(for:)` do `summarize` síncrono — só muda o transporte (`streamChat` no lugar de `complete`). Isso garante que o resumo gerado pelo botão e o resumo gerado pelos jobs de background convergem para o mesmo prompt.
 - **Camada de app**: `AppModel.streamSummary(title:note:bodyText:onChunk:)` segue o mesmo desenho de `sendChatMessage` — recupera serviço, faz `for try await chunk in stream`, acumula localmente e devolve a string final consolidada (também trim/empty-check). Erros viram mensagem via `LLMRecoverableErrorMapper`. `JobAutomation` continua usando `summarize` síncrono — sem mudança de comportamento em jobs.

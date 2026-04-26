@@ -102,10 +102,17 @@ public struct GalleryDLThumbnailFetcher: RemoteThumbnailFetcher {
     }
 
     private func fetchOEmbedThumbnail(url: String) async throws -> RemoteThumbnailResult {
-        guard let encodedURL = url.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) else {
+        var components = URLComponents()
+        components.scheme = "https"
+        components.host = "publish.twitter.com"
+        components.path = "/oembed"
+        components.queryItems = [
+            URLQueryItem(name: "omit_script", value: "true"),
+            URLQueryItem(name: "url", value: url),
+        ]
+        guard let oembedURL = components.url?.absoluteString else {
             throw RemoteThumbnailError.invalidOEmbed("URL inválida")
         }
-        let oembedURL = "https://publish.twitter.com/oembed?omit_script=true&url=\(encodedURL)"
         let (jsonData, _) = try await fetchData(oembedURL)
         let imageURL = try Self.thumbnailURL(fromOEmbedJSON: jsonData)
         let (imageData, mime) = try await fetchData(imageURL)

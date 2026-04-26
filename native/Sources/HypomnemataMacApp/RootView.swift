@@ -1098,6 +1098,7 @@ struct ItemDetailSheet: View {
     @State private var note: String
     @State private var bodyText: String
     @State private var tags: String
+    @State private var baselineItem: Item
     @State private var itemFolders: [Folder] = []
     @State private var linkedItems: [ItemSummary] = []
     @State private var backlinks: [ItemSummary] = []
@@ -1125,6 +1126,7 @@ struct ItemDetailSheet: View {
         _note = State(initialValue: item.note ?? "")
         _bodyText = State(initialValue: item.bodyText ?? "")
         _tags = State(initialValue: item.tags.joined(separator: ", "))
+        _baselineItem = State(initialValue: item)
     }
 
     var body: some View {
@@ -1216,6 +1218,9 @@ struct ItemDetailSheet: View {
         }
         .onChange(of: model.runningJobIDs) { _, _ in
             loadJobs()
+        }
+        .onChange(of: item) { _, updatedItem in
+            applyItemUpdate(updatedItem)
         }
         .confirmationDialog(
             "Limpar a conversa deste item?",
@@ -1436,6 +1441,28 @@ struct ItemDetailSheet: View {
             loadOrganization()
             dismiss()
         }
+    }
+
+    private var hasUnsavedEdits: Bool {
+        title != (baselineItem.title ?? "")
+            || summary != (baselineItem.summary ?? "")
+            || note != (baselineItem.note ?? "")
+            || bodyText != (baselineItem.bodyText ?? "")
+            || parsedTags() != baselineItem.tags
+    }
+
+    private func applyItemUpdate(_ updatedItem: Item) {
+        let changedItem = updatedItem.id != baselineItem.id
+        if changedItem || !hasUnsavedEdits {
+            title = updatedItem.title ?? ""
+            summary = updatedItem.summary ?? ""
+            note = updatedItem.note ?? ""
+            bodyText = updatedItem.bodyText ?? ""
+            tags = updatedItem.tags.joined(separator: ", ")
+            baselineItem = updatedItem
+        }
+        loadOrganization()
+        loadChatHistory()
     }
 
     private func generateSummary() {

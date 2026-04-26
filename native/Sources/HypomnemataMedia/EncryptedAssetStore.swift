@@ -7,6 +7,7 @@ public enum MediaError: LocalizedError, Equatable {
     case invalidKeyLength(Int)
     case missingCombinedCiphertext
     case assetNotFound(String)
+    case randomGenerationFailed(OSStatus)
 
     public var errorDescription: String? {
         switch self {
@@ -16,6 +17,8 @@ public enum MediaError: LocalizedError, Equatable {
             "CryptoKit não retornou ciphertext combinado."
         case let .assetNotFound(path):
             "Asset não encontrado: \(path)"
+        case let .randomGenerationFailed(status):
+            "Falha ao gerar chave aleatória de assets (SecRandomCopyBytes status \(status))."
         }
     }
 }
@@ -53,9 +56,12 @@ public final class EncryptedAssetStore: @unchecked Sendable {
         try fileManager.createDirectory(at: cacheDirectory, withIntermediateDirectories: true)
     }
 
-    public static func generateKeyData() -> Data {
+    public static func generateKeyData() throws -> Data {
         var bytes = [UInt8](repeating: 0, count: 32)
-        _ = SecRandomCopyBytes(kSecRandomDefault, bytes.count, &bytes)
+        let status = SecRandomCopyBytes(kSecRandomDefault, bytes.count, &bytes)
+        guard status == errSecSuccess else {
+            throw MediaError.randomGenerationFailed(status)
+        }
         return Data(bytes)
     }
 
