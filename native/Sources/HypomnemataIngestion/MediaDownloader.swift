@@ -160,9 +160,8 @@ public struct YTDLPMediaDownloader: MediaDownloader {
             ytDLPPath,
             [
                 "--no-warnings",
-                "-f", "bv*[ext=mp4]+ba[ext=m4a]/bv*+ba/b[ext=mp4]/b",
+                "-f", "bv*[vcodec^=avc1]+ba[ext=m4a]/b[vcodec^=avc1][acodec!=none]/b[ext=mp4][vcodec^=avc1]",
                 "--merge-output-format", "mp4",
-                "--remux-video", "mp4",
                 "-o", "%(title).200B [%(id)s].%(ext)s",
                 url,
             ],

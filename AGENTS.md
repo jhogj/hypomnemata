@@ -160,7 +160,7 @@ CLANG_MODULE_CACHE_PATH=/tmp/hypo-clang-cache SWIFTPM_HOME=/tmp/hypo-swiftpm-cac
 
 ### 2026-04-26 — YouTube com áudio sem vídeo + extração de áudio
 - **Bug**: URL de YouTube podia resultar em mídia sem faixa de vídeo porque `yt-dlp` escolhia formato sem `-f`; `--merge-output-format mp4` não força seleção de vídeo+áudio.
-- **Correção**: `YTDLPMediaDownloader` agora usa modo explícito. Modo vídeo roda `-f bv*[ext=mp4]+ba[ext=m4a]/bv*+ba/b[ext=mp4]/b`, `--merge-output-format mp4` e `--remux-video mp4`, forçando melhor combinação de vídeo+áudio disponível.
+- **Correção**: `YTDLPMediaDownloader` agora usa modo explícito. Modo vídeo roda seletor estrito H.264/AAC (`bv*[vcodec^=avc1]+ba[ext=m4a]/b[vcodec^=avc1][acodec!=none]/b[ext=mp4][vcodec^=avc1]`) e `--merge-output-format mp4`, sem `--remux-video`. Isso evita salvar `.mp4` com VP9/AV1 que o AVPlayer toca só como áudio.
 - **Funcionalidade**: novo `ItemKind.audio`; captura por URL ganhou toggle "Salvar mídia como áudio". Quando ativo, o item é planejado como áudio e o downloader usa `--extract-audio --audio-format m4a`, salvando asset original `audio/mp4`. Áudio aparece nos filtros e pode ser reproduzido pelo mesmo player AppKit.
 - **Validação**: `swift build --product HypomnemataMacApp` e `swift run HypomnemataNativeChecks` passaram em 2026-04-26. Checks cobrem planejamento de áudio, argumentos de vídeo+áudio do YouTube, extração m4a e dispatch de `downloadMedia` em modo áudio.
 

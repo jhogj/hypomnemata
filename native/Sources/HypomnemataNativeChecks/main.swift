@@ -550,8 +550,8 @@ struct HypomnemataNativeChecks {
                     return SubprocessResult(exitCode: 0, stdout: Data(), stderr: Data())
                 }
                 precondition(args.contains("-f"))
-                precondition(args.contains("bv*[ext=mp4]+ba[ext=m4a]/bv*+ba/b[ext=mp4]/b"))
-                precondition(args.contains("--remux-video"))
+                precondition(args.contains("bv*[vcodec^=avc1]+ba[ext=m4a]/b[vcodec^=avc1][acodec!=none]/b[ext=mp4][vcodec^=avc1]"))
+                precondition(!args.contains("--remux-video"))
                 try Data([0x00, 0x00, 0x00, 0x20, 0x66, 0x74, 0x79, 0x70]).write(
                     to: workingDirectory.appendingPathComponent("Stub Video [abc].mp4")
                 )
