@@ -838,25 +838,42 @@ final class AppModel: ObservableObject {
             return
         }
 
-        let automation: JobAutomation
+        var runnableJobs = pendingJobs
+        var service: ItemAIService?
         do {
-            automation = JobAutomation(
-                service: try makeItemAIService(),
-                articleScraper: TrafilaturaArticleScraper(renderer: WKWebViewPageRenderer()),
-                mediaDownloader: YTDLPMediaDownloader(),
-                remoteThumbnailFetcher: GalleryDLThumbnailFetcher()
-            )
+            service = pendingJobs.contains(where: { Self.requiresLLM($0.kind) })
+                ? try makeItemAIService()
+                : nil
         } catch {
             let message = LLMRecoverableErrorMapper().jobErrorMessage(for: error)
-            for job in pendingJobs {
+            for job in pendingJobs where Self.requiresLLM(job.kind) {
                 try? repository.updateJobStatus(id: job.id, status: .failed, error: message)
             }
-            refreshOpenedItemIfMatches(itemID)
-            return
+            runnableJobs.removeAll { Self.requiresLLM($0.kind) }
+            guard !runnableJobs.isEmpty else {
+                refreshOpenedItemIfMatches(itemID)
+                return
+            }
         }
 
-        for job in pendingJobs {
+        let automation = JobAutomation(
+            service: service,
+            articleScraper: TrafilaturaArticleScraper(renderer: WKWebViewPageRenderer()),
+            mediaDownloader: YTDLPMediaDownloader(),
+            remoteThumbnailFetcher: GalleryDLThumbnailFetcher()
+        )
+
+        for job in runnableJobs {
             await runSingleJob(job, itemID: itemID, automation: automation)
+        }
+    }
+
+    private static func requiresLLM(_ kind: JobKind) -> Bool {
+        switch kind {
+        case .summarize, .autotag:
+            true
+        case .scrapeArticle, .downloadMedia, .generateThumbnail, .runOCR:
+            false
         }
     }
 

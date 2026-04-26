@@ -43,12 +43,12 @@ public protocol RemoteThumbnailFetcher: Sendable {
 
 public struct GalleryDLThumbnailFetcher: RemoteThumbnailFetcher {
     private let galleryDLPath: String
-    private let runProcess: @Sendable (String, [String], URL) throws -> (Int32, Data, Data)
+    private let runProcess: @Sendable (String, [String], URL) throws -> SubprocessResult
     private let fetchData: @Sendable (String) async throws -> (Data, String?)
 
     public init(
-        galleryDLPath: String = "/opt/homebrew/bin/gallery-dl",
-        runProcess: (@Sendable (String, [String], URL) throws -> (Int32, Data, Data))? = nil,
+        galleryDLPath: String = "gallery-dl",
+        runProcess: (@Sendable (String, [String], URL) throws -> SubprocessResult)? = nil,
         fetchData: (@Sendable (String) async throws -> (Data, String?))? = nil
     ) {
         self.galleryDLPath = galleryDLPath
@@ -79,13 +79,13 @@ public struct GalleryDLThumbnailFetcher: RemoteThumbnailFetcher {
     }
 
     private func runGalleryDL(url: String, workingDirectory: URL) throws -> RemoteThumbnailResult? {
-        let (exitCode, _, stderr) = try runProcess(
+        let result = try runProcess(
             galleryDLPath,
             ["-D", workingDirectory.path, url],
             workingDirectory
         )
-        guard exitCode == 0 else {
-            throw RemoteThumbnailError.binaryFailed(exitCode: exitCode, message: stderrText(stderr))
+        guard result.exitCode == 0 else {
+            throw RemoteThumbnailError.binaryFailed(exitCode: result.exitCode, message: stderrText(result.stderr))
         }
         guard let image = try imageFiles(in: workingDirectory)
             .max(by: { $0.byteCount < $1.byteCount })?
@@ -187,20 +187,12 @@ public struct GalleryDLThumbnailFetcher: RemoteThumbnailFetcher {
     }
 
     @Sendable
-    private static func defaultRunProcess(executable: String, arguments: [String], workingDirectory: URL) throws -> (Int32, Data, Data) {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: executable)
-        process.arguments = arguments
-        process.currentDirectoryURL = workingDirectory
-        let stdoutPipe = Pipe()
-        let stderrPipe = Pipe()
-        process.standardOutput = stdoutPipe
-        process.standardError = stderrPipe
-        try process.run()
-        let stdoutData = stdoutPipe.fileHandleForReading.readDataToEndOfFile()
-        let stderrData = stderrPipe.fileHandleForReading.readDataToEndOfFile()
-        process.waitUntilExit()
-        return (process.terminationStatus, stdoutData, stderrData)
+    private static func defaultRunProcess(executable: String, arguments: [String], workingDirectory: URL) throws -> SubprocessResult {
+        try SubprocessRunner().run(
+            executable: executable,
+            arguments: arguments,
+            workingDirectory: workingDirectory
+        )
     }
 
     @Sendable

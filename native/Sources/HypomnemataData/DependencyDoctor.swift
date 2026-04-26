@@ -60,13 +60,16 @@ public struct DependencyDoctor: Sendable {
 
     private let requirements: [DependencyRequirement]
     private let environment: [String: String]
+    private let includeDefaultSearchPaths: Bool
 
     public init(
         requirements: [DependencyRequirement] = Self.productionRequirements,
-        environment: [String: String] = ProcessInfo.processInfo.environment
+        environment: [String: String] = ProcessInfo.processInfo.environment,
+        includeDefaultSearchPaths: Bool = true
     ) {
         self.requirements = requirements
         self.environment = environment
+        self.includeDefaultSearchPaths = includeDefaultSearchPaths
     }
 
     public func check() -> [DependencyStatus] {
@@ -89,14 +92,31 @@ public struct DependencyDoctor: Sendable {
     }
 
     private func locate(executable: String) -> String? {
-        let pathValue = environment["PATH"] ?? "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin"
-        for directory in pathValue.split(separator: ":").map(String.init) {
+        for directory in searchDirectories() {
             let candidate = URL(fileURLWithPath: directory).appendingPathComponent(executable).path
             if FileManager.default.isExecutableFile(atPath: candidate) {
                 return candidate
             }
         }
         return nil
+    }
+
+    private func searchDirectories() -> [String] {
+        var directories = (environment["PATH"] ?? "")
+            .split(separator: ":")
+            .map(String.init)
+        if includeDefaultSearchPaths {
+            directories.append(contentsOf: ["/opt/homebrew/bin", "/usr/local/bin", "/usr/bin", "/bin"])
+        }
+
+        var seen = Set<String>()
+        return directories.filter { directory in
+            guard !directory.isEmpty, !seen.contains(directory) else {
+                return false
+            }
+            seen.insert(directory)
+            return true
+        }
     }
 }
 

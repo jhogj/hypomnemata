@@ -69,11 +69,11 @@ public protocol MediaDownloader: Sendable {
 
 public struct YTDLPMediaDownloader: MediaDownloader {
     private let ytDLPPath: String
-    private let runProcess: @Sendable (String, [String], URL) throws -> (Int32, Data, Data)
+    private let runProcess: @Sendable (String, [String], URL) throws -> SubprocessResult
 
     public init(
-        ytDLPPath: String = "/opt/homebrew/bin/yt-dlp",
-        runProcess: (@Sendable (String, [String], URL) throws -> (Int32, Data, Data))? = nil
+        ytDLPPath: String = "yt-dlp",
+        runProcess: (@Sendable (String, [String], URL) throws -> SubprocessResult)? = nil
     ) {
         self.ytDLPPath = ytDLPPath
         self.runProcess = runProcess ?? Self.defaultRunProcess
@@ -98,19 +98,19 @@ public struct YTDLPMediaDownloader: MediaDownloader {
     }
 
     private func loadMetadata(url: String, workingDirectory: URL) throws -> Metadata {
-        let (exitCode, stdout, stderr) = try runProcess(
+        let result = try runProcess(
             ytDLPPath,
             ["--dump-json", "--no-warnings", url],
             workingDirectory
         )
-        guard exitCode == 0 else {
-            throw MediaDownloadError.binaryFailed(exitCode: exitCode, message: stderrText(stderr))
+        guard result.exitCode == 0 else {
+            throw MediaDownloadError.binaryFailed(exitCode: result.exitCode, message: stderrText(result.stderr))
         }
-        guard !stdout.isEmpty else {
+        guard !result.stdout.isEmpty else {
             return Metadata()
         }
         do {
-            let object = try JSONSerialization.jsonObject(with: stdout, options: [])
+            let object = try JSONSerialization.jsonObject(with: result.stdout, options: [])
             guard let dict = object as? [String: Any] else {
                 throw MediaDownloadError.invalidOutput("JSON sem objeto raiz")
             }
@@ -127,7 +127,7 @@ public struct YTDLPMediaDownloader: MediaDownloader {
     }
 
     private func runDownload(url: String, workingDirectory: URL) throws {
-        let (exitCode, _, stderr) = try runProcess(
+        let result = try runProcess(
             ytDLPPath,
             [
                 "--no-warnings",
@@ -137,8 +137,8 @@ public struct YTDLPMediaDownloader: MediaDownloader {
             ],
             workingDirectory
         )
-        guard exitCode == 0 else {
-            throw MediaDownloadError.binaryFailed(exitCode: exitCode, message: stderrText(stderr))
+        guard result.exitCode == 0 else {
+            throw MediaDownloadError.binaryFailed(exitCode: result.exitCode, message: stderrText(result.stderr))
         }
     }
 
@@ -238,20 +238,12 @@ public struct YTDLPMediaDownloader: MediaDownloader {
     }
 
     @Sendable
-    private static func defaultRunProcess(executable: String, arguments: [String], workingDirectory: URL) throws -> (Int32, Data, Data) {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: executable)
-        process.arguments = arguments
-        process.currentDirectoryURL = workingDirectory
-        let stdoutPipe = Pipe()
-        let stderrPipe = Pipe()
-        process.standardOutput = stdoutPipe
-        process.standardError = stderrPipe
-        try process.run()
-        let stdoutData = stdoutPipe.fileHandleForReading.readDataToEndOfFile()
-        let stderrData = stderrPipe.fileHandleForReading.readDataToEndOfFile()
-        process.waitUntilExit()
-        return (process.terminationStatus, stdoutData, stderrData)
+    private static func defaultRunProcess(executable: String, arguments: [String], workingDirectory: URL) throws -> SubprocessResult {
+        try SubprocessRunner().run(
+            executable: executable,
+            arguments: arguments,
+            workingDirectory: workingDirectory
+        )
     }
 }
 

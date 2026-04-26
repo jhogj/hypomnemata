@@ -123,6 +123,12 @@ CLANG_MODULE_CACHE_PATH=/tmp/hypo-clang-cache SWIFTPM_HOME=/tmp/hypo-swiftpm-cac
 - **Correção**: download de vídeo e download de legenda foram separados. A etapa de legenda é opcional e ignorada se falhar; vídeos em português/inglês continuam baixando mesmo sem legenda. `LLMRecoverableErrorMapper` agora rotula erros de `ArticleScrapeError`/`MediaDownloadError`/`RemoteThumbnailError` como "Falha recuperável de ingestão".
 - **Validação**: check novo simula 429 apenas na chamada `--skip-download` de legenda e exige que o `.mp4` seja retornado sem legendas.
 
+### 2026-04-25 — Crash do VideoPlayer SwiftUI
+- **Bug**: após baixar vídeo e reabrir/salvar o item, o app abortava com `failed to demangle superclass of VideoPlayerView from mangled name 'So12AVPlayerViewC'` vindo de `_AVKit_SwiftUI`.
+- **Hipótese**: bug/runtime mismatch do `VideoPlayer` SwiftUI no macOS 26.4.1 com o toolchain atual, disparado quando a UI renderiza preview inline/detalhe com vídeo local.
+- **Correção**: remover uso de `VideoPlayer` SwiftUI e usar `AppKitVideoPlayer: NSViewRepresentable` em cima de `AVPlayerView` nos três previews de vídeo (lista, grid, detalhe). Mantém `AVPlayer`, controles e continuidade de timestamp.
+- **Validação**: `swift build --product HypomnemataMacApp` e `swift run HypomnemataNativeChecks` passaram em 2026-04-25.
+
 ### 2026-04-25 — Runner de miniatura/tweet entregue (Sprint 6.6)
 - **Decisão**: `generateThumbnail` entrou em `JobAutomation.supportedKinds`. Para tweets por URL, o plano de captura agora cria `downloadMedia` e `generateThumbnail`; assim tweet com vídeo tenta baixar vídeo, e tweet com foto ainda tem caminho por `gallery-dl`/oEmbed.
 - **Implementação**: `GalleryDLThumbnailFetcher` roda `gallery-dl -D <temp> <url>` e usa a maior imagem baixada. Se `gallery-dl` falhar ou não gerar imagem, tenta `https://publish.twitter.com/oembed?omit_script=true&url=<tweet>` e baixa `thumbnail_url` ou o primeiro `img src` do HTML retornado.
@@ -130,6 +136,13 @@ CLANG_MODULE_CACHE_PATH=/tmp/hypo-clang-cache SWIFTPM_HOME=/tmp/hypo-swiftpm-cac
 - **Dependências**: `generateThumbnail` exige `ffmpeg` e `gallery-dl`; falha de dependência continua sendo job recuperável. Para uploads locais, a geração síncrona anterior continua igual.
 - **Validação**: `HypomnemataNativeChecks` cobre planejamento de tweet, `JobAutomation.canRun(.generateThumbnail)`, fetcher fake, `gallery-dl` fake gerando imagem, fallback oEmbed e build do app. `swift build --product HypomnemataMacApp` e `swift run HypomnemataNativeChecks` passaram em 2026-04-25.
 - **Resultado**: bloco 6.4–6.6 fechado; próxima frente documentada é Sprint 8.
+
+### 2026-04-26 — Mitigação P0 da revisão de ingestão
+- **Bug**: runners de `trafilatura`, `yt-dlp` e `gallery-dl` drenavam `stdout` e `stderr` em sequência e usavam paths fixos em `/opt/homebrew/bin`, abrindo risco de deadlock em saída grande e quebrando Intel Macs/Homebrew em outro prefixo.
+- **Correção**: novo `SubprocessRunner` em `HypomnemataIngestion` resolve executáveis pelo `PATH` (com fallback Homebrew/macOS) e lê `stdout`/`stderr` em paralelo. Defaults dos runners agora são `trafilatura`, `yt-dlp` e `gallery-dl`, não paths absolutos.
+- **Bug**: `AppModel.runAutomatedJobs` criava `ItemAIService` antes de qualquer job; configuração inválida de LLM marcava também jobs de ingestão como falha de IA.
+- **Correção**: `JobAutomation` aceita serviço de IA opcional; `summarize`/`autotag` ainda exigem LLM, mas `scrapeArticle`/`downloadMedia`/`generateThumbnail` rodam sem LLM. `AppModel` marca como falhos apenas os jobs de IA quando a configuração do provider quebra e continua os jobs de ingestão pendentes.
+- **Validação**: `swift build --product HypomnemataMacApp` e `swift run HypomnemataNativeChecks` passaram em 2026-04-26. Checks novos cobrem resolução por `PATH`, executável ausente e job de ingestão rodando sem serviço LLM.
 
 ### 2026-04-25 — Resumo em streaming na sheet de detalhe (Sprint 7.3)
 - **Decisão**: `ItemAIService` ganha `streamSummary(context:)` que retorna `AsyncThrowingStream<String, Error>` reaproveitando exatamente os mesmos `summaryMessages(for:)` do `summarize` síncrono — só muda o transporte (`streamChat` no lugar de `complete`). Isso garante que o resumo gerado pelo botão e o resumo gerado pelos jobs de background convergem para o mesmo prompt.

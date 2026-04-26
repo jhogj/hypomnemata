@@ -78,15 +78,38 @@ struct HypomnemataNativeChecks {
         }
 
         let missingDependencyError = JobDependencyResolver(
-            doctor: DependencyDoctor(environment: ["PATH": "/tmp/hypomnemata-no-tools"])
+            doctor: DependencyDoctor(
+                environment: ["PATH": "/tmp/hypomnemata-no-tools"],
+                includeDefaultSearchPaths: false
+            )
         ).missingDependencyError(for: .scrapeArticle)
         precondition(missingDependencyError?.contains("trafilatura") == true)
         precondition(missingDependencyError?.contains("brew install trafilatura") == true)
 
         let nativeOCRDependencyError = JobDependencyResolver(
-            doctor: DependencyDoctor(environment: ["PATH": "/tmp/hypomnemata-no-tools"])
+            doctor: DependencyDoctor(
+                environment: ["PATH": "/tmp/hypomnemata-no-tools"],
+                includeDefaultSearchPaths: false
+            )
         ).missingDependencyError(for: .runOCR)
         precondition(nativeOCRDependencyError == nil)
+
+        let subprocess = SubprocessRunner(environment: ["PATH": "/bin:/usr/bin"])
+        let subprocessResult = try subprocess.run(
+            executable: "sh",
+            arguments: ["-c", "printf stdout; printf stderr >&2"]
+        )
+        precondition(subprocessResult.exitCode == 0)
+        precondition(String(data: subprocessResult.stdout, encoding: .utf8) == "stdout")
+        precondition(String(data: subprocessResult.stderr, encoding: .utf8) == "stderr")
+
+        do {
+            _ = try SubprocessRunner(environment: ["PATH": "/tmp/hypomnemata-no-tools"])
+                .resolve(executable: "definitely-not-installed")
+            preconditionFailure("Missing executable should fail before Process.run.")
+        } catch SubprocessRunnerError.executableNotFound("definitely-not-installed") {
+            // Expected: subprocess executables are resolved through PATH.
+        }
 
         let text = "Veja [[018f73ba-9f9d-7a0d-8ac2-f28f82cf1296|Nome atual]] e texto"
         precondition(LinkParser.references(in: text) == [
@@ -253,6 +276,13 @@ struct HypomnemataNativeChecks {
         }
 
         do {
+            _ = try await JobAutomation().run(.summarize, on: articleItem)
+            preconditionFailure("summarize without configured LLM service should fail.")
+        } catch JobAutomationError.missingExecutor(.summarize) {
+            // Expected: AI jobs still require the LLM service.
+        }
+
+        do {
             _ = try await summaryAutomation.run(.scrapeArticle, on: articleItem)
             preconditionFailure("scrapeArticle without configured scraper should fail.")
         } catch JobAutomationError.missingExecutor(.scrapeArticle) {
@@ -310,6 +340,14 @@ struct HypomnemataNativeChecks {
         precondition(scraped.heroImage?.data == Data([0xFF, 0xD8, 0xFF, 0xE0]))
         precondition(scraped.heroImage?.mimeType == "image/jpeg")
 
+        let ingestionOnlyAutomation = JobAutomation(
+            articleScraper: FakeArticleScraper(result: scrapedFixture, expectedURL: "https://example.com/post")
+        )
+        let ingestionOnlyOutcome = try await ingestionOnlyAutomation.run(.scrapeArticle, on: articleURLItem)
+        guard case .articleScraped = ingestionOnlyOutcome else {
+            preconditionFailure("Ingestion jobs must run without an LLM service.")
+        }
+
         let articleURLEmpty = Item(
             kind: .article,
             sourceURL: "  ",
@@ -330,7 +368,7 @@ struct HypomnemataNativeChecks {
             imageDownloader: { _ in (Data(), nil) },
             runProcess: { _, _, _ in
                 let json = #"{"title":"Stub","text":"\#(String(repeating: "Conteudo. ", count: 30))","image":"https://example.com/stub.jpg"}"#
-                return (0, Data(json.utf8), Data())
+                return SubprocessResult(exitCode: 0, stdout: Data(json.utf8), stderr: Data())
             }
         )
         let parsedResult = try await scrapeStub.scrape(url: "https://example.com/stub")
@@ -344,7 +382,7 @@ struct HypomnemataNativeChecks {
             renderer: nil,
             imageDownloader: { _ in (Data(), nil) },
             runProcess: { _, _, _ in
-                (1, Data(), Data("erro fake".utf8))
+                SubprocessResult(exitCode: 1, stdout: Data(), stderr: Data("erro fake".utf8))
             }
         )
         do {
@@ -360,7 +398,7 @@ struct HypomnemataNativeChecks {
             imageDownloader: { _ in (Data(), nil) },
             runProcess: { _, _, _ in
                 let json = #"{"title":"X","text":"curto"}"#
-                return (0, Data(json.utf8), Data())
+                return SubprocessResult(exitCode: 0, stdout: Data(json.utf8), stderr: Data())
             }
         )
         do {
@@ -385,10 +423,10 @@ struct HypomnemataNativeChecks {
                 Task { await stdinCapture.record(stdin) }
                 if args.contains("--URL") {
                     let json = #"{"title":"shell","text":"curto"}"#
-                    return (0, Data(json.utf8), Data())
+                    return SubprocessResult(exitCode: 0, stdout: Data(json.utf8), stderr: Data())
                 }
                 let json = #"{"title":"final","text":"\#(String(repeating: "fallback ok. ", count: 40))"}"#
-                return (0, Data(json.utf8), Data())
+                return SubprocessResult(exitCode: 0, stdout: Data(json.utf8), stderr: Data())
             }
         )
         let fallbackResult = try await scrapeFallback.scrape(url: "https://spa.example.com")
@@ -447,18 +485,18 @@ struct HypomnemataNativeChecks {
             runProcess: { _, args, workingDirectory in
                 if args.contains("--dump-json") {
                     let json = #"{"title":"Stub Video","duration":12.5,"webpage_url":"https://example.com/watch"}"#
-                    return (0, Data(json.utf8), Data())
+                    return SubprocessResult(exitCode: 0, stdout: Data(json.utf8), stderr: Data())
                 }
                 if args.contains("--skip-download") {
                     try Data("WEBVTT\n".utf8).write(
                         to: workingDirectory.appendingPathComponent("Stub Video [abc].pt.vtt")
                     )
-                    return (0, Data(), Data())
+                    return SubprocessResult(exitCode: 0, stdout: Data(), stderr: Data())
                 }
                 try Data([0x00, 0x00, 0x00, 0x20, 0x66, 0x74, 0x79, 0x70]).write(
                     to: workingDirectory.appendingPathComponent("Stub Video [abc].mp4")
                 )
-                return (0, Data(), Data())
+                return SubprocessResult(exitCode: 0, stdout: Data(), stderr: Data())
             }
         )
         let downloadedResult = try await mediaStub.download(url: "https://example.com/watch")
@@ -475,15 +513,15 @@ struct HypomnemataNativeChecks {
             runProcess: { _, args, workingDirectory in
                 if args.contains("--dump-json") {
                     let json = #"{"title":"Video Sem Legenda","duration":9}"#
-                    return (0, Data(json.utf8), Data())
+                    return SubprocessResult(exitCode: 0, stdout: Data(json.utf8), stderr: Data())
                 }
                 if args.contains("--skip-download") {
-                    return (1, Data(), Data("HTTP Error 429: Too Many Requests".utf8))
+                    return SubprocessResult(exitCode: 1, stdout: Data(), stderr: Data("HTTP Error 429: Too Many Requests".utf8))
                 }
                 try Data([0x00, 0x00, 0x00, 0x20, 0x66, 0x74, 0x79, 0x70]).write(
                     to: workingDirectory.appendingPathComponent("Video Sem Legenda [xyz].mp4")
                 )
-                return (0, Data(), Data())
+                return SubprocessResult(exitCode: 0, stdout: Data(), stderr: Data())
             }
         )
         let noSubtitleResult = try await mediaSubtitle429.download(url: "https://example.com/no-subtitle")
@@ -493,7 +531,7 @@ struct HypomnemataNativeChecks {
         let mediaFail = YTDLPMediaDownloader(
             ytDLPPath: "/usr/bin/false",
             runProcess: { _, _, _ in
-                (1, Data(), Data("erro yt".utf8))
+                SubprocessResult(exitCode: 1, stdout: Data(), stderr: Data("erro yt".utf8))
             }
         )
         do {
@@ -507,9 +545,9 @@ struct HypomnemataNativeChecks {
             ytDLPPath: "/usr/bin/false",
             runProcess: { _, args, _ in
                 if args.contains("--dump-json") {
-                    return (0, Data(#"{"title":"Sem arquivo"}"#.utf8), Data())
+                    return SubprocessResult(exitCode: 0, stdout: Data(#"{"title":"Sem arquivo"}"#.utf8), stderr: Data())
                 }
-                return (0, Data(), Data())
+                return SubprocessResult(exitCode: 0, stdout: Data(), stderr: Data())
             }
         )
         do {
@@ -555,7 +593,7 @@ struct HypomnemataNativeChecks {
                 try Data([0xFF, 0xD8, 0xFF, 0xD9]).write(
                     to: workingDirectory.appendingPathComponent("gallery.jpg")
                 )
-                return (0, Data(), Data())
+                return SubprocessResult(exitCode: 0, stdout: Data(), stderr: Data())
             },
             fetchData: { _ in
                 preconditionFailure("gallery-dl success should not call oEmbed fallback.")
@@ -568,7 +606,7 @@ struct HypomnemataNativeChecks {
         let oembedStub = GalleryDLThumbnailFetcher(
             galleryDLPath: "/usr/bin/false",
             runProcess: { _, _, _ in
-                (1, Data(), Data("rate limited".utf8))
+                SubprocessResult(exitCode: 1, stdout: Data(), stderr: Data("rate limited".utf8))
             },
             fetchData: { url in
                 if url.contains("publish.twitter.com/oembed") {

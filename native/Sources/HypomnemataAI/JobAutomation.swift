@@ -31,13 +31,13 @@ public enum JobAutomationError: LocalizedError, Equatable, Sendable {
 public struct JobAutomation: Sendable {
     public static let supportedKinds: Set<JobKind> = [.summarize, .autotag, .scrapeArticle, .downloadMedia, .generateThumbnail]
 
-    private let service: ItemAIService
+    private let service: ItemAIService?
     private let articleScraper: (any ArticleScraper)?
     private let mediaDownloader: (any MediaDownloader)?
     private let remoteThumbnailFetcher: (any RemoteThumbnailFetcher)?
 
     public init(
-        service: ItemAIService,
+        service: ItemAIService? = nil,
         articleScraper: (any ArticleScraper)? = nil,
         mediaDownloader: (any MediaDownloader)? = nil,
         remoteThumbnailFetcher: (any RemoteThumbnailFetcher)? = nil
@@ -55,6 +55,9 @@ public struct JobAutomation: Sendable {
     public func run(_ kind: JobKind, on item: Item) async throws -> JobAutomationOutcome {
         switch kind {
         case .summarize:
+            guard let service else {
+                throw JobAutomationError.missingExecutor(kind)
+            }
             let context = LLMItemContext(title: item.title, note: item.note, bodyText: item.bodyText)
             do {
                 let summary = try await service.summarize(context: context)
@@ -63,6 +66,9 @@ public struct JobAutomation: Sendable {
                 return .skipped(reason: "Item sem conteúdo suficiente para resumo automático.")
             }
         case .autotag:
+            guard let service else {
+                throw JobAutomationError.missingExecutor(kind)
+            }
             guard item.tags.isEmpty else {
                 return .skipped(reason: "Item já possui etiquetas; autotag automático foi preservado.")
             }

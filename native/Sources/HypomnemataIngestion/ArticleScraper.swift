@@ -81,13 +81,13 @@ public struct TrafilaturaArticleScraper: ArticleScraper {
     private let trafilaturaPath: String
     private let renderer: JSPageRenderer?
     private let imageDownloader: @Sendable (String) async throws -> (Data, String?)
-    private let runProcess: @Sendable (String, [String], Data?) throws -> (Int32, Data, Data)
+    private let runProcess: @Sendable (String, [String], Data?) throws -> SubprocessResult
 
     public init(
-        trafilaturaPath: String = "/opt/homebrew/bin/trafilatura",
+        trafilaturaPath: String = "trafilatura",
         renderer: JSPageRenderer? = nil,
         imageDownloader: (@Sendable (String) async throws -> (Data, String?))? = nil,
-        runProcess: (@Sendable (String, [String], Data?) throws -> (Int32, Data, Data))? = nil
+        runProcess: (@Sendable (String, [String], Data?) throws -> SubprocessResult)? = nil
     ) {
         self.trafilaturaPath = trafilaturaPath
         self.renderer = renderer
@@ -146,12 +146,12 @@ public struct TrafilaturaArticleScraper: ArticleScraper {
     }
 
     private func runTrafilatura(arguments: [String], stdin: Data? = nil) throws -> ArticleScrapeResult {
-        let (exitCode, stdoutData, stderrData) = try runProcess(trafilaturaPath, arguments, stdin)
-        guard exitCode == 0 else {
-            let message = String(data: stderrData, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-            throw ArticleScrapeError.binaryFailed(exitCode: exitCode, message: message)
+        let result = try runProcess(trafilaturaPath, arguments, stdin)
+        guard result.exitCode == 0 else {
+            let message = String(data: result.stderr, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            throw ArticleScrapeError.binaryFailed(exitCode: result.exitCode, message: message)
         }
-        return try Self.parse(stdoutData)
+        return try Self.parse(result.stdout)
     }
 
     private func needsFallback(for result: ArticleScrapeResult) -> Bool {
@@ -236,25 +236,11 @@ public struct TrafilaturaArticleScraper: ArticleScraper {
     }
 
     @Sendable
-    private static func defaultRunProcess(executable: String, arguments: [String], stdin: Data?) throws -> (Int32, Data, Data) {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: executable)
-        process.arguments = arguments
-        let stdoutPipe = Pipe()
-        let stderrPipe = Pipe()
-        process.standardOutput = stdoutPipe
-        process.standardError = stderrPipe
-        if stdin != nil {
-            process.standardInput = Pipe()
-        }
-        try process.run()
-        if let stdin, let inputPipe = process.standardInput as? Pipe {
-            try inputPipe.fileHandleForWriting.write(contentsOf: stdin)
-            try inputPipe.fileHandleForWriting.close()
-        }
-        let stdoutData = stdoutPipe.fileHandleForReading.readDataToEndOfFile()
-        let stderrData = stderrPipe.fileHandleForReading.readDataToEndOfFile()
-        process.waitUntilExit()
-        return (process.terminationStatus, stdoutData, stderrData)
+    private static func defaultRunProcess(executable: String, arguments: [String], stdin: Data?) throws -> SubprocessResult {
+        try SubprocessRunner().run(
+            executable: executable,
+            arguments: arguments,
+            standardInput: stdin
+        )
     }
 }

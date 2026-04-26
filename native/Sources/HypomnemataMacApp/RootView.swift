@@ -811,7 +811,7 @@ struct ItemRowView: View {
             }
 
             if let player {
-                VideoPlayer(player: player)
+                AppKitVideoPlayer(player: player)
                     .frame(height: 220)
                     .clipShape(RoundedRectangle(cornerRadius: 8))
             }
@@ -858,7 +858,7 @@ struct ItemGridCardView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             if let player {
-                VideoPlayer(player: player)
+                AppKitVideoPlayer(player: player)
                     .frame(height: 160)
                     .clipShape(RoundedRectangle(cornerRadius: 6))
             } else if model.thumbnailURL(for: item) != nil {
@@ -1951,7 +1951,7 @@ struct VideoAssetPreview: View {
     }
 
     var body: some View {
-        VideoPlayer(player: player)
+        AppKitVideoPlayer(player: player)
             .frame(height: 320)
             .clipShape(RoundedRectangle(cornerRadius: 8))
             .overlay {
@@ -1966,6 +1966,29 @@ struct VideoAssetPreview: View {
                 player.seek(to: CMTime(seconds: startTime, preferredTimescale: 600))
                 player.play()
             }
+    }
+}
+
+struct AppKitVideoPlayer: NSViewRepresentable {
+    var player: AVPlayer
+
+    func makeNSView(context: Context) -> AVPlayerView {
+        let view = AVPlayerView()
+        view.controlsStyle = .floating
+        view.videoGravity = .resizeAspect
+        view.player = player
+        return view
+    }
+
+    func updateNSView(_ view: AVPlayerView, context: Context) {
+        if view.player !== player {
+            view.player = player
+        }
+    }
+
+    static func dismantleNSView(_ view: AVPlayerView, coordinator: ()) {
+        view.player?.pause()
+        view.player = nil
     }
 }
 
