@@ -207,11 +207,12 @@ struct SidebarView: View {
             Text(folderError ?? "")
         }
         .safeAreaInset(edge: .bottom) {
-            VStack(alignment: .leading, spacing: 8) {
+            VStack(alignment: .center, spacing: 8) {
                 Label(formatBytes(model.storageBytes), systemImage: "externaldrive")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
+                    .frame(maxWidth: .infinity, alignment: .center)
 
                 HStack(spacing: 10) {
                     Button("Trocar senha") {
@@ -225,9 +226,10 @@ struct SidebarView: View {
                     }
                     .help("Bloquear")
                 }
+                .frame(maxWidth: .infinity, alignment: .center)
             }
             .padding()
-            .frame(maxWidth: .infinity, alignment: .leading)
+            .frame(maxWidth: .infinity, alignment: .center)
             .background(.bar)
         }
     }
@@ -616,6 +618,7 @@ struct SearchHeaderView: View {
                         .tag(mode)
                 }
             }
+            .labelsHidden()
             .pickerStyle(.segmented)
             .frame(width: 150)
         }

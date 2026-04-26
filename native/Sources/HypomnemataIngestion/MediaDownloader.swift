@@ -12,6 +12,20 @@ public struct DownloadedSubtitle: Sendable, Equatable {
     }
 }
 
+public struct DownloadedMediaThumbnail: Sendable, Equatable {
+    public var data: Data
+    public var mimeType: String?
+    public var originalFilename: String
+    public var sourceURL: String
+
+    public init(data: Data, mimeType: String? = nil, originalFilename: String, sourceURL: String) {
+        self.data = data
+        self.mimeType = mimeType
+        self.originalFilename = originalFilename
+        self.sourceURL = sourceURL
+    }
+}
+
 public struct MediaDownloadResult: Sendable, Equatable {
     public enum Kind: String, Sendable {
         case video
@@ -26,6 +40,7 @@ public struct MediaDownloadResult: Sendable, Equatable {
     public var durationSeconds: Double?
     public var webpageURL: String?
     public var subtitles: [DownloadedSubtitle]
+    public var thumbnail: DownloadedMediaThumbnail?
 
     public init(
         data: Data,
@@ -35,7 +50,8 @@ public struct MediaDownloadResult: Sendable, Equatable {
         title: String? = nil,
         durationSeconds: Double? = nil,
         webpageURL: String? = nil,
-        subtitles: [DownloadedSubtitle] = []
+        subtitles: [DownloadedSubtitle] = [],
+        thumbnail: DownloadedMediaThumbnail? = nil
     ) {
         self.data = data
         self.mimeType = mimeType
@@ -45,6 +61,7 @@ public struct MediaDownloadResult: Sendable, Equatable {
         self.durationSeconds = durationSeconds
         self.webpageURL = webpageURL
         self.subtitles = subtitles
+        self.thumbnail = thumbnail
     }
 }
 
@@ -89,13 +106,16 @@ public enum MediaDownloadMode: Sendable, Equatable {
 public struct YTDLPMediaDownloader: MediaDownloader {
     private let ytDLPPath: String
     private let runProcess: @Sendable (String, [String], URL) throws -> SubprocessResult
+    private let fetchData: @Sendable (String) async throws -> (Data, String?)
 
     public init(
         ytDLPPath: String = "yt-dlp",
-        runProcess: (@Sendable (String, [String], URL) throws -> SubprocessResult)? = nil
+        runProcess: (@Sendable (String, [String], URL) throws -> SubprocessResult)? = nil,
+        fetchData: (@Sendable (String) async throws -> (Data, String?))? = nil
     ) {
         self.ytDLPPath = ytDLPPath
         self.runProcess = runProcess ?? Self.defaultRunProcess
+        self.fetchData = fetchData ?? Self.defaultFetchData
     }
 
     public func download(url: String, mode: MediaDownloadMode = .video) async throws -> MediaDownloadResult {
@@ -118,11 +138,15 @@ public struct YTDLPMediaDownloader: MediaDownloader {
         case .audio:
             try runAudioDownload(url: trimmed, workingDirectory: tempDirectory)
         }
+        let thumbnail = mode == .video
+            ? await fetchThumbnailIfAvailable(metadata.thumbnailURL)
+            : nil
         return try collectResult(
             mode: mode,
             metadata: metadata,
             sourceURL: trimmed,
-            workingDirectory: tempDirectory
+            workingDirectory: tempDirectory,
+            thumbnail: thumbnail
         )
     }
 
@@ -146,7 +170,8 @@ public struct YTDLPMediaDownloader: MediaDownloader {
             return Metadata(
                 title: trimmedNonEmpty(dict["title"] as? String),
                 durationSeconds: doubleValue(dict["duration"]),
-                webpageURL: trimmedNonEmpty(dict["webpage_url"] as? String)
+                webpageURL: trimmedNonEmpty(dict["webpage_url"] as? String),
+                thumbnailURL: thumbnailURL(from: dict)
             )
         } catch let error as MediaDownloadError {
             throw error
@@ -210,7 +235,8 @@ public struct YTDLPMediaDownloader: MediaDownloader {
         mode: MediaDownloadMode,
         metadata: Metadata,
         sourceURL: String,
-        workingDirectory: URL
+        workingDirectory: URL,
+        thumbnail: DownloadedMediaThumbnail?
     ) throws -> MediaDownloadResult {
         let files = try regularFiles(in: workingDirectory)
         guard let mediaURL = files
@@ -248,8 +274,29 @@ public struct YTDLPMediaDownloader: MediaDownloader {
             title: metadata.title,
             durationSeconds: metadata.durationSeconds,
             webpageURL: metadata.webpageURL ?? sourceURL,
-            subtitles: mode == .video ? subtitles : []
+            subtitles: mode == .video ? subtitles : [],
+            thumbnail: thumbnail
         )
+    }
+
+    private func fetchThumbnailIfAvailable(_ url: String?) async -> DownloadedMediaThumbnail? {
+        guard let url else {
+            return nil
+        }
+        do {
+            let (data, mimeType) = try await fetchData(url)
+            guard !data.isEmpty else {
+                return nil
+            }
+            return DownloadedMediaThumbnail(
+                data: data,
+                mimeType: mimeType,
+                originalFilename: Self.thumbnailFilename(from: url),
+                sourceURL: url
+            )
+        } catch {
+            return nil
+        }
     }
 
     private func regularFiles(in directory: URL) throws -> [(url: URL, byteCount: Int64)] {
@@ -310,12 +357,51 @@ public struct YTDLPMediaDownloader: MediaDownloader {
             workingDirectory: workingDirectory
         )
     }
+
+    @Sendable
+    private static func defaultFetchData(url: String) async throws -> (Data, String?) {
+        guard let target = URL(string: url) else {
+            throw MediaDownloadError.invalidOutput("URL de thumbnail inválida")
+        }
+        let (data, response) = try await URLSession.shared.data(from: target)
+        if let http = response as? HTTPURLResponse, !(200..<300).contains(http.statusCode) {
+            throw MediaDownloadError.invalidOutput("HTTP \(http.statusCode) ao baixar thumbnail")
+        }
+        let mime = (response as? HTTPURLResponse)?.value(forHTTPHeaderField: "Content-Type")
+        return (data, mime)
+    }
+
+    private static func thumbnailFilename(from url: String) -> String {
+        guard let parsed = URL(string: url) else {
+            return "media-thumbnail"
+        }
+        let lastPathComponent = parsed.lastPathComponent.trimmingCharacters(in: .whitespacesAndNewlines)
+        return lastPathComponent.isEmpty ? "media-thumbnail" : lastPathComponent
+    }
 }
 
 private struct Metadata {
     var title: String?
     var durationSeconds: Double?
     var webpageURL: String?
+    var thumbnailURL: String?
+}
+
+private func thumbnailURL(from dict: [String: Any]) -> String? {
+    if let thumbnail = trimmedNonEmpty(dict["thumbnail"] as? String) {
+        return thumbnail
+    }
+    guard let thumbnails = dict["thumbnails"] as? [[String: Any]] else {
+        return nil
+    }
+    return thumbnails
+        .compactMap { entry -> (url: String, preference: Int) in
+            let preference = (entry["preference"] as? Int) ?? 0
+            return (trimmedNonEmpty(entry["url"] as? String) ?? "", preference)
+        }
+        .filter { !$0.url.isEmpty }
+        .max { $0.preference < $1.preference }?
+        .url
 }
 
 private func doubleValue(_ value: Any?) -> Double? {

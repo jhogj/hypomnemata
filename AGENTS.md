@@ -168,6 +168,11 @@ CLANG_MODULE_CACHE_PATH=/tmp/hypo-clang-cache SWIFTPM_HOME=/tmp/hypo-swiftpm-cac
 - **Bug**: o rodapé da sidebar ficava alto demais e sobrepunha a lista de tags; o botão "Nova captura" também estava duplicado ali, apesar de já existir no cabeçalho da biblioteca.
 - **Correção**: tags foram removidas da superfície visual por enquanto (filtro lateral, campos de captura/detalhe e chips em lista/grid), preservando os dados no modelo. O rodapé agora mostra só armazenamento usado e, abaixo, "Trocar senha" ao lado do ícone de bloqueio.
 
+### 2026-04-26 — Armazenamento vivo e thumbnails do YouTube
+- **UI**: o rodapé da sidebar centraliza o armazenamento usado e os controles do vault; o seletor lista/grid não mostra mais o texto "Visualização".
+- **Armazenamento**: `AppModel` recalcula uso de assets após jobs de background e rollback/remoção de assets, não apenas quando a lista visível é recarregada.
+- **YouTube**: `YTDLPMediaDownloader` lê a URL `thumbnail` do `yt-dlp --dump-json`, baixa a imagem e entrega junto do `MediaDownloadResult`; `AppModel` salva essa imagem como thumbnail do vídeo antes do fallback por frame local.
+
 ### 2026-04-25 — Resumo em streaming na sheet de detalhe (Sprint 7.3)
 - **Decisão**: `ItemAIService` ganha `streamSummary(context:)` que retorna `AsyncThrowingStream<String, Error>` reaproveitando exatamente os mesmos `summaryMessages(for:)` do `summarize` síncrono — só muda o transporte (`streamChat` no lugar de `complete`). Isso garante que o resumo gerado pelo botão e o resumo gerado pelos jobs de background convergem para o mesmo prompt.
 - **Camada de app**: `AppModel.streamSummary(title:note:bodyText:onChunk:)` segue o mesmo desenho de `sendChatMessage` — recupera serviço, faz `for try await chunk in stream`, acumula localmente e devolve a string final consolidada (também trim/empty-check). Erros viram mensagem via `LLMRecoverableErrorMapper`. `JobAutomation` continua usando `summarize` síncrono — sem mudança de comportamento em jobs.

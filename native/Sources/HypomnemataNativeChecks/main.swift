@@ -540,7 +540,7 @@ struct HypomnemataNativeChecks {
             ytDLPPath: "/usr/bin/false",
             runProcess: { _, args, workingDirectory in
                 if args.contains("--dump-json") {
-                    let json = #"{"title":"Stub Video","duration":12.5,"webpage_url":"https://example.com/watch"}"#
+                    let json = #"{"title":"Stub Video","duration":12.5,"webpage_url":"https://example.com/watch","thumbnail":"https://img.example.com/stub.jpg"}"#
                     return SubprocessResult(exitCode: 0, stdout: Data(json.utf8), stderr: Data())
                 }
                 if args.contains("--skip-download") {
@@ -556,6 +556,10 @@ struct HypomnemataNativeChecks {
                     to: workingDirectory.appendingPathComponent("Stub Video [abc].mp4")
                 )
                 return SubprocessResult(exitCode: 0, stdout: Data(), stderr: Data())
+            },
+            fetchData: { url in
+                precondition(url == "https://img.example.com/stub.jpg")
+                return (Data([0xFF, 0xD8, 0xFF, 0xD9]), "image/jpeg")
             }
         )
         let downloadedResult = try await mediaStub.download(url: "https://example.com/watch")
@@ -566,6 +570,8 @@ struct HypomnemataNativeChecks {
         precondition(downloadedResult.originalFilename == "Stub Video [abc].mp4")
         precondition(downloadedResult.subtitles.count == 1)
         precondition(downloadedResult.subtitles[0].mimeType == "text/vtt; charset=utf-8")
+        precondition(downloadedResult.thumbnail?.sourceURL == "https://img.example.com/stub.jpg")
+        precondition(downloadedResult.thumbnail?.mimeType == "image/jpeg")
 
         let audioStub = YTDLPMediaDownloader(
             ytDLPPath: "/usr/bin/false",

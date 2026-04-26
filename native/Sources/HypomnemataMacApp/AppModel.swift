@@ -917,6 +917,7 @@ final class AppModel: ObservableObject {
             try? repository.updateJobStatus(id: job.id, status: .failed, error: message)
         }
         refreshOpenedItemIfMatches(itemID)
+        refreshStorageUsage()
     }
 
     private func applyOutcome(_ outcome: JobAutomationOutcome, to item: Item) throws {
@@ -1019,7 +1020,10 @@ final class AppModel: ObservableObject {
 
         do {
             try repository.insertAsset(storedVideo)
-            if let storedThumbnail = try createThumbnailIfSupported(
+            if let mediaThumbnail = result.thumbnail {
+                let storedThumbnail = try storeDownloadedMediaThumbnail(mediaThumbnail, itemID: item.id)
+                storedRecords.append(storedThumbnail)
+            } else if let storedThumbnail = try createThumbnailIfSupported(
                 for: storedVideo,
                 itemID: item.id,
                 originalFilename: result.originalFilename
@@ -1059,6 +1063,9 @@ final class AppModel: ObservableObject {
         }
         if let durationSeconds = result.durationSeconds {
             metadata["duration_seconds"] = String(durationSeconds)
+        }
+        if let thumbnailURL = result.thumbnail?.sourceURL {
+            metadata["thumbnail_source_url"] = thumbnailURL
         }
         metadata["media_kind"] = result.kind.rawValue
         guard !metadata.isEmpty else {
@@ -1123,6 +1130,7 @@ final class AppModel: ObservableObject {
         for record in records {
             try? assetStore?.remove(record: record)
         }
+        refreshStorageUsage()
     }
 
     private func remoteThumbnailMetadataJSON(sourceURL: String) throws -> String? {
@@ -1460,6 +1468,18 @@ final class AppModel: ObservableObject {
         return total
     }
 
+    private func refreshStorageUsage() {
+        do {
+            if let appPaths {
+                storageBytes = try storageByteCount(at: appPaths.assetsDirectory)
+            } else {
+                storageBytes = 0
+            }
+        } catch {
+            storageBytes = 0
+        }
+    }
+
     private func refreshItemThumbnails(for items: [Item]) {
         guard let repository, let assetStore else {
             itemThumbnailURLs = [:]
@@ -1519,6 +1539,52 @@ final class AppModel: ObservableObject {
         } catch {
             try? assetStore.remove(record: storedThumbnail.record)
             throw error
+        }
+    }
+
+    private func storeDownloadedMediaThumbnail(
+        _ thumbnail: DownloadedMediaThumbnail,
+        itemID: String
+    ) throws -> AssetRecord {
+        guard let repository, let assetStore else {
+            throw DataError.assetStoreUnavailable
+        }
+        let normalizedData = try normalizedThumbnailData(
+            thumbnail.data,
+            mimeType: thumbnail.mimeType,
+            originalFilename: thumbnail.originalFilename
+        )
+        let baseName = (thumbnail.originalFilename as NSString).deletingPathExtension.nilIfEmpty ?? "media-thumbnail"
+        let storedThumbnail = try assetStore.write(
+            data: normalizedData ?? thumbnail.data,
+            itemID: itemID,
+            role: .thumbnail,
+            originalFilename: normalizedData == nil ? thumbnail.originalFilename : "\(baseName)-thumbnail.jpg",
+            mimeType: normalizedData == nil ? thumbnail.mimeType : "image/jpeg"
+        )
+        do {
+            try repository.insertAsset(storedThumbnail.record)
+            return storedThumbnail.record
+        } catch {
+            try? assetStore.remove(record: storedThumbnail.record)
+            throw error
+        }
+    }
+
+    private func normalizedThumbnailData(
+        _ data: Data,
+        mimeType: String?,
+        originalFilename: String
+    ) throws -> Data? {
+        let tempURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("hypomnemata-media-thumbnail-\(UUID().uuidString)")
+            .appendingPathExtension((originalFilename as NSString).pathExtension.nilIfEmpty ?? "img")
+        try data.write(to: tempURL, options: [.atomic])
+        defer { try? FileManager.default.removeItem(at: tempURL) }
+        do {
+            return try NativeThumbnailGenerator().makeJPEGThumbnailData(for: tempURL, mimeType: mimeType)
+        } catch is ThumbnailGenerationError {
+            return nil
         }
     }
 
