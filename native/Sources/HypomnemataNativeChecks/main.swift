@@ -12,6 +12,7 @@ struct HypomnemataNativeChecks {
     static func main() async throws {
         try checkCore()
         try await checkVideoOptimizer()
+        try await checkVideoOptimizationPersistence()
         try await checkAI()
         try checkData()
         try checkMedia()
@@ -175,6 +176,138 @@ struct HypomnemataNativeChecks {
             preconditionFailure("Otimização cancelada deveria lançar erro.")
         } catch VideoOptimizationError.cancelled {
             precondition(!FileManager.default.fileExists(atPath: cancelOutput.path))
+        }
+    }
+
+    private static func checkVideoOptimizationPersistence() async throws {
+        let root = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("hypomnemata-video-optimization-persistence-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let appPaths = AppPaths(rootDirectory: root)
+        let database = try NativeDatabase(appPaths: appPaths, passphrase: "video-opt", requireSQLCipher: true)
+        defer { try? database.close() }
+        let repository = SQLiteItemRepository(database: database)
+        let keyData = try database.loadOrCreateAssetKeyData()
+        let store = try EncryptedAssetStore(
+            rootDirectory: appPaths.assetsDirectory,
+            cacheDirectory: appPaths.temporaryCacheDirectory,
+            keyData: keyData
+        )
+        let service = VideoOptimizationService(repository: repository, assetStore: store)
+
+        let sourceVideo = root.appendingPathComponent("source-for-vault.mp4")
+        try makeTestVideo(at: sourceVideo, durationSeconds: 2, size: "320x180", crf: "12")
+        let originalData = try Data(contentsOf: sourceVideo)
+        let item = try repository.createItem(
+            kind: .video,
+            sourceURL: "https://example.com/video",
+            title: "Vídeo",
+            note: nil,
+            bodyText: nil,
+            summary: nil,
+            metadataJSON: #"{"existing":"ok"}"#,
+            tags: []
+        )
+        let stored = try store.write(
+            data: originalData,
+            itemID: item.id,
+            role: .original,
+            originalFilename: "source.mp4",
+            mimeType: "video/mp4"
+        )
+        try repository.insertAsset(stored.record)
+        let oldBlobURL = store.absoluteURL(for: stored.record)
+
+        let outcome = try await service.optimizeVideoAsset(
+            record: stored.record,
+            optimizer: FFmpegVideoOptimizer()
+        )
+        guard case let .optimized(originalBytes, newBytes, optimizedAsset) = outcome else {
+            preconditionFailure("Vídeo compressível deveria retornar .optimized.")
+        }
+        precondition(originalBytes == stored.record.byteCount)
+        precondition(newBytes == optimizedAsset.byteCount)
+        precondition(optimizedAsset.id == stored.record.id)
+        precondition(optimizedAsset.optimizedAt != nil)
+        precondition(optimizedAsset.byteCount < stored.record.byteCount)
+        precondition(optimizedAsset.encryptedPath != stored.record.encryptedPath)
+        precondition(!FileManager.default.fileExists(atPath: oldBlobURL.path))
+
+        let reloadedAsset = try repository.assets(forItemID: item.id).first!
+        precondition(reloadedAsset == optimizedAsset)
+        let decrypted = try store.decryptToTemporaryFile(record: reloadedAsset)
+        defer { try? FileManager.default.removeItem(at: decrypted) }
+        let duration = try probeVideoDuration(decrypted)
+        precondition(duration > 1.5 && duration < 2.5)
+        let reloadedItem = try repository.item(id: item.id)
+        let metadata = metadataDictionary(reloadedItem.metadataJSON)
+        precondition(metadata["existing"] as? String == "ok")
+        precondition((metadata["video_original_size_bytes"] as? NSNumber)?.int64Value == stored.record.byteCount)
+
+        let d4Item = try repository.createItem(
+            kind: .video,
+            sourceURL: nil,
+            title: "Já pequeno",
+            note: nil,
+            bodyText: nil,
+            summary: nil,
+            metadataJSON: nil,
+            tags: []
+        )
+        let d4Stored = try store.write(
+            data: originalData,
+            itemID: d4Item.id,
+            role: .original,
+            originalFilename: "already.mp4",
+            mimeType: "video/mp4"
+        )
+        try repository.insertAsset(d4Stored.record)
+        let sameSizeOutcome = try await service.optimizeVideoAsset(
+            record: d4Stored.record,
+            optimizer: CopyingVideoOptimizer()
+        )
+        guard case let .alreadyOptimized(alreadyOriginalBytes, alreadyAsset) = sameSizeOutcome else {
+            preconditionFailure("Output maior/igual deveria retornar .alreadyOptimized.")
+        }
+        precondition(alreadyOriginalBytes == d4Stored.record.byteCount)
+        precondition(alreadyAsset.optimizedAt != nil)
+        precondition(alreadyAsset.encryptedPath == d4Stored.record.encryptedPath)
+        let alreadyData = try store.read(record: alreadyAsset)
+        precondition(alreadyData == originalData)
+
+        let failureItem = try repository.createItem(
+            kind: .video,
+            sourceURL: nil,
+            title: "Falha",
+            note: nil,
+            bodyText: nil,
+            summary: nil,
+            metadataJSON: nil,
+            tags: []
+        )
+        let failureStored = try store.write(
+            data: originalData,
+            itemID: failureItem.id,
+            role: .original,
+            originalFilename: "failure.mp4",
+            mimeType: "video/mp4"
+        )
+        try repository.insertAsset(failureStored.record)
+        let tempBefore = optimizationTempFiles()
+        do {
+            _ = try await service.optimizeVideoAsset(
+                record: failureStored.record,
+                optimizer: FailingVideoOptimizer()
+            )
+            preconditionFailure("Falha de ffmpeg fake deveria propagar erro.")
+        } catch FailingVideoOptimizer.Failure.expected {
+            let unchanged = try repository.assets(forItemID: failureItem.id).first!
+            precondition(unchanged == failureStored.record)
+            let unchangedData = try store.read(record: unchanged)
+            precondition(unchangedData == originalData)
+            precondition(optimizationTempFiles() == tempBefore)
         }
     }
 
@@ -1463,6 +1596,26 @@ struct HypomnemataNativeChecks {
         return duration
     }
 
+    private static func metadataDictionary(_ json: String?) -> [String: Any] {
+        guard
+            let json,
+            let data = json.data(using: .utf8),
+            let object = try? JSONSerialization.jsonObject(with: data),
+            let dictionary = object as? [String: Any]
+        else {
+            return [:]
+        }
+        return dictionary
+    }
+
+    private static func optimizationTempFiles() -> [String] {
+        let tempDirectory = FileManager.default.temporaryDirectory
+        let filenames = (try? FileManager.default.contentsOfDirectory(atPath: tempDirectory.path)) ?? []
+        return filenames
+            .filter { $0.hasPrefix("hypomnemata-optimize-") }
+            .sorted()
+    }
+
     private static func makePDF(text: String) throws -> Data {
         let data = NSMutableData()
         guard let consumer = CGDataConsumer(data: data) else {
@@ -1636,6 +1789,36 @@ private struct FakeRemoteThumbnailFetcher: RemoteThumbnailFetcher {
     func fetchThumbnail(url: String) async throws -> RemoteThumbnailResult {
         precondition(url == expectedURL)
         return result
+    }
+}
+
+private struct CopyingVideoOptimizer: VideoOptimizer {
+    func optimize(
+        input: URL,
+        output: URL,
+        progress: @Sendable @escaping (Double) -> Void,
+        isCancelled: @Sendable @escaping () -> Bool
+    ) async throws -> VideoOptimizationResult {
+        try FileManager.default.copyItem(at: input, to: output)
+        let bytes = (try FileManager.default.attributesOfItem(atPath: output.path)[.size] as? NSNumber)?.int64Value ?? 0
+        progress(1)
+        return VideoOptimizationResult(outputBytes: bytes, durationSeconds: 2)
+    }
+}
+
+private struct FailingVideoOptimizer: VideoOptimizer {
+    enum Failure: Error {
+        case expected
+    }
+
+    func optimize(
+        input: URL,
+        output: URL,
+        progress: @Sendable @escaping (Double) -> Void,
+        isCancelled: @Sendable @escaping () -> Bool
+    ) async throws -> VideoOptimizationResult {
+        try Data("partial".utf8).write(to: output)
+        throw Failure.expected
     }
 }
 

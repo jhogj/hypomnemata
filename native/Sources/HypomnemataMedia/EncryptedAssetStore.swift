@@ -102,6 +102,31 @@ public final class EncryptedAssetStore: @unchecked Sendable {
         return StoredEncryptedAsset(record: record, absoluteURL: absoluteURL)
     }
 
+    public func writeReplacement(data: Data, for record: AssetRecord, optimizedAt: String) throws -> StoredEncryptedAsset {
+        let now = Date()
+        let calendar = Calendar(identifier: .gregorian)
+        let year = calendar.component(.year, from: now)
+        let month = String(format: "%02d", calendar.component(.month, from: now))
+        let relativePath = "\(year)/\(month)/\(record.itemID)/\(record.id)-optimized-\(UUID().uuidString).hasset"
+        let absoluteURL = rootDirectory.appendingPathComponent(relativePath)
+        try fileManager.createDirectory(
+            at: absoluteURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+
+        let sealed = try AES.GCM.seal(data, using: key)
+        guard let combined = sealed.combined else {
+            throw MediaError.missingCombinedCiphertext
+        }
+        try combined.write(to: absoluteURL, options: .atomic)
+
+        var updated = record
+        updated.byteCount = Int64(data.count)
+        updated.encryptedPath = relativePath
+        updated.optimizedAt = optimizedAt
+        return StoredEncryptedAsset(record: updated, absoluteURL: absoluteURL)
+    }
+
     public func read(record: AssetRecord) throws -> Data {
         let encryptedURL = rootDirectory.appendingPathComponent(record.encryptedPath)
         guard fileManager.fileExists(atPath: encryptedURL.path) else {
@@ -131,6 +156,10 @@ public final class EncryptedAssetStore: @unchecked Sendable {
             return
         }
         try fileManager.removeItem(at: encryptedURL)
+    }
+
+    public func absoluteURL(for record: AssetRecord) -> URL {
+        rootDirectory.appendingPathComponent(record.encryptedPath)
     }
 
     public func clearTemporaryCache() throws {

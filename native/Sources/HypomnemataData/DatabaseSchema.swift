@@ -149,6 +149,10 @@ public enum DatabaseSchema {
                 """)
         }
 
+        migrator.registerMigration("v2_asset_optimized_at") { db in
+            try db.execute(sql: "ALTER TABLE assets ADD COLUMN optimized_at TEXT")
+        }
+
         return migrator
     }
 }

@@ -62,6 +62,7 @@ public protocol ItemRepository: Sendable {
     func patchItem(id: String, patch: ItemPatch) throws -> Item
     func deleteItems(ids: [String]) throws
     func insertAsset(_ asset: AssetRecord) throws
+    func updateAsset(_ asset: AssetRecord) throws
     func deleteAssets(ids: [String]) throws
     func insertJobs(_ jobs: [Job]) throws
     func jobs(forItemID itemID: String) throws -> [Job]
@@ -261,9 +262,9 @@ public final class SQLiteItemRepository: ItemRepository, @unchecked Sendable {
                 sql: """
                     INSERT INTO assets(
                         id, item_id, role, mime_type, byte_count, encrypted_path, original_filename,
-                        duration_seconds, width, height, created_at
+                        duration_seconds, width, height, optimized_at, created_at
                     )
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                 arguments: [
                     asset.id,
@@ -276,7 +277,33 @@ public final class SQLiteItemRepository: ItemRepository, @unchecked Sendable {
                     asset.durationSeconds,
                     asset.width,
                     asset.height,
+                    asset.optimizedAt,
                     asset.createdAt,
+                ]
+            )
+        }
+    }
+
+    public func updateAsset(_ asset: AssetRecord) throws {
+        try database.writer.write { db in
+            try db.execute(
+                sql: """
+                    UPDATE assets
+                    SET role = ?, mime_type = ?, byte_count = ?, encrypted_path = ?, original_filename = ?,
+                        duration_seconds = ?, width = ?, height = ?, optimized_at = ?
+                    WHERE id = ?
+                    """,
+                arguments: [
+                    asset.role.rawValue,
+                    asset.mimeType,
+                    asset.byteCount,
+                    asset.encryptedPath,
+                    asset.originalFilename,
+                    asset.durationSeconds,
+                    asset.width,
+                    asset.height,
+                    asset.optimizedAt,
+                    asset.id,
                 ]
             )
         }
@@ -757,6 +784,7 @@ public final class SQLiteItemRepository: ItemRepository, @unchecked Sendable {
             durationSeconds: row["duration_seconds"],
             width: row["width"],
             height: row["height"],
+            optimizedAt: row["optimized_at"],
             createdAt: row["created_at"]
         )
     }

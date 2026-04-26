@@ -118,6 +118,7 @@ public struct AssetRecord: Identifiable, Codable, Equatable, Sendable {
     public var durationSeconds: Double?
     public var width: Int?
     public var height: Int?
+    public var optimizedAt: String?
     public var createdAt: String
 
     public init(
@@ -131,6 +132,7 @@ public struct AssetRecord: Identifiable, Codable, Equatable, Sendable {
         durationSeconds: Double? = nil,
         width: Int? = nil,
         height: Int? = nil,
+        optimizedAt: String? = nil,
         createdAt: String = ClockTimestamp.nowISO8601()
     ) {
         self.id = id
@@ -143,6 +145,7 @@ public struct AssetRecord: Identifiable, Codable, Equatable, Sendable {
         self.durationSeconds = durationSeconds
         self.width = width
         self.height = height
+        self.optimizedAt = optimizedAt
         self.createdAt = createdAt
     }
 }
