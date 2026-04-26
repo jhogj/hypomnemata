@@ -158,6 +158,12 @@ CLANG_MODULE_CACHE_PATH=/tmp/hypo-clang-cache SWIFTPM_HOME=/tmp/hypo-swiftpm-cac
 - **Chave de assets**: `EncryptedAssetStore.generateKeyData()` virou `throws` e valida o retorno de `SecRandomCopyBytes`, alinhando a API pública ao caminho de produção do vault.
 - **Validação**: `swift build --product HypomnemataMacApp` e `swift run HypomnemataNativeChecks` passaram em 2026-04-26. Checks cobrem tweet sem vídeo como skipped, query oEmbed com caracteres reservados e geração falhável de chave.
 
+### 2026-04-26 — YouTube com áudio sem vídeo + extração de áudio
+- **Bug**: URL de YouTube podia resultar em mídia sem faixa de vídeo porque `yt-dlp` escolhia formato sem `-f`; `--merge-output-format mp4` não força seleção de vídeo+áudio.
+- **Correção**: `YTDLPMediaDownloader` agora usa modo explícito. Modo vídeo roda `-f bv*[ext=mp4]+ba[ext=m4a]/bv*+ba/b[ext=mp4]/b`, `--merge-output-format mp4` e `--remux-video mp4`, forçando melhor combinação de vídeo+áudio disponível.
+- **Funcionalidade**: novo `ItemKind.audio`; captura por URL ganhou toggle "Salvar mídia como áudio". Quando ativo, o item é planejado como áudio e o downloader usa `--extract-audio --audio-format m4a`, salvando asset original `audio/mp4`. Áudio aparece nos filtros e pode ser reproduzido pelo mesmo player AppKit.
+- **Validação**: `swift build --product HypomnemataMacApp` e `swift run HypomnemataNativeChecks` passaram em 2026-04-26. Checks cobrem planejamento de áudio, argumentos de vídeo+áudio do YouTube, extração m4a e dispatch de `downloadMedia` em modo áudio.
+
 ### 2026-04-25 — Resumo em streaming na sheet de detalhe (Sprint 7.3)
 - **Decisão**: `ItemAIService` ganha `streamSummary(context:)` que retorna `AsyncThrowingStream<String, Error>` reaproveitando exatamente os mesmos `summaryMessages(for:)` do `summarize` síncrono — só muda o transporte (`streamChat` no lugar de `complete`). Isso garante que o resumo gerado pelo botão e o resumo gerado pelos jobs de background convergem para o mesmo prompt.
 - **Camada de app**: `AppModel.streamSummary(title:note:bodyText:onChunk:)` segue o mesmo desenho de `sendChatMessage` — recupera serviço, faz `for try await chunk in stream`, acumula localmente e devolve a string final consolidada (também trim/empty-check). Erros viram mensagem via `LLMRecoverableErrorMapper`. `JobAutomation` continua usando `summarize` síncrono — sem mudança de comportamento em jobs.

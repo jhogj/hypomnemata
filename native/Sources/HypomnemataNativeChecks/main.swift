@@ -44,6 +44,13 @@ struct HypomnemataNativeChecks {
         precondition(urlPlan.1.kind == .video)
         precondition(urlPlan.1.jobs == [.downloadMedia, .summarize, .autotag])
 
+        let audioPlan = try CapturePlanner.validateAndPlan(CaptureDraft(
+            explicitKind: .audio,
+            sourceURL: "https://youtu.be/audio"
+        ))
+        precondition(audioPlan.1.kind == .audio)
+        precondition(audioPlan.1.jobs == [.downloadMedia, .summarize, .autotag])
+
         let tweetPlan = try CapturePlanner.validateAndPlan(CaptureDraft(sourceURL: "https://x.com/user/status/1"))
         precondition(tweetPlan.1.kind == .tweet)
         precondition(tweetPlan.1.jobs == [.downloadMedia, .generateThumbnail])
@@ -473,6 +480,37 @@ struct HypomnemataNativeChecks {
         precondition(media.durationSeconds == 42)
         precondition(media.subtitles.first?.originalFilename == "video.pt.vtt")
 
+        let audioFixture = MediaDownloadResult(
+            data: Data([0x00, 0x00, 0x00, 0x18]),
+            mimeType: "audio/mp4",
+            originalFilename: "audio.m4a",
+            kind: .audio,
+            title: "Áudio extraído",
+            durationSeconds: 21,
+            webpageURL: "https://youtu.be/audio"
+        )
+        let audioAutomation = JobAutomation(
+            mediaDownloader: FakeMediaDownloader(
+                result: audioFixture,
+                expectedURL: "https://youtu.be/audio",
+                expectedMode: .audio
+            )
+        )
+        let audioURLItem = Item(
+            kind: .audio,
+            sourceURL: "https://youtu.be/audio",
+            title: nil,
+            bodyText: nil,
+            tags: []
+        )
+        let audioOutcome = try await audioAutomation.run(.downloadMedia, on: audioURLItem)
+        guard case let .mediaDownloaded(audio) = audioOutcome else {
+            preconditionFailure("Audio download outcome deve ser .mediaDownloaded.")
+        }
+        precondition(audio.kind == .audio)
+        precondition(audio.mimeType == "audio/mp4")
+        precondition(audio.originalFilename == "audio.m4a")
+
         let tweetWithoutVideoAutomation = JobAutomation(
             mediaDownloader: FakeMediaDownloader(
                 error: MediaDownloadError.outputNotFound,
@@ -511,6 +549,9 @@ struct HypomnemataNativeChecks {
                     )
                     return SubprocessResult(exitCode: 0, stdout: Data(), stderr: Data())
                 }
+                precondition(args.contains("-f"))
+                precondition(args.contains("bv*[ext=mp4]+ba[ext=m4a]/bv*+ba/b[ext=mp4]/b"))
+                precondition(args.contains("--remux-video"))
                 try Data([0x00, 0x00, 0x00, 0x20, 0x66, 0x74, 0x79, 0x70]).write(
                     to: workingDirectory.appendingPathComponent("Stub Video [abc].mp4")
                 )
@@ -525,6 +566,28 @@ struct HypomnemataNativeChecks {
         precondition(downloadedResult.originalFilename == "Stub Video [abc].mp4")
         precondition(downloadedResult.subtitles.count == 1)
         precondition(downloadedResult.subtitles[0].mimeType == "text/vtt; charset=utf-8")
+
+        let audioStub = YTDLPMediaDownloader(
+            ytDLPPath: "/usr/bin/false",
+            runProcess: { _, args, workingDirectory in
+                if args.contains("--dump-json") {
+                    let json = #"{"title":"Stub Audio","duration":8,"webpage_url":"https://example.com/audio"}"#
+                    return SubprocessResult(exitCode: 0, stdout: Data(json.utf8), stderr: Data())
+                }
+                precondition(args.contains("--extract-audio"))
+                precondition(args.contains("--audio-format"))
+                precondition(args.contains("m4a"))
+                try Data([0x00, 0x00, 0x00, 0x20]).write(
+                    to: workingDirectory.appendingPathComponent("Stub Audio [def].m4a")
+                )
+                return SubprocessResult(exitCode: 0, stdout: Data(), stderr: Data())
+            }
+        )
+        let audioDownloadedResult = try await audioStub.download(url: "https://example.com/audio", mode: .audio)
+        precondition(audioDownloadedResult.kind == .audio)
+        precondition(audioDownloadedResult.mimeType == "audio/mp4")
+        precondition(audioDownloadedResult.originalFilename == "Stub Audio [def].m4a")
+        precondition(audioDownloadedResult.subtitles.isEmpty)
 
         let mediaSubtitle429 = YTDLPMediaDownloader(
             ytDLPPath: "/usr/bin/false",
@@ -1443,21 +1506,25 @@ private struct FakeMediaDownloader: MediaDownloader {
     var result: MediaDownloadResult?
     var error: Error?
     var expectedURL: String
+    var expectedMode: MediaDownloadMode
 
-    init(result: MediaDownloadResult, expectedURL: String) {
+    init(result: MediaDownloadResult, expectedURL: String, expectedMode: MediaDownloadMode = .video) {
         self.result = result
         self.error = nil
         self.expectedURL = expectedURL
+        self.expectedMode = expectedMode
     }
 
-    init(error: Error, expectedURL: String) {
+    init(error: Error, expectedURL: String, expectedMode: MediaDownloadMode = .video) {
         self.result = nil
         self.error = error
         self.expectedURL = expectedURL
+        self.expectedMode = expectedMode
     }
 
-    func download(url: String) async throws -> MediaDownloadResult {
+    func download(url: String, mode: MediaDownloadMode) async throws -> MediaDownloadResult {
         precondition(url == expectedURL)
+        precondition(mode == expectedMode)
         if let error {
             throw error
         }

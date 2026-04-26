@@ -125,6 +125,10 @@ public enum CapturePlanner {
             } else if draft.fileURL != nil {
                 jobs.append(.generateThumbnail)
             }
+        case .audio:
+            if draft.sourceURL != nil {
+                jobs.append(.downloadMedia)
+            }
         case .tweet:
             if draft.sourceURL != nil {
                 jobs.append(.downloadMedia)
@@ -144,7 +148,7 @@ public enum CapturePlanner {
             break
         }
 
-        if kind == .article || kind == .video || kind == .pdf {
+        if kind == .article || kind == .video || kind == .audio || kind == .pdf {
             jobs.append(.summarize)
             jobs.append(.autotag)
         }

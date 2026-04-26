@@ -14,6 +14,7 @@ struct CaptureSheet: View {
     @State private var bodyText = ""
     @State private var tags = ""
     @State private var selectedFileURL: URL?
+    @State private var urlAsAudio = false
     @State private var showingFileImporter = false
     @State private var errorMessage: String?
     @State private var didApplyPrefill = false
@@ -31,8 +32,11 @@ struct CaptureSheet: View {
             .pickerStyle(.segmented)
 
             if selectedTab == 0 {
-                TextField("https://...", text: $urlString)
-                    .textFieldStyle(.roundedBorder)
+                VStack(alignment: .leading, spacing: 8) {
+                    TextField("https://...", text: $urlString)
+                        .textFieldStyle(.roundedBorder)
+                    Toggle("Salvar mídia como áudio", isOn: $urlAsAudio)
+                }
             } else if selectedTab == 1 {
                 HStack(spacing: 10) {
                     Button {
@@ -82,6 +86,7 @@ struct CaptureSheet: View {
                 }
                 Button("Salvar") {
                     let message = model.createCapture(CaptureDraft(
+                        explicitKind: selectedTab == 0 && urlAsAudio ? .audio : nil,
                         sourceURL: selectedTab == 0 ? urlString.trimmedNonEmpty : nil,
                         title: title.trimmedNonEmpty,
                         note: note.trimmedNonEmpty,
@@ -100,6 +105,9 @@ struct CaptureSheet: View {
         .onAppear(perform: applyPrefillIfNeeded)
         .onChange(of: selectedTab) { _, _ in
             errorMessage = nil
+            if selectedTab != 0 {
+                urlAsAudio = false
+            }
         }
         .fileImporter(
             isPresented: $showingFileImporter,

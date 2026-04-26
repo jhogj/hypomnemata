@@ -4,6 +4,7 @@ public enum ItemKind: String, Codable, CaseIterable, Identifiable, Sendable {
     case image
     case article
     case video
+    case audio
     case tweet
     case bookmark
     case note
@@ -16,6 +17,7 @@ public enum ItemKind: String, Codable, CaseIterable, Identifiable, Sendable {
         case .image: "Imagens"
         case .article: "Artigos"
         case .video: "Vídeos"
+        case .audio: "Áudios"
         case .tweet: "Tweets"
         case .bookmark: "Bookmarks"
         case .note: "Notas"

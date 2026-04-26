@@ -793,7 +793,7 @@ struct ItemRowView: View {
                     }
                     TagLine(tags: item.tags)
                 }
-                if item.kind == .video {
+                if item.kind == .video || item.kind == .audio {
                     Button {
                         toggleInlinePlayback()
                     } label: {
@@ -801,7 +801,7 @@ struct ItemRowView: View {
                             .font(.title3)
                     }
                     .buttonStyle(.borderless)
-                    .help(player == nil ? "Reproduzir vídeo" : "Parar vídeo")
+                    .help(player == nil ? "Reproduzir mídia" : "Parar mídia")
                 }
             }
             .padding(.vertical, 6)
@@ -875,7 +875,7 @@ struct ItemGridCardView: View {
                     Text(item.kind.rawValue)
                         .font(.caption)
                         .foregroundStyle(.secondary)
-                    if item.kind == .video {
+                    if item.kind == .video || item.kind == .audio {
                         Button {
                             toggleInlinePlayback()
                         } label: {
@@ -883,7 +883,7 @@ struct ItemGridCardView: View {
                                 .font(.title3)
                         }
                         .buttonStyle(.borderless)
-                        .help(player == nil ? "Reproduzir vídeo" : "Parar vídeo")
+                        .help(player == nil ? "Reproduzir mídia" : "Parar mídia")
                     }
                 }
                 Text(item.displayTitle)
@@ -2302,6 +2302,8 @@ private extension ItemKind {
             "doc.text"
         case .video:
             "play.rectangle"
+        case .audio:
+            "waveform"
         case .tweet:
             "quote.bubble"
         case .bookmark:

@@ -509,8 +509,8 @@ final class AppModel: ObservableObject {
             return (nil, "Vault não está desbloqueado.")
         }
         do {
-            guard let record = try repository.assets(forItemID: item.id).first(where: isPlayableVideoAsset) else {
-                return (nil, "Este item não tem vídeo local para reproduzir.")
+            guard let record = try repository.assets(forItemID: item.id).first(where: isPlayableMediaAsset) else {
+                return (nil, "Este item não tem mídia local para reproduzir.")
             }
             return (try assetStore.decryptToTemporaryFile(record: record), nil)
         } catch {
@@ -1060,6 +1060,7 @@ final class AppModel: ObservableObject {
         if let durationSeconds = result.durationSeconds {
             metadata["duration_seconds"] = String(durationSeconds)
         }
+        metadata["media_kind"] = result.kind.rawValue
         guard !metadata.isEmpty else {
             return nil
         }
@@ -1566,8 +1567,8 @@ final class AppModel: ObservableObject {
             ?? records.first { isImageAsset($0) }
     }
 
-    private func isPlayableVideoAsset(_ record: AssetRecord) -> Bool {
-        record.role == .original && isVideoAsset(record)
+    private func isPlayableMediaAsset(_ record: AssetRecord) -> Bool {
+        record.role == .original && (isVideoAsset(record) || isAudioAsset(record))
     }
 
     private func isImageAsset(_ record: AssetRecord) -> Bool {
@@ -1580,6 +1581,11 @@ final class AppModel: ObservableObject {
             || ["mp4", "mov", "m4v", "webm", "mkv", "avi"].contains(record.originalFilename?.pathExtensionLowercased ?? "")
     }
 
+    private func isAudioAsset(_ record: AssetRecord) -> Bool {
+        record.mimeType?.lowercased().hasPrefix("audio/") == true
+            || ["m4a", "mp3", "aac", "opus", "ogg", "wav", "flac"].contains(record.originalFilename?.pathExtensionLowercased ?? "")
+    }
+
     private func previewKind(for record: AssetRecord, url: URL) -> AssetPreview.Kind {
         let mimeType = record.mimeType?.lowercased() ?? ""
         let pathExtension = url.pathExtension.lowercased()
@@ -1590,6 +1596,9 @@ final class AppModel: ObservableObject {
             return .pdf
         }
         if mimeType.hasPrefix("video/") || ["mp4", "mov", "m4v", "webm", "mkv", "avi"].contains(pathExtension) {
+            return .video
+        }
+        if mimeType.hasPrefix("audio/") || ["m4a", "mp3", "aac", "opus", "ogg", "wav", "flac"].contains(pathExtension) {
             return .video
         }
         return .file

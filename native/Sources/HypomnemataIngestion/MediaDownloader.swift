@@ -13,9 +13,15 @@ public struct DownloadedSubtitle: Sendable, Equatable {
 }
 
 public struct MediaDownloadResult: Sendable, Equatable {
+    public enum Kind: String, Sendable {
+        case video
+        case audio
+    }
+
     public var data: Data
     public var mimeType: String?
     public var originalFilename: String
+    public var kind: Kind
     public var title: String?
     public var durationSeconds: Double?
     public var webpageURL: String?
@@ -25,6 +31,7 @@ public struct MediaDownloadResult: Sendable, Equatable {
         data: Data,
         mimeType: String? = nil,
         originalFilename: String,
+        kind: Kind = .video,
         title: String? = nil,
         durationSeconds: Double? = nil,
         webpageURL: String? = nil,
@@ -33,6 +40,7 @@ public struct MediaDownloadResult: Sendable, Equatable {
         self.data = data
         self.mimeType = mimeType
         self.originalFilename = originalFilename
+        self.kind = kind
         self.title = title
         self.durationSeconds = durationSeconds
         self.webpageURL = webpageURL
@@ -64,7 +72,18 @@ public enum MediaDownloadError: LocalizedError, Equatable, Sendable {
 }
 
 public protocol MediaDownloader: Sendable {
-    func download(url: String) async throws -> MediaDownloadResult
+    func download(url: String, mode: MediaDownloadMode) async throws -> MediaDownloadResult
+}
+
+public extension MediaDownloader {
+    func download(url: String) async throws -> MediaDownloadResult {
+        try await download(url: url, mode: .video)
+    }
+}
+
+public enum MediaDownloadMode: Sendable, Equatable {
+    case video
+    case audio
 }
 
 public struct YTDLPMediaDownloader: MediaDownloader {
@@ -79,7 +98,7 @@ public struct YTDLPMediaDownloader: MediaDownloader {
         self.runProcess = runProcess ?? Self.defaultRunProcess
     }
 
-    public func download(url: String) async throws -> MediaDownloadResult {
+    public func download(url: String, mode: MediaDownloadMode = .video) async throws -> MediaDownloadResult {
         let trimmed = url.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else {
             throw MediaDownloadError.missingURL
@@ -92,9 +111,19 @@ public struct YTDLPMediaDownloader: MediaDownloader {
         defer { try? fileManager.removeItem(at: tempDirectory) }
 
         let metadata = try loadMetadata(url: trimmed, workingDirectory: tempDirectory)
-        try runDownload(url: trimmed, workingDirectory: tempDirectory)
-        try? runSubtitleDownload(url: trimmed, workingDirectory: tempDirectory)
-        return try collectResult(metadata: metadata, sourceURL: trimmed, workingDirectory: tempDirectory)
+        switch mode {
+        case .video:
+            try runVideoDownload(url: trimmed, workingDirectory: tempDirectory)
+            try? runSubtitleDownload(url: trimmed, workingDirectory: tempDirectory)
+        case .audio:
+            try runAudioDownload(url: trimmed, workingDirectory: tempDirectory)
+        }
+        return try collectResult(
+            mode: mode,
+            metadata: metadata,
+            sourceURL: trimmed,
+            workingDirectory: tempDirectory
+        )
     }
 
     private func loadMetadata(url: String, workingDirectory: URL) throws -> Metadata {
@@ -126,12 +155,32 @@ public struct YTDLPMediaDownloader: MediaDownloader {
         }
     }
 
-    private func runDownload(url: String, workingDirectory: URL) throws {
+    private func runVideoDownload(url: String, workingDirectory: URL) throws {
         let result = try runProcess(
             ytDLPPath,
             [
                 "--no-warnings",
+                "-f", "bv*[ext=mp4]+ba[ext=m4a]/bv*+ba/b[ext=mp4]/b",
                 "--merge-output-format", "mp4",
+                "--remux-video", "mp4",
+                "-o", "%(title).200B [%(id)s].%(ext)s",
+                url,
+            ],
+            workingDirectory
+        )
+        guard result.exitCode == 0 else {
+            throw MediaDownloadError.binaryFailed(exitCode: result.exitCode, message: stderrText(result.stderr))
+        }
+    }
+
+    private func runAudioDownload(url: String, workingDirectory: URL) throws {
+        let result = try runProcess(
+            ytDLPPath,
+            [
+                "--no-warnings",
+                "-f", "ba[ext=m4a]/bestaudio/best",
+                "--extract-audio",
+                "--audio-format", "m4a",
                 "-o", "%(title).200B [%(id)s].%(ext)s",
                 url,
             ],
@@ -158,19 +207,24 @@ public struct YTDLPMediaDownloader: MediaDownloader {
         )
     }
 
-    private func collectResult(metadata: Metadata, sourceURL: String, workingDirectory: URL) throws -> MediaDownloadResult {
+    private func collectResult(
+        mode: MediaDownloadMode,
+        metadata: Metadata,
+        sourceURL: String,
+        workingDirectory: URL
+    ) throws -> MediaDownloadResult {
         let files = try regularFiles(in: workingDirectory)
-        guard let videoURL = files
-            .filter({ Self.isLikelyVideo($0.url) })
+        guard let mediaURL = files
+            .filter({ mode == .video ? Self.isLikelyVideo($0.url) : Self.isLikelyAudio($0.url) })
             .max(by: { $0.byteCount < $1.byteCount })?
             .url
         else {
             throw MediaDownloadError.outputNotFound
         }
 
-        let videoData: Data
+        let mediaData: Data
         do {
-            videoData = try Data(contentsOf: videoURL)
+            mediaData = try Data(contentsOf: mediaURL)
         } catch {
             throw MediaDownloadError.fileReadFailed(error.localizedDescription)
         }
@@ -188,13 +242,14 @@ public struct YTDLPMediaDownloader: MediaDownloader {
             }
 
         return MediaDownloadResult(
-            data: videoData,
-            mimeType: Self.mimeType(for: videoURL),
-            originalFilename: videoURL.lastPathComponent,
+            data: mediaData,
+            mimeType: Self.mimeType(for: mediaURL),
+            originalFilename: mediaURL.lastPathComponent,
+            kind: mode == .video ? .video : .audio,
             title: metadata.title,
             durationSeconds: metadata.durationSeconds,
             webpageURL: metadata.webpageURL ?? sourceURL,
-            subtitles: subtitles
+            subtitles: mode == .video ? subtitles : []
         )
     }
 
@@ -219,6 +274,10 @@ public struct YTDLPMediaDownloader: MediaDownloader {
         ["mp4", "mov", "m4v", "webm", "mkv"].contains(url.pathExtension.lowercased())
     }
 
+    private static func isLikelyAudio(_ url: URL) -> Bool {
+        ["m4a", "mp3", "aac", "opus", "ogg", "webm", "wav", "flac"].contains(url.pathExtension.lowercased())
+    }
+
     private static func isLikelySubtitle(_ url: URL) -> Bool {
         ["vtt", "srt", "ass"].contains(url.pathExtension.lowercased())
     }
@@ -230,6 +289,13 @@ public struct YTDLPMediaDownloader: MediaDownloader {
         case "m4v": "video/x-m4v"
         case "webm": "video/webm"
         case "mkv": "video/x-matroska"
+        case "m4a": "audio/mp4"
+        case "mp3": "audio/mpeg"
+        case "aac": "audio/aac"
+        case "opus": "audio/opus"
+        case "ogg": "audio/ogg"
+        case "wav": "audio/wav"
+        case "flac": "audio/flac"
         case "vtt": "text/vtt; charset=utf-8"
         case "srt": "application/x-subrip; charset=utf-8"
         case "ass": "text/plain; charset=utf-8"

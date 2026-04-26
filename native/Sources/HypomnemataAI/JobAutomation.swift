@@ -98,7 +98,8 @@ public struct JobAutomation: Sendable {
                 throw JobAutomationError.missingSourceURL
             }
             do {
-                let result = try await mediaDownloader.download(url: trimmedURL)
+                let mode: MediaDownloadMode = item.kind == .audio ? .audio : .video
+                let result = try await mediaDownloader.download(url: trimmedURL, mode: mode)
                 return .mediaDownloaded(result)
             } catch MediaDownloadError.outputNotFound where item.kind == .tweet {
                 return .skipped(reason: "Tweet sem vídeo local; miniatura remota será usada quando disponível.")
