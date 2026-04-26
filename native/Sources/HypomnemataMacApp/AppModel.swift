@@ -728,6 +728,7 @@ final class AppModel: ObservableObject {
             )
             var assetID: String?
             var completedJobKinds = Set<JobKind>()
+            var synchronousJobs: [Job] = []
             if let filePayload {
                 guard let assetStore else {
                     try? repository.deleteItems(ids: [createdItem.id])
@@ -747,16 +748,22 @@ final class AppModel: ObservableObject {
                         for: stored.record,
                         itemID: createdItem.id,
                         originalFilename: filePayload.originalFilename
-                    ) {
+                    ) != nil {
                         completedJobKinds.insert(.generateThumbnail)
                     }
-                    if plan.jobs.contains(.runOCR),
-                       try runOCRIfSupported(
-                           for: stored.record,
-                           itemID: createdItem.id,
-                           originalFilename: filePayload.originalFilename
-                       ) {
+                    if plan.jobs.contains(.runOCR) {
+                        _ = try runOCRIfSupported(
+                            for: stored.record,
+                            itemID: createdItem.id,
+                            originalFilename: filePayload.originalFilename
+                        )
                         completedJobKinds.insert(.runOCR)
+                        synchronousJobs.append(Job(
+                            itemID: createdItem.id,
+                            kind: .runOCR,
+                            status: .done,
+                            payloadJSON: try jobPayloadJSON(sourceURL: validatedDraft.sourceURL, assetID: stored.record.id)
+                        ))
                     }
                 } catch {
                     try? assetStore.remove(record: stored.record)
@@ -770,7 +777,7 @@ final class AppModel: ObservableObject {
                 sourceURL: validatedDraft.sourceURL,
                 assetID: assetID
             )
-            try repository.insertJobs(jobs)
+            try repository.insertJobs(synchronousJobs + jobs)
             capturePrefill = nil
             showCapture = false
             refreshLibrary()
@@ -1008,14 +1015,17 @@ final class AppModel: ObservableObject {
             mimeType: result.mimeType
         ).record
         storedVideo.durationSeconds = result.durationSeconds
+        var storedRecords: [AssetRecord] = [storedVideo]
 
         do {
             try repository.insertAsset(storedVideo)
-            _ = try createThumbnailIfSupported(
+            if let storedThumbnail = try createThumbnailIfSupported(
                 for: storedVideo,
                 itemID: item.id,
                 originalFilename: result.originalFilename
-            )
+            ) {
+                storedRecords.append(storedThumbnail)
+            }
             for subtitle in result.subtitles {
                 let storedSubtitle = try assetStore.write(
                     data: subtitle.data,
@@ -1024,12 +1034,8 @@ final class AppModel: ObservableObject {
                     originalFilename: subtitle.originalFilename,
                     mimeType: subtitle.mimeType
                 )
-                do {
-                    try repository.insertAsset(storedSubtitle.record)
-                } catch {
-                    try? assetStore.remove(record: storedSubtitle.record)
-                    throw error
-                }
+                storedRecords.append(storedSubtitle.record)
+                try repository.insertAsset(storedSubtitle.record)
             }
             let currentTitle = item.title?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
             let metadata = try mediaMetadataJSON(from: result)
@@ -1041,7 +1047,7 @@ final class AppModel: ObservableObject {
                 )
             )
         } catch {
-            try? assetStore.remove(record: storedVideo)
+            rollbackStoredAssets(storedRecords)
             throw error
         }
     }
@@ -1072,13 +1078,16 @@ final class AppModel: ObservableObject {
             originalFilename: result.originalFilename,
             mimeType: result.mimeType
         )
+        var storedRecords: [AssetRecord] = [storedSource.record]
         do {
             try repository.insertAsset(storedSource.record)
-            if !(try createThumbnailIfSupported(
+            if let storedThumbnail = try createThumbnailIfSupported(
                 for: storedSource.record,
                 itemID: item.id,
                 originalFilename: result.originalFilename
-            )) {
+            ) {
+                storedRecords.append(storedThumbnail)
+            } else {
                 let storedThumbnail = try assetStore.write(
                     data: result.data,
                     itemID: item.id,
@@ -1086,20 +1095,24 @@ final class AppModel: ObservableObject {
                     originalFilename: result.originalFilename,
                     mimeType: result.mimeType
                 )
-                do {
-                    try repository.insertAsset(storedThumbnail.record)
-                } catch {
-                    try? assetStore.remove(record: storedThumbnail.record)
-                    throw error
-                }
+                storedRecords.append(storedThumbnail.record)
+                try repository.insertAsset(storedThumbnail.record)
             }
             if let sourceURL = result.sourceURL {
                 let metadata = try remoteThumbnailMetadataJSON(sourceURL: sourceURL)
                 _ = try repository.patchItem(id: item.id, patch: ItemPatch(metadataJSON: metadata))
             }
         } catch {
-            try? assetStore.remove(record: storedSource.record)
+            rollbackStoredAssets(storedRecords)
             throw error
+        }
+    }
+
+    private func rollbackStoredAssets(_ records: [AssetRecord]) {
+        let ids = records.map(\.id)
+        try? repository?.deleteAssets(ids: ids)
+        for record in records {
+            try? assetStore?.remove(record: record)
         }
     }
 
@@ -1468,9 +1481,9 @@ final class AppModel: ObservableObject {
         for originalRecord: AssetRecord,
         itemID: String,
         originalFilename: String
-    ) throws -> Bool {
+    ) throws -> AssetRecord? {
         guard let repository, let assetStore else {
-            return false
+            return nil
         }
         let sourceURL = try assetStore.decryptToTemporaryFile(record: originalRecord)
         let thumbnailData: Data
@@ -1480,7 +1493,7 @@ final class AppModel: ObservableObject {
                 mimeType: originalRecord.mimeType
             )
         } catch is ThumbnailGenerationError {
-            return false
+            return nil
         }
 
         let baseName = (originalFilename as NSString).deletingPathExtension
@@ -1493,7 +1506,7 @@ final class AppModel: ObservableObject {
         )
         do {
             try repository.insertAsset(storedThumbnail.record)
-            return true
+            return storedThumbnail.record
         } catch {
             try? assetStore.remove(record: storedThumbnail.record)
             throw error

@@ -144,6 +144,13 @@ CLANG_MODULE_CACHE_PATH=/tmp/hypo-clang-cache SWIFTPM_HOME=/tmp/hypo-swiftpm-cac
 - **Correção**: `JobAutomation` aceita serviço de IA opcional; `summarize`/`autotag` ainda exigem LLM, mas `scrapeArticle`/`downloadMedia`/`generateThumbnail` rodam sem LLM. `AppModel` marca como falhos apenas os jobs de IA quando a configuração do provider quebra e continua os jobs de ingestão pendentes.
 - **Validação**: `swift build --product HypomnemataMacApp` e `swift run HypomnemataNativeChecks` passaram em 2026-04-26. Checks novos cobrem resolução por `PATH`, executável ausente e job de ingestão rodando sem serviço LLM.
 
+### 2026-04-26 — Mitigação P1 da revisão de ingestão
+- **Bug**: falha parcial em `.mediaDownloaded`/`.thumbnailFetched` podia deixar rows em `assets` apontando para arquivos já removidos (ou assets intermediários vivos) quando uma etapa posterior falhava.
+- **Correção**: `SQLiteItemRepository` ganhou `deleteAssets(ids:)`; `AppModel` mantém a lista de assets gravados durante aplicação de mídia/thumbnail e faz rollback best-effort de rows + arquivos criptografados em qualquer falha posterior. `createThumbnailIfSupported` agora retorna o `AssetRecord` criado para entrar no rollback do chamador.
+- **Bug**: OCR roda síncrono na captura, mas quando `NativeOCRExtractor` retornava erro suportado/sem texto, o plano ainda criava `.runOCR` pendente; como `JobAutomation` não executa OCR, esse job ficava preso.
+- **Correção**: captura com OCR planejado sempre consome `.runOCR` no caminho síncrono e insere o job já `done`, extraindo texto quando possível e nunca deixando pendência sem executor.
+- **Validação**: `swift build --product HypomnemataMacApp` e `swift run HypomnemataNativeChecks` passaram em 2026-04-26. Checks cobrem remoção explícita de rows de asset para suportar rollback.
+
 ### 2026-04-25 — Resumo em streaming na sheet de detalhe (Sprint 7.3)
 - **Decisão**: `ItemAIService` ganha `streamSummary(context:)` que retorna `AsyncThrowingStream<String, Error>` reaproveitando exatamente os mesmos `summaryMessages(for:)` do `summarize` síncrono — só muda o transporte (`streamChat` no lugar de `complete`). Isso garante que o resumo gerado pelo botão e o resumo gerado pelos jobs de background convergem para o mesmo prompt.
 - **Camada de app**: `AppModel.streamSummary(title:note:bodyText:onChunk:)` segue o mesmo desenho de `sendChatMessage` — recupera serviço, faz `for try await chunk in stream`, acumula localmente e devolve a string final consolidada (também trim/empty-check). Erros viram mensagem via `LLMRecoverableErrorMapper`. `JobAutomation` continua usando `summarize` síncrono — sem mudança de comportamento em jobs.

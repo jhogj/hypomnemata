@@ -1070,6 +1070,22 @@ struct HypomnemataNativeChecks {
         let batchAssets = try repository.assets(forItemIDs: [item.id, article.id])
         precondition(batchAssets == [storedAsset.record])
 
+        let rollbackAsset = try store.write(
+            data: Data("rollback asset".utf8),
+            itemID: item.id,
+            role: .subtitle,
+            originalFilename: "rollback.vtt",
+            mimeType: "text/vtt"
+        )
+        try repository.insertAsset(rollbackAsset.record)
+        let assetsWithRollback = try repository.assets(forItemID: item.id)
+        precondition(assetsWithRollback.contains(rollbackAsset.record))
+        try repository.deleteAssets(ids: [rollbackAsset.record.id])
+        let assetsAfterRollbackRowDelete = try repository.assets(forItemID: item.id)
+        precondition(!assetsAfterRollbackRowDelete.contains(rollbackAsset.record))
+        precondition(FileManager.default.fileExists(atPath: rollbackAsset.absoluteURL.path))
+        try store.remove(record: rollbackAsset.record)
+
         let batchDeleteA = try repository.createItem(
             kind: .note,
             title: "Excluir em lote A",

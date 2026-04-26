@@ -62,6 +62,7 @@ public protocol ItemRepository: Sendable {
     func patchItem(id: String, patch: ItemPatch) throws -> Item
     func deleteItems(ids: [String]) throws
     func insertAsset(_ asset: AssetRecord) throws
+    func deleteAssets(ids: [String]) throws
     func insertJobs(_ jobs: [Job]) throws
     func jobs(forItemID itemID: String) throws -> [Job]
     func updateJobStatus(id: String, status: JobStatus, error: String?) throws
@@ -278,6 +279,17 @@ public final class SQLiteItemRepository: ItemRepository, @unchecked Sendable {
                     asset.createdAt,
                 ]
             )
+        }
+    }
+
+    public func deleteAssets(ids: [String]) throws {
+        guard !ids.isEmpty else {
+            return
+        }
+        try database.writer.write { db in
+            for id in ids {
+                try db.execute(sql: "DELETE FROM assets WHERE id = ?", arguments: [id])
+            }
         }
     }
 
