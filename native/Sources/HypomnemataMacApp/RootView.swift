@@ -1,4 +1,5 @@
 import HypomnemataCore
+import HypomnemataIngestion
 import AVKit
 import PDFKit
 import SwiftUI
@@ -1094,6 +1095,8 @@ struct ItemDetailSheet: View {
     @State private var chatStreamingText = ""
     @State private var chatBusy = false
     @State private var showClearChatConfirmation = false
+    @State private var optimizationHeartbeatNow = Date()
+    private let optimizationHeartbeat = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
 
     init(item: Item) {
         self.item = item
@@ -1201,6 +1204,11 @@ struct ItemDetailSheet: View {
                 loadAssetPreviews()
             }
         }
+        .onReceive(optimizationHeartbeat) { now in
+            if case .running = model.optimizationState[item.id] {
+                optimizationHeartbeatNow = now
+            }
+        }
         .onChange(of: item) { _, updatedItem in
             applyItemUpdate(updatedItem)
         }
@@ -1281,6 +1289,7 @@ struct ItemDetailSheet: View {
                         VideoOptimizationControl(
                             state: model.optimizationState[item.id],
                             originalBytes: optimizationAsset.byteCount,
+                            heartbeatNow: optimizationHeartbeatNow,
                             disabledReason: model.videoOptimizationDependencyMessage(),
                             onStart: { startVideoOptimization(assetID: optimizationAsset.id) },
                             onCancel: { model.cancelVideoOptimization(for: item.id) }
@@ -1813,6 +1822,7 @@ struct JobStatusList: View {
 struct VideoOptimizationControl: View {
     var state: OptimizationState?
     var originalBytes: Int64
+    var heartbeatNow: Date
     var disabledReason: String?
     var onStart: () -> Void
     var onCancel: () -> Void
@@ -1820,13 +1830,16 @@ struct VideoOptimizationControl: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             switch state {
-            case let .running(progress, _):
+            case let .running(progress, startedAt, _):
                 HStack {
                     VStack(alignment: .leading, spacing: 6) {
-                        Text("Otimizando vídeo... \(Int((progress * 100).rounded()))%")
+                        Text("Otimizando vídeo... \(Int((progress.percent * 100).rounded()))%")
                             .font(.callout.weight(.medium))
-                        ProgressView(value: progress)
+                        ProgressView(value: progress.percent)
                             .frame(maxWidth: .infinity)
+                        Text(progressDetailText(progress: progress, startedAt: startedAt))
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
                     }
                     Button {
                         onCancel()
@@ -1879,6 +1892,25 @@ struct VideoOptimizationControl: View {
         let saved = max(beforeBytes - afterBytes, 0)
         let percent = beforeBytes > 0 ? Int((Double(saved) / Double(beforeBytes) * 100).rounded()) : 0
         return "Vídeo otimizado: \(formatBytes(beforeBytes)) → \(formatBytes(afterBytes)) (-\(percent)%)"
+    }
+
+    private func progressDetailText(progress: VideoOptimizationProgress, startedAt: Date) -> String {
+        if let frames = progress.framesProcessed,
+           let fps = progress.fps,
+           let speed = progress.speed {
+            return "\(frames) frames • \(String(format: "%.1f", fps)) fps • \(String(format: "%.2f", speed))×"
+        }
+        return "Em curso há \(elapsedText(since: startedAt))"
+    }
+
+    private func elapsedText(since startedAt: Date) -> String {
+        let elapsed = max(Int(heartbeatNow.timeIntervalSince(startedAt).rounded(.down)), 0)
+        let minutes = elapsed / 60
+        let seconds = elapsed % 60
+        if minutes > 0 {
+            return "\(minutes)m \(seconds)s"
+        }
+        return "\(seconds)s"
     }
 
     private func formatBytes(_ bytes: Int64) -> String {

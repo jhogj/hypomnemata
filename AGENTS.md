@@ -206,6 +206,12 @@ CLANG_MODULE_CACHE_PATH=/tmp/hypo-clang-cache SWIFTPM_HOME=/tmp/hypo-swiftpm-cac
 - **Validação**: `swift build --product HypomnemataMacApp` e `swift run HypomnemataNativeChecks` passaram em 2026-04-26. Checks cobrem recovery de job running, `allAssets()` e janitor de órfãos antigos preservando órfãos recentes.
 - **Resultado**: `PLANO_OTIMIZACAO_VIDEO.md` fechado nas quatro sprints.
 
+### 2026-04-26 — Progresso de otimização de vídeo travado
+- **Bug**: barra de progresso da conversão podia ficar parada porque o parser aceitava só `out_time_ms=`, enquanto ffmpeg 7+ pode emitir `out_time_us=` e/ou `out_time=HH:MM:SS.frac`.
+- **Correção**: `VideoOptimizer` agora emite `VideoOptimizationProgress` estruturado, aceita `out_time_us`, `out_time_ms` e `out_time`, força 100% em `progress=end`, e carrega `frame`/`fps`/`speed` para feedback visual.
+- **UI/observabilidade**: `OptimizationState.running` guarda `startedAt`; o detalhe mostra frames/fps/speed quando disponíveis ou tempo em curso com heartbeat de 1s. `AppModel` loga progresso com throttle de 5s para diagnosticar parser vs ffmpeg sem poluir o Console.
+- **Validação**: `swift build --product HypomnemataMacApp` e `swift run HypomnemataNativeChecks` passaram em 2026-04-26.
+
 ### 2026-04-25 — Resumo em streaming na sheet de detalhe (Sprint 7.3)
 - **Decisão**: `ItemAIService` ganha `streamSummary(context:)` que retorna `AsyncThrowingStream<String, Error>` reaproveitando exatamente os mesmos `summaryMessages(for:)` do `summarize` síncrono — só muda o transporte (`streamChat` no lugar de `complete`). Isso garante que o resumo gerado pelo botão e o resumo gerado pelos jobs de background convergem para o mesmo prompt.
 - **Camada de app**: `AppModel.streamSummary(title:note:bodyText:onChunk:)` segue o mesmo desenho de `sendChatMessage` — recupera serviço, faz `for try await chunk in stream`, acumula localmente e devolve a string final consolidada (também trim/empty-check). Erros viram mensagem via `LLMRecoverableErrorMapper`. `JobAutomation` continua usando `summarize` síncrono — sem mudança de comportamento em jobs.

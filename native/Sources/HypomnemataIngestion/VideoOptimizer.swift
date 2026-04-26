@@ -10,6 +10,28 @@ public struct VideoOptimizationResult: Sendable, Equatable {
     }
 }
 
+public struct VideoOptimizationProgress: Sendable, Equatable {
+    public var percent: Double
+    public var framesProcessed: Int?
+    public var fps: Double?
+    public var speed: Double?
+    public var outTimeSeconds: Double?
+
+    public init(
+        percent: Double,
+        framesProcessed: Int? = nil,
+        fps: Double? = nil,
+        speed: Double? = nil,
+        outTimeSeconds: Double? = nil
+    ) {
+        self.percent = min(max(percent, 0), 1)
+        self.framesProcessed = framesProcessed
+        self.fps = fps
+        self.speed = speed
+        self.outTimeSeconds = outTimeSeconds
+    }
+}
+
 public enum VideoOptimizationError: LocalizedError, Equatable, Sendable {
     case binaryNotFound(String)
     case inputNotFound(String)
@@ -37,12 +59,26 @@ public protocol VideoOptimizer: Sendable {
     func optimize(
         input: URL,
         output: URL,
-        progress: @Sendable @escaping (Double) -> Void,
+        progress: @Sendable @escaping (VideoOptimizationProgress) -> Void,
         isCancelled: @Sendable @escaping () -> Bool
     ) async throws -> VideoOptimizationResult
 }
 
 public extension VideoOptimizer {
+    func optimize(
+        input: URL,
+        output: URL,
+        progress: @Sendable @escaping (Double) -> Void,
+        isCancelled: @Sendable @escaping () -> Bool
+    ) async throws -> VideoOptimizationResult {
+        try await optimize(
+            input: input,
+            output: output,
+            progress: { progress($0.percent) },
+            isCancelled: isCancelled
+        )
+    }
+
     func optimize(
         input: URL,
         output: URL,
@@ -70,7 +106,7 @@ public struct FFmpegVideoOptimizer: VideoOptimizer {
     public func optimize(
         input: URL,
         output: URL,
-        progress: @Sendable @escaping (Double) -> Void,
+        progress: @Sendable @escaping (VideoOptimizationProgress) -> Void,
         isCancelled: @Sendable @escaping () -> Bool
     ) async throws -> VideoOptimizationResult {
         guard FileManager.default.fileExists(atPath: input.path) else {
@@ -126,7 +162,7 @@ public struct FFmpegVideoOptimizer: VideoOptimizer {
         input: URL,
         output: URL,
         durationSeconds: Double,
-        progress: @Sendable @escaping (Double) -> Void,
+        progress: @Sendable @escaping (VideoOptimizationProgress) -> Void,
         isCancelled: @Sendable @escaping () -> Bool
     ) async throws {
         try await withCheckedThrowingContinuation { continuation in
@@ -151,7 +187,7 @@ public struct FFmpegVideoOptimizer: VideoOptimizer {
         input: URL,
         output: URL,
         durationSeconds: Double,
-        progress: @Sendable @escaping (Double) -> Void,
+        progress: @Sendable @escaping (VideoOptimizationProgress) -> Void,
         isCancelled: @Sendable @escaping () -> Bool
     ) throws {
         let runner = SubprocessRunner(environment: environment)
@@ -234,7 +270,7 @@ public struct FFmpegVideoOptimizer: VideoOptimizer {
 
         let wasCancelled = cancelBox.value()
         if process.terminationStatus == 0, !wasCancelled {
-            progress(1)
+            progress(VideoOptimizationProgress(percent: 1))
             return
         }
 
@@ -267,11 +303,12 @@ public struct FFmpegVideoOptimizer: VideoOptimizer {
     private static func readProgress(
         from handle: FileHandle,
         durationSeconds: Double,
-        progress: @Sendable (Double) -> Void,
+        progress: @Sendable (VideoOptimizationProgress) -> Void,
         isCancelled: @Sendable () -> Bool,
         cancel: () -> Void
     ) {
         var buffer = Data()
+        var state = FFmpegProgressState()
         while true {
             let chunk = handle.availableData
             if chunk.isEmpty {
@@ -284,6 +321,7 @@ public struct FFmpegVideoOptimizer: VideoOptimizer {
                 handleProgressLine(
                     String(decoding: lineData, as: UTF8.self),
                     durationSeconds: durationSeconds,
+                    state: &state,
                     progress: progress,
                     isCancelled: isCancelled,
                     cancel: cancel
@@ -294,6 +332,7 @@ public struct FFmpegVideoOptimizer: VideoOptimizer {
             handleProgressLine(
                 String(decoding: buffer, as: UTF8.self),
                 durationSeconds: durationSeconds,
+                state: &state,
                 progress: progress,
                 isCancelled: isCancelled,
                 cancel: cancel
@@ -304,7 +343,8 @@ public struct FFmpegVideoOptimizer: VideoOptimizer {
     private static func handleProgressLine(
         _ line: String,
         durationSeconds: Double,
-        progress: @Sendable (Double) -> Void,
+        state: inout FFmpegProgressState,
+        progress: @Sendable (VideoOptimizationProgress) -> Void,
         isCancelled: @Sendable () -> Bool,
         cancel: () -> Void
     ) {
@@ -312,24 +352,107 @@ public struct FFmpegVideoOptimizer: VideoOptimizer {
             cancel()
             return
         }
-        guard line.hasPrefix("out_time_ms=") else {
+
+        let parts = line.split(separator: "=", maxSplits: 1, omittingEmptySubsequences: false)
+        guard parts.count == 2 else {
             return
         }
-        let rawValue = line.dropFirst("out_time_ms=".count)
-        guard let microseconds = Double(rawValue) else {
-            return
+        let key = String(parts[0]).trimmingCharacters(in: .whitespacesAndNewlines)
+        let rawValue = String(parts[1]).trimmingCharacters(in: .whitespacesAndNewlines)
+
+        switch key {
+        case "frame":
+            state.framesProcessed = Int(rawValue.trimmingCharacters(in: .whitespaces))
+        case "fps":
+            state.fps = Double(rawValue)
+        case "speed":
+            state.speed = Self.parseSpeed(rawValue)
+        case "progress" where rawValue == "end":
+            progress(VideoOptimizationProgress(
+                percent: 1,
+                framesProcessed: state.framesProcessed,
+                fps: state.fps,
+                speed: state.speed,
+                outTimeSeconds: state.outTimeSeconds
+            ))
+        case "out_time_us", "out_time_ms":
+            guard let microseconds = Double(rawValue) else {
+                break
+            }
+            emitProgress(
+                outTimeSeconds: microseconds / 1_000_000,
+                durationSeconds: durationSeconds,
+                state: &state,
+                progress: progress
+            )
+        case "out_time":
+            guard let seconds = parseOutTimeSeconds(rawValue) else {
+                break
+            }
+            emitProgress(
+                outTimeSeconds: seconds,
+                durationSeconds: durationSeconds,
+                state: &state,
+                progress: progress
+            )
+        default:
+            break
         }
-        let percent = min(max((microseconds / 1_000_000) / durationSeconds, 0), 1)
-        progress(percent)
+
         if isCancelled() {
             cancel()
         }
+    }
+
+    private static func emitProgress(
+        outTimeSeconds: Double,
+        durationSeconds: Double,
+        state: inout FFmpegProgressState,
+        progress: @Sendable (VideoOptimizationProgress) -> Void
+    ) {
+        state.outTimeSeconds = outTimeSeconds
+        let percent = min(max(outTimeSeconds / durationSeconds, 0), 1)
+        progress(VideoOptimizationProgress(
+            percent: percent,
+            framesProcessed: state.framesProcessed,
+            fps: state.fps,
+            speed: state.speed,
+            outTimeSeconds: outTimeSeconds
+        ))
+    }
+
+    private static func parseOutTimeSeconds(_ value: String) -> Double? {
+        let components = value.split(separator: ":", omittingEmptySubsequences: false)
+        guard components.count == 3,
+              let hours = Double(components[0]),
+              let minutes = Double(components[1])
+        else {
+            return nil
+        }
+        let secondsText = components[2].replacingOccurrences(of: ",", with: ".")
+        guard let seconds = Double(secondsText) else {
+            return nil
+        }
+        return (hours * 3600) + (minutes * 60) + seconds
+    }
+
+    private static func parseSpeed(_ value: String) -> Double? {
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        let withoutSuffix = trimmed.hasSuffix("x") ? String(trimmed.dropLast()) : trimmed
+        return Double(withoutSuffix)
     }
 
     private static func trimmedText(_ data: Data) -> String {
         String(data: data, encoding: .utf8)?
             .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
     }
+}
+
+private struct FFmpegProgressState {
+    var framesProcessed: Int?
+    var fps: Double?
+    var speed: Double?
+    var outTimeSeconds: Double?
 }
 
 private final class LockedBoolBox: @unchecked Sendable {

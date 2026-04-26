@@ -40,7 +40,7 @@ public struct VideoOptimizationService {
     public func optimizeVideoAsset(
         record: AssetRecord,
         optimizer: any VideoOptimizer,
-        progress: @Sendable @escaping (Double) -> Void = { _ in },
+        progress: @Sendable @escaping (VideoOptimizationProgress) -> Void = { _ in },
         isCancelled: @Sendable @escaping () -> Bool = { false }
     ) async throws -> OptimizeOutcome {
         guard Self.isVideoAsset(record) else {

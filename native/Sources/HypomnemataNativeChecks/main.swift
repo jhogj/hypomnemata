@@ -1852,12 +1852,12 @@ private struct CopyingVideoOptimizer: VideoOptimizer {
     func optimize(
         input: URL,
         output: URL,
-        progress: @Sendable @escaping (Double) -> Void,
+        progress: @Sendable @escaping (VideoOptimizationProgress) -> Void,
         isCancelled: @Sendable @escaping () -> Bool
     ) async throws -> VideoOptimizationResult {
         try FileManager.default.copyItem(at: input, to: output)
         let bytes = (try FileManager.default.attributesOfItem(atPath: output.path)[.size] as? NSNumber)?.int64Value ?? 0
-        progress(1)
+        progress(VideoOptimizationProgress(percent: 1))
         return VideoOptimizationResult(outputBytes: bytes, durationSeconds: 2)
     }
 }
@@ -1870,7 +1870,7 @@ private struct FailingVideoOptimizer: VideoOptimizer {
     func optimize(
         input: URL,
         output: URL,
-        progress: @Sendable @escaping (Double) -> Void,
+        progress: @Sendable @escaping (VideoOptimizationProgress) -> Void,
         isCancelled: @Sendable @escaping () -> Bool
     ) async throws -> VideoOptimizationResult {
         try Data("partial".utf8).write(to: output)

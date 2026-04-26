@@ -72,9 +72,24 @@ final class OptimizationCancelToken: @unchecked Sendable {
     }
 }
 
+private final class LockedDateBox: @unchecked Sendable {
+    private let lock = NSLock()
+    private var value: Date?
+
+    func shouldLog(now: Date, interval: TimeInterval) -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        guard let value, now.timeIntervalSince(value) < interval else {
+            value = now
+            return true
+        }
+        return false
+    }
+}
+
 enum OptimizationState {
     case idle
-    case running(progress: Double, cancelToken: OptimizationCancelToken)
+    case running(progress: VideoOptimizationProgress, startedAt: Date, cancelToken: OptimizationCancelToken)
     case succeeded(beforeBytes: Int64, afterBytes: Int64)
     case alreadyOptimized(bytes: Int64)
     case failed(message: String)
@@ -607,7 +622,7 @@ final class AppModel: ObservableObject, @unchecked Sendable {
     }
 
     func cancelVideoOptimization(for itemID: String) {
-        guard case let .running(_, token) = optimizationState[itemID] else {
+        guard case let .running(_, _, token) = optimizationState[itemID] else {
             return
         }
         token.cancel()
@@ -1050,19 +1065,30 @@ final class AppModel: ObservableObject, @unchecked Sendable {
         let token = OptimizationCancelToken()
         let itemID = item.id
         let jobID = job.id
-        let updateProgress: @Sendable (Double) -> Void = { [weak self, token, itemID] progress in
+        let startedAt = Date()
+        let logger = optimizationLogger
+        let lastProgressLog = LockedDateBox()
+        let updateProgress: @Sendable (VideoOptimizationProgress) -> Void = { [weak self, token, itemID, logger, lastProgressLog] progress in
+            if lastProgressLog.shouldLog(now: Date(), interval: 5) {
+                logger.debug("optimizeVideo progress item_id=\(itemID, privacy: .public) percent=\(progress.percent, privacy: .public)")
+            }
             Task { @MainActor [weak self, token, itemID] in
-                guard case let .running(_, currentToken) = self?.optimizationState[itemID],
+                guard case let .running(_, runningStartedAt, currentToken) = self?.optimizationState[itemID],
                       currentToken === token else {
                     return
                 }
                 self?.optimizationState[itemID] = .running(
                     progress: progress,
+                    startedAt: runningStartedAt,
                     cancelToken: currentToken
                 )
             }
         }
-        optimizationState[item.id] = .running(progress: 0, cancelToken: token)
+        optimizationState[item.id] = .running(
+            progress: VideoOptimizationProgress(percent: 0),
+            startedAt: startedAt,
+            cancelToken: token
+        )
         runningJobIDs.insert(jobID)
         refreshOpenedItemIfMatches(itemID)
 
@@ -1070,7 +1096,6 @@ final class AppModel: ObservableObject, @unchecked Sendable {
             do {
                 try repository.updateJobStatus(id: jobID, status: .running, error: nil)
                 let service = VideoOptimizationService(repository: repository, assetStore: assetStore)
-                let startedAt = Date()
                 let outcome = try await service.optimizeVideoAsset(
                     record: record,
                     optimizer: FFmpegVideoOptimizer(),
