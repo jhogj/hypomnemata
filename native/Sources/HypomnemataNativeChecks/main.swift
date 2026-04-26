@@ -11,6 +11,7 @@ import HypomnemataMedia
 struct HypomnemataNativeChecks {
     static func main() async throws {
         try checkCore()
+        try await checkVideoOptimizer()
         try await checkAI()
         try checkData()
         try checkMedia()
@@ -127,6 +128,54 @@ struct HypomnemataNativeChecks {
         precondition(id.count == 36)
         precondition(id[id.index(id.startIndex, offsetBy: 14)] == "7")
         precondition(["8", "9", "a", "b"].contains(id[id.index(id.startIndex, offsetBy: 19)]))
+    }
+
+    private static func checkVideoOptimizer() async throws {
+        let root = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("hypomnemata-video-optimizer-checks-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let input = root.appendingPathComponent("input.mp4")
+        let output = root.appendingPathComponent("output.mp4")
+        try makeTestVideo(at: input, durationSeconds: 2, size: "320x180", crf: "12")
+
+        let optimizer = FFmpegVideoOptimizer()
+        let progressBox = TestProgressSamples()
+        let result = try await optimizer.optimize(
+            input: input,
+            output: output,
+            progress: { sample in
+                progressBox.append(sample)
+            }
+        )
+        precondition(FileManager.default.fileExists(atPath: output.path))
+        precondition(result.outputBytes > 0)
+        precondition(result.durationSeconds > 1.5 && result.durationSeconds < 2.5)
+        let optimizedDuration = try probeVideoDuration(output)
+        precondition(abs(optimizedDuration - result.durationSeconds) < 0.5)
+        let samples = progressBox.values()
+        precondition(samples.contains(where: { $0 > 0 && $0 <= 1 }))
+
+        let cancelInput = root.appendingPathComponent("cancel-input.mp4")
+        let cancelOutput = root.appendingPathComponent("cancel-output.mp4")
+        try makeTestVideo(at: cancelInput, durationSeconds: 30, size: "1280x720", crf: "10")
+        let cancelFlag = TestCancelFlag()
+        Task {
+            try? await Task.sleep(nanoseconds: 200_000_000)
+            cancelFlag.cancel()
+        }
+        do {
+            _ = try await optimizer.optimize(
+                input: cancelInput,
+                output: cancelOutput,
+                progress: { _ in },
+                isCancelled: { cancelFlag.isCancelled }
+            )
+            preconditionFailure("Otimização cancelada deveria lançar erro.")
+        } catch VideoOptimizationError.cancelled {
+            precondition(!FileManager.default.fileExists(atPath: cancelOutput.path))
+        }
     }
 
     private static func checkAI() async throws {
@@ -550,7 +599,7 @@ struct HypomnemataNativeChecks {
                     return SubprocessResult(exitCode: 0, stdout: Data(), stderr: Data())
                 }
                 precondition(args.contains("-f"))
-                precondition(args.contains("bv*[vcodec^=avc1]+ba[ext=m4a]/b[vcodec^=avc1][acodec!=none]/b[ext=mp4][vcodec^=avc1]"))
+                precondition(args.contains("bv*[vcodec^=avc1][height<=1080]+ba[ext=m4a]/b[vcodec^=avc1][acodec!=none][height<=1080]/b[ext=mp4][vcodec^=avc1][height<=1080]"))
                 precondition(!args.contains("--remux-video"))
                 try Data([0x00, 0x00, 0x00, 0x20, 0x66, 0x74, 0x79, 0x70]).write(
                     to: workingDirectory.appendingPathComponent("Stub Video [abc].mp4")
@@ -1372,6 +1421,48 @@ struct HypomnemataNativeChecks {
         return data
     }
 
+    private static func makeTestVideo(at url: URL, durationSeconds: Int, size: String, crf: String) throws {
+        let result = try SubprocessRunner().run(
+            executable: "ffmpeg",
+            arguments: [
+                "-f", "lavfi",
+                "-i", "testsrc2=duration=\(durationSeconds):size=\(size):rate=24",
+                "-pix_fmt", "yuv420p",
+                "-c:v", "libx264",
+                "-crf", crf,
+                "-preset", "ultrafast",
+                "-y",
+                url.path,
+            ]
+        )
+        precondition(
+            result.exitCode == 0,
+            "ffmpeg fixture failed: \(String(data: result.stderr, encoding: .utf8) ?? "")"
+        )
+    }
+
+    private static func probeVideoDuration(_ url: URL) throws -> Double {
+        let result = try SubprocessRunner().run(
+            executable: "ffprobe",
+            arguments: [
+                "-v", "error",
+                "-show_entries", "format=duration",
+                "-of", "csv=p=0",
+                url.path,
+            ]
+        )
+        precondition(
+            result.exitCode == 0,
+            "ffprobe validation failed: \(String(data: result.stderr, encoding: .utf8) ?? "")"
+        )
+        let text = String(data: result.stdout, encoding: .utf8)?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard let duration = Double(text) else {
+            preconditionFailure("ffprobe returned invalid duration: \(text)")
+        }
+        return duration
+    }
+
     private static func makePDF(text: String) throws -> Data {
         let data = NSMutableData()
         guard let consumer = CGDataConsumer(data: data) else {
@@ -1545,5 +1636,39 @@ private struct FakeRemoteThumbnailFetcher: RemoteThumbnailFetcher {
     func fetchThumbnail(url: String) async throws -> RemoteThumbnailResult {
         precondition(url == expectedURL)
         return result
+    }
+}
+
+private final class TestProgressSamples: @unchecked Sendable {
+    private let lock = NSLock()
+    private var samples: [Double] = []
+
+    func append(_ sample: Double) {
+        lock.lock()
+        samples.append(sample)
+        lock.unlock()
+    }
+
+    func values() -> [Double] {
+        lock.lock()
+        defer { lock.unlock() }
+        return samples
+    }
+}
+
+private final class TestCancelFlag: @unchecked Sendable {
+    private let lock = NSLock()
+    private var cancelled = false
+
+    var isCancelled: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return cancelled
+    }
+
+    func cancel() {
+        lock.lock()
+        cancelled = true
+        lock.unlock()
     }
 }

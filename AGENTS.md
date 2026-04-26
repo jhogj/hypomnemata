@@ -173,6 +173,15 @@ CLANG_MODULE_CACHE_PATH=/tmp/hypo-clang-cache SWIFTPM_HOME=/tmp/hypo-swiftpm-cac
 - **Armazenamento**: `AppModel` recalcula uso de assets após jobs de background e rollback/remoção de assets, não apenas quando a lista visível é recarregada.
 - **YouTube**: `YTDLPMediaDownloader` lê a URL `thumbnail` do `yt-dlp --dump-json`, baixa a imagem e entrega junto do `MediaDownloadResult`; `AppModel` salva essa imagem como thumbnail do vídeo antes do fallback por frame local.
 
+### 2026-04-26 — Limite 1080p para vídeos
+- **Decisão**: downloads de vídeo via `yt-dlp` continuam restritos a H.264/AAC compatível com AVPlayer, mas agora também exigem `height<=1080` em todos os ramos do seletor. Isso evita arquivos 1440p/4K grandes demais.
+
+### 2026-04-26 — Otimização de vídeo sob demanda Sprint 1
+- **Decisão**: iniciar pelo caminho recomendado em `PLANO_OTIMIZACAO_VIDEO.md`: núcleo isolado antes de vault/DB/UI.
+- **Implementação**: novo `FFmpegVideoOptimizer` em `HypomnemataIngestion` roda `ffprobe` para duração, depois `ffmpeg` com `libx264`, `crf=28`, `preset=slow`, AAC 128k e `-progress pipe:1`. O parser lê `out_time_ms`, clampa progresso em 0...1 e cancela com `Process.terminate()` quando o token externo sinaliza cancelamento.
+- **Validação**: `HypomnemataNativeChecks` cria fixtures MP4 temporários com `ffmpeg`, otimiza um vídeo real, valida duração com `ffprobe` e cobre cancelamento com remoção do output parcial. `swift build --product HypomnemataMacApp` e `swift run HypomnemataNativeChecks` passaram em 2026-04-26.
+- **Próximo passo**: Sprint 2 — integrar vault, `AssetRecord.optimizedAt`, migration e substituição segura do blob criptografado.
+
 ### 2026-04-25 — Resumo em streaming na sheet de detalhe (Sprint 7.3)
 - **Decisão**: `ItemAIService` ganha `streamSummary(context:)` que retorna `AsyncThrowingStream<String, Error>` reaproveitando exatamente os mesmos `summaryMessages(for:)` do `summarize` síncrono — só muda o transporte (`streamChat` no lugar de `complete`). Isso garante que o resumo gerado pelo botão e o resumo gerado pelos jobs de background convergem para o mesmo prompt.
 - **Camada de app**: `AppModel.streamSummary(title:note:bodyText:onChunk:)` segue o mesmo desenho de `sendChatMessage` — recupera serviço, faz `for try await chunk in stream`, acumula localmente e devolve a string final consolidada (também trim/empty-check). Erros viram mensagem via `LLMRecoverableErrorMapper`. `JobAutomation` continua usando `summarize` síncrono — sem mudança de comportamento em jobs.
