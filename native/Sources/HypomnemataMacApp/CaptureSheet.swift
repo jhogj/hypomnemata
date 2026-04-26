@@ -12,7 +12,6 @@ struct CaptureSheet: View {
     @State private var title = ""
     @State private var note = ""
     @State private var bodyText = ""
-    @State private var tags = ""
     @State private var selectedFileURL: URL?
     @State private var urlAsAudio = false
     @State private var showingFileImporter = false
@@ -63,8 +62,6 @@ struct CaptureSheet: View {
 
             TextField("Título", text: $title)
                 .textFieldStyle(.roundedBorder)
-            TextField("Etiquetas separadas por vírgula", text: $tags)
-                .textFieldStyle(.roundedBorder)
             TextEditor(text: $note)
                 .frame(minHeight: 90)
                 .overlay {
@@ -92,7 +89,7 @@ struct CaptureSheet: View {
                         note: note.trimmedNonEmpty,
                         bodyText: selectedTab == 2 ? bodyText.trimmedNonEmpty : nil,
                         fileURL: selectedTab == 1 ? selectedFileURL : nil,
-                        tags: tags.split(separator: ",").map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                        tags: []
                     ))
                     errorMessage = message
                 }
@@ -145,7 +142,6 @@ struct CaptureSheet: View {
         didApplyPrefill = true
         title = draft.title ?? ""
         note = draft.note ?? ""
-        tags = draft.tags.joined(separator: ", ")
         if let sourceURL = draft.sourceURL {
             selectedTab = 0
             urlString = sourceURL

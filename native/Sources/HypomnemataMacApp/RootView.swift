@@ -104,7 +104,7 @@ struct SidebarView: View {
                     title: "Todos",
                     systemImage: "tray.full",
                     count: model.totalItemCount,
-                    isSelected: model.activeKind == nil && model.activeTag == nil && model.activeFolderID == nil
+                    isSelected: model.activeKind == nil && model.activeFolderID == nil
                 ) {
                     model.clearFilters()
                 }
@@ -119,21 +119,6 @@ struct SidebarView: View {
                         isSelected: model.activeKind == kind
                     ) {
                         model.toggleKindFilter(kind)
-                    }
-                }
-            }
-
-            if !model.tagCounts.isEmpty {
-                Section("Tags") {
-                    ForEach(model.tagCounts) { tag in
-                        SidebarFilterRow(
-                            title: "#\(tag.name)",
-                            systemImage: "tag",
-                            count: tag.count,
-                            isSelected: model.activeTag == tag.name
-                        ) {
-                            model.toggleTagFilter(tag.name)
-                        }
                     }
                 }
             }
@@ -228,26 +213,22 @@ struct SidebarView: View {
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
 
-                Button {
-                    model.openCapture()
-                } label: {
-                    Label("Nova captura", systemImage: "plus")
-                }
-                .buttonStyle(.borderedProminent)
+                HStack(spacing: 10) {
+                    Button("Trocar senha") {
+                        model.showChangePassword = true
+                    }
 
-                Button {
-                    model.lock()
-                } label: {
-                    Label("Bloquear", systemImage: "lock")
-                }
-
-                Button {
-                    model.showChangePassword = true
-                } label: {
-                    Label("Trocar senha", systemImage: "key")
+                    Button {
+                        model.lock()
+                    } label: {
+                        Image(systemName: "lock")
+                    }
+                    .help("Bloquear")
                 }
             }
             .padding()
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(.bar)
         }
     }
 }
@@ -646,16 +627,11 @@ struct ActiveFilterBar: View {
     @EnvironmentObject private var model: AppModel
 
     var body: some View {
-        if model.activeKind != nil || model.activeTag != nil || model.activeFolderID != nil {
+        if model.activeKind != nil || model.activeFolderID != nil {
             HStack(spacing: 8) {
                 if let kind = model.activeKind {
                     FilterChip(title: kind.displayName, systemImage: kind.systemImage) {
                         model.toggleKindFilter(kind)
-                    }
-                }
-                if let tag = model.activeTag {
-                    FilterChip(title: "#\(tag)", systemImage: "tag") {
-                        model.toggleTagFilter(tag)
                     }
                 }
                 if let folder = model.activeFolder {
@@ -791,7 +767,6 @@ struct ItemRowView: View {
                             .lineLimit(2)
                             .foregroundStyle(.secondary)
                     }
-                    TagLine(tags: item.tags)
                 }
                 if item.kind == .video || item.kind == .audio {
                     Button {
@@ -910,7 +885,6 @@ struct ItemGridCardView: View {
                 }
 
                 Spacer(minLength: 0)
-                TagLine(tags: item.tags)
                 if let videoError {
                     Text(videoError)
                         .font(.caption)
@@ -1097,7 +1071,6 @@ struct ItemDetailSheet: View {
     @State private var summary: String
     @State private var note: String
     @State private var bodyText: String
-    @State private var tags: String
     @State private var baselineItem: Item
     @State private var itemFolders: [Folder] = []
     @State private var linkedItems: [ItemSummary] = []
@@ -1125,7 +1098,6 @@ struct ItemDetailSheet: View {
         _summary = State(initialValue: item.summary ?? "")
         _note = State(initialValue: item.note ?? "")
         _bodyText = State(initialValue: item.bodyText ?? "")
-        _tags = State(initialValue: item.tags.joined(separator: ", "))
         _baselineItem = State(initialValue: item)
     }
 
@@ -1362,19 +1334,6 @@ struct ItemDetailSheet: View {
                         openRelated(summary)
                     }
 
-                    DetailFieldLabel("Etiquetas")
-                    HStack(spacing: 8) {
-                        TextField("separadas por vírgula", text: $tags)
-                            .textFieldStyle(.roundedBorder)
-                        Button {
-                            generateAutotags()
-                        } label: {
-                            Label("Sugerir tags", systemImage: "tag")
-                        }
-                        .buttonStyle(.borderless)
-                        .disabled(aiBusy)
-                    }
-
                     if !itemJobs.isEmpty {
                         DetailFieldLabel("Tarefas")
                         JobStatusList(
@@ -1434,7 +1393,7 @@ struct ItemDetailSheet: View {
             summary: summary,
             note: note,
             bodyText: bodyText,
-            tags: parsedTags()
+            tags: item.tags
         ) {
             errorMessage = message
         } else {
@@ -1448,7 +1407,6 @@ struct ItemDetailSheet: View {
             || summary != (baselineItem.summary ?? "")
             || note != (baselineItem.note ?? "")
             || bodyText != (baselineItem.bodyText ?? "")
-            || parsedTags() != baselineItem.tags
     }
 
     private func applyItemUpdate(_ updatedItem: Item) {
@@ -1458,7 +1416,6 @@ struct ItemDetailSheet: View {
             summary = updatedItem.summary ?? ""
             note = updatedItem.note ?? ""
             bodyText = updatedItem.bodyText ?? ""
-            tags = updatedItem.tags.joined(separator: ", ")
             baselineItem = updatedItem
         }
         loadOrganization()
@@ -1483,30 +1440,6 @@ struct ItemDetailSheet: View {
             errorMessage = result.1
             aiBusy = false
         }
-    }
-
-    private func generateAutotags() {
-        aiBusy = true
-        errorMessage = nil
-        let currentTags = parsedTags()
-        Task {
-            let result = await model.generateAutotags(
-                title: title,
-                note: note,
-                bodyText: bodyText,
-                existingTags: currentTags
-            )
-            tags = result.0.joined(separator: ", ")
-            errorMessage = result.1
-            aiBusy = false
-        }
-    }
-
-    private func parsedTags() -> [String] {
-        tags
-            .split(separator: ",")
-            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .filter { !$0.isEmpty }
     }
 
     private func delete() {
@@ -2109,19 +2042,6 @@ struct KindIcon: View {
             .foregroundStyle(.secondary)
             .frame(width: 28, height: 28)
             .background(.quaternary, in: RoundedRectangle(cornerRadius: 6))
-    }
-}
-
-struct TagLine: View {
-    var tags: [String]
-
-    var body: some View {
-        if !tags.isEmpty {
-            Text(tags.map { "#\($0)" }.joined(separator: " "))
-                .font(.caption)
-                .foregroundStyle(.tertiary)
-                .lineLimit(2)
-        }
     }
 }
 
