@@ -899,7 +899,7 @@ final class AppModel: ObservableObject, @unchecked Sendable {
                 return error.localizedDescription
             }
         }
-        guard JobAutomation.canRun(job.kind) else {
+        guard JobAutomation.canRun(job.kind) || job.kind == .optimizeVideo else {
             return "Esta tarefa não tem executor disponível ainda."
         }
         guard !runningJobIDs.contains(job.id) else {
@@ -1087,8 +1087,9 @@ final class AppModel: ObservableObject, @unchecked Sendable {
 
     private func applyOptimizationOutcome(_ outcome: OptimizeOutcome, itemID: String, jobID: String) {
         switch outcome {
-        case let .optimized(originalBytes, newBytes, _):
+        case let .optimized(originalBytes, newBytes, asset):
             optimizationState[itemID] = .succeeded(beforeBytes: originalBytes, afterBytes: newBytes)
+            invalidateAssetCache(itemID: itemID, assetID: asset.id)
         case let .alreadyOptimized(originalBytes, _):
             optimizationState[itemID] = .alreadyOptimized(bytes: originalBytes)
         }
@@ -1110,6 +1111,25 @@ final class AppModel: ObservableObject, @unchecked Sendable {
             return "Falha recuperável de otimização: \(localized)"
         }
         return "Falha recuperável de otimização: \(error.localizedDescription)"
+    }
+
+    private func invalidateAssetCache(itemID: String, assetID: String) {
+        guard let appPaths else {
+            return
+        }
+        let cacheDirectory = appPaths.temporaryCacheDirectory
+            .appendingPathComponent(itemID, isDirectory: true)
+            .appendingPathComponent(assetID, isDirectory: true)
+        try? FileManager.default.removeItem(at: cacheDirectory)
+    }
+
+    func clearTerminalOptimizationState(for itemID: String) {
+        switch optimizationState[itemID] {
+        case .succeeded, .alreadyOptimized:
+            optimizationState[itemID] = nil
+        default:
+            return
+        }
     }
 
     private func applyOutcome(_ outcome: JobAutomationOutcome, to item: Item) throws {

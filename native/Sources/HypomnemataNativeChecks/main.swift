@@ -415,7 +415,7 @@ struct HypomnemataNativeChecks {
         precondition(JobAutomation.canRun(.scrapeArticle))
         precondition(JobAutomation.canRun(.downloadMedia))
         precondition(JobAutomation.canRun(.generateThumbnail))
-        precondition(JobAutomation.canRun(.optimizeVideo))
+        precondition(!JobAutomation.canRun(.optimizeVideo))
         precondition(!JobAutomation.canRun(.runOCR))
 
         let summaryAutomation = JobAutomation(

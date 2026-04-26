@@ -29,7 +29,7 @@ public enum JobAutomationError: LocalizedError, Equatable, Sendable {
 }
 
 public struct JobAutomation: Sendable {
-    public static let supportedKinds: Set<JobKind> = [.summarize, .autotag, .scrapeArticle, .downloadMedia, .generateThumbnail, .optimizeVideo]
+    public static let supportedKinds: Set<JobKind> = [.summarize, .autotag, .scrapeArticle, .downloadMedia, .generateThumbnail]
 
     private let service: ItemAIService?
     private let articleScraper: (any ArticleScraper)?
@@ -114,9 +114,7 @@ public struct JobAutomation: Sendable {
             }
             let result = try await remoteThumbnailFetcher.fetchThumbnail(url: trimmedURL)
             return .thumbnailFetched(result)
-        case .optimizeVideo:
-            throw JobAutomationError.missingExecutor(kind)
-        case .runOCR:
+        case .optimizeVideo, .runOCR:
             throw JobAutomationError.unsupportedJobKind(kind)
         }
     }

@@ -1161,6 +1161,7 @@ struct ItemDetailSheet: View {
                 Spacer()
 
                 Button("Fechar") {
+                    model.clearTerminalOptimizationState(for: item.id)
                     dismiss()
                 }
                 if !chatMode {
@@ -1183,6 +1184,7 @@ struct ItemDetailSheet: View {
         }
         .onDisappear {
             stopJobRefresh()
+            model.clearTerminalOptimizationState(for: item.id)
         }
         .onChange(of: itemJobs) { _, jobs in
             if jobs.contains(where: { $0.status == .running || $0.status == .pending }) {
@@ -1193,6 +1195,11 @@ struct ItemDetailSheet: View {
         }
         .onChange(of: model.runningJobIDs) { _, _ in
             loadJobs()
+        }
+        .onChange(of: optimizationStateKey) { _, _ in
+            if case .succeeded = model.optimizationState[item.id] {
+                loadAssetPreviews()
+            }
         }
         .onChange(of: item) { _, updatedItem in
             applyItemUpdate(updatedItem)
@@ -1422,8 +1429,31 @@ struct ItemDetailSheet: View {
     }
 
     private var optimizableVideoAsset: AssetRecord? {
+        if case .succeeded = model.optimizationState[item.id] {
+            return nil
+        }
+        if case .alreadyOptimized = model.optimizationState[item.id] {
+            return nil
+        }
         let result = model.optimizableVideoAsset(for: item)
         return result.0
+    }
+
+    private var optimizationStateKey: String {
+        switch model.optimizationState[item.id] {
+        case .idle:
+            "idle"
+        case .running:
+            "running"
+        case .succeeded:
+            "succeeded"
+        case .alreadyOptimized:
+            "alreadyOptimized"
+        case .failed:
+            "failed"
+        case nil:
+            "none"
+        }
     }
 
     private var statefulOptimizationAsset: AssetRecord? {
@@ -1879,6 +1909,11 @@ struct JobStatusRow: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
+                }
+                if job.kind == .optimizeVideo, job.status == .failed {
+                    Text("O vídeo será otimizado em segundo plano; reabra o detalhe para ver o progresso.")
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
                 }
             }
             Spacer()
