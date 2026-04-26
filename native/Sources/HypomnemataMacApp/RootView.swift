@@ -1281,6 +1281,7 @@ struct ItemDetailSheet: View {
                         VideoOptimizationControl(
                             state: model.optimizationState[item.id],
                             originalBytes: optimizationAsset.byteCount,
+                            disabledReason: model.videoOptimizationDependencyMessage(),
                             onStart: { startVideoOptimization(assetID: optimizationAsset.id) },
                             onCancel: { model.cancelVideoOptimization(for: item.id) }
                         )
@@ -1812,6 +1813,7 @@ struct JobStatusList: View {
 struct VideoOptimizationControl: View {
     var state: OptimizationState?
     var originalBytes: Int64
+    var disabledReason: String?
     var onStart: () -> Void
     var onCancel: () -> Void
 
@@ -1853,6 +1855,8 @@ struct VideoOptimizationControl: View {
                         Label("Otimizar vídeo", systemImage: "arrow.down.right.and.arrow.up.left")
                     }
                     .controlSize(.small)
+                    .disabled(disabledReason != nil)
+                    .help(disabledReason ?? "Otimizar vídeo")
                 }
             case .idle, .none:
                 Button {
@@ -1860,7 +1864,8 @@ struct VideoOptimizationControl: View {
                 } label: {
                     Label("Otimizar vídeo", systemImage: "arrow.down.right.and.arrow.up.left")
                 }
-                .help("Otimizar vídeo")
+                .disabled(disabledReason != nil)
+                .help(disabledReason ?? "Otimizar vídeo")
             }
         }
         .padding(10)

@@ -162,6 +162,40 @@ public final class EncryptedAssetStore: @unchecked Sendable {
         rootDirectory.appendingPathComponent(record.encryptedPath)
     }
 
+    public func findOrphanEncryptedBlobs(referencedPaths: Set<String>, olderThan cutoff: Date) throws -> [URL] {
+        guard let enumerator = fileManager.enumerator(
+            at: rootDirectory,
+            includingPropertiesForKeys: [.isRegularFileKey, .contentModificationDateKey],
+            options: [.skipsHiddenFiles]
+        ) else {
+            return []
+        }
+
+        var orphans: [URL] = []
+        for case let fileURL as URL in enumerator {
+            let values = try fileURL.resourceValues(forKeys: [.isRegularFileKey, .contentModificationDateKey])
+            guard values.isRegularFile == true, fileURL.pathExtension == "hasset" else {
+                continue
+            }
+            let relativePath = fileURL.path.replacingOccurrences(of: rootDirectory.path + "/", with: "")
+            guard !referencedPaths.contains(relativePath) else {
+                continue
+            }
+            let modifiedAt = values.contentModificationDate ?? .distantPast
+            if modifiedAt <= cutoff {
+                orphans.append(fileURL)
+            }
+        }
+        return orphans
+    }
+
+    public func removeEncryptedBlob(at url: URL) throws {
+        guard fileManager.fileExists(atPath: url.path) else {
+            return
+        }
+        try fileManager.removeItem(at: url)
+    }
+
     public func clearTemporaryCache() throws {
         try TemporaryCacheCleaner(fileManager: fileManager).clear(at: cacheDirectory)
     }

@@ -1149,6 +1149,24 @@ struct HypomnemataNativeChecks {
         precondition(storedJobs[1].status == .failed)
         precondition(storedJobs[1].error?.contains("brew install trafilatura") == true)
 
+        let optimizeRunningJob = Job(
+            id: "job-opt-running",
+            itemID: article.id,
+            kind: .optimizeVideo,
+            status: .running
+        )
+        try repository.insertJobs([optimizeRunningJob])
+        let runningOptimizeJobs = try repository.jobs(kind: .optimizeVideo, status: .running)
+        precondition(runningOptimizeJobs.map(\.id) == ["job-opt-running"])
+        try repository.markRunningJobsFailed(
+            kind: .optimizeVideo,
+            error: "App reiniciado durante a otimização."
+        )
+        let failedOptimizeJobs = try repository.jobs(kind: .optimizeVideo, status: .failed)
+        precondition(failedOptimizeJobs.contains { job in
+            job.id == "job-opt-running" && job.error == "App reiniciado durante a otimização."
+        })
+
         try repository.incrementJobAttempts(id: "job-b")
         try repository.updateJobStatus(id: "job-b", status: .pending, error: nil)
         let retriedJobs = try repository.jobs(forItemID: article.id)
@@ -1342,6 +1360,35 @@ struct HypomnemataNativeChecks {
         precondition(itemAssets == [storedAsset.record])
         let batchAssets = try repository.assets(forItemIDs: [item.id, article.id])
         precondition(batchAssets == [storedAsset.record])
+        let allAssetsAfterStoredAsset = try repository.allAssets()
+        precondition(allAssetsAfterStoredAsset.contains(storedAsset.record))
+
+        let oldOrphan = try store.write(
+            data: Data("old orphan".utf8),
+            itemID: item.id,
+            role: .original,
+            originalFilename: "old-orphan.bin",
+            mimeType: "application/octet-stream"
+        )
+        let recentOrphan = try store.write(
+            data: Data("recent orphan".utf8),
+            itemID: item.id,
+            role: .original,
+            originalFilename: "recent-orphan.bin",
+            mimeType: "application/octet-stream"
+        )
+        let oldDate = Date().addingTimeInterval(-2 * 60 * 60)
+        try FileManager.default.setAttributes([.modificationDate: oldDate], ofItemAtPath: oldOrphan.absoluteURL.path)
+        let referencedPaths = Set(try repository.allAssets().map(\.encryptedPath))
+        let oldOrphans = try store.findOrphanEncryptedBlobs(
+            referencedPaths: referencedPaths,
+            olderThan: Date().addingTimeInterval(-60 * 60)
+        )
+        precondition(!oldOrphans.isEmpty)
+        precondition(!oldOrphans.contains { $0.path == recentOrphan.absoluteURL.path })
+        try store.removeEncryptedBlob(at: oldOrphan.absoluteURL)
+        precondition(!FileManager.default.fileExists(atPath: oldOrphan.absoluteURL.path))
+        try store.removeEncryptedBlob(at: recentOrphan.absoluteURL)
 
         let rollbackAsset = try store.write(
             data: Data("rollback asset".utf8),

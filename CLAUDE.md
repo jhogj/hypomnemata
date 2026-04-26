@@ -267,6 +267,14 @@ Formato quando aparecerem mais:
 - **Solução** (`ocr.py`): Se o texto extraído nativamente pelo `pypdf` for muito pequeno (menos de 150 caracteres), o sistema trata o arquivo como "PDF escaneado" e executa um fallback.
 - **Implementação**: Utiliza a biblioteca `PyMuPDF` (`fitz`) para renderizar cada página do PDF em uma imagem temporária (resolução 2x), salvando no disco temporário com `tempfile`. Em seguida, aplica o Tesseract (`pytesseract`) nelas para extrair o texto. Isso complementa o FTS sem exigir bibliotecas extras além do que o sistema já usava (Tesseract para imagens soltas e PyMuPDF para thumbnails).
 
+### 2026-04-26 — Decisões posteriores: otimização de vídeo sob demanda
+- Plano vivo: `PLANO_OTIMIZACAO_VIDEO.md`.
+- No app nativo, `JobKind.optimizeVideo` é manual: o botão no detalhe cria job, roda `VideoOptimizationService` em background, mostra progresso/cancelamento na sessão e registra comparação antes/depois.
+- Pipeline seguro: decrypt temporário → `ffprobe` para duração → `ffmpeg` H.264/AAC (`crf=28`, `preset=slow`, `128k`) → re-encrypt em novo blob mantendo o mesmo `AssetRecord.id` → UPDATE da row → remoção do blob antigo.
+- Re-otimização é bloqueada por `AssetRecord.optimizedAt`. Se o output não reduz tamanho, o output é descartado, o original é mantido e o asset também é marcado como otimizado.
+- Recovery no unlock: remove temps `hypomnemata-optimize-*`, marca jobs `optimizeVideo/running` como failed e remove blobs `.hasset` órfãos com mais de 1h.
+- Validação defensiva: exige `ffmpeg`/`ffprobe` e espaço livre >= 2x o tamanho do vídeo antes de iniciar.
+
 ## Ideias discutidas
 
 ### Aprovadas e implementadas

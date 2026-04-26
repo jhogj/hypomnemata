@@ -66,10 +66,13 @@ public protocol ItemRepository: Sendable {
     func deleteAssets(ids: [String]) throws
     func insertJobs(_ jobs: [Job]) throws
     func jobs(forItemID itemID: String) throws -> [Job]
+    func jobs(kind: JobKind, status: JobStatus) throws -> [Job]
+    func markRunningJobsFailed(kind: JobKind, error: String) throws
     func updateJobStatus(id: String, status: JobStatus, error: String?) throws
     func incrementJobAttempts(id: String) throws
     func assets(forItemID itemID: String) throws -> [AssetRecord]
     func assets(forItemIDs itemIDs: [String]) throws -> [AssetRecord]
+    func allAssets() throws -> [AssetRecord]
     func totalItemCount() throws -> Int
     func itemCountsByKind() throws -> [ItemKind: Int]
     func tagCounts() throws -> [TagCount]
@@ -364,6 +367,40 @@ public final class SQLiteItemRepository: ItemRepository, @unchecked Sendable {
         }
     }
 
+    public func jobs(kind: JobKind, status: JobStatus) throws -> [Job] {
+        try database.writer.read { db in
+            try Row.fetchAll(
+                db,
+                sql: """
+                    SELECT *
+                    FROM jobs
+                    WHERE kind = ? AND status = ?
+                    ORDER BY created_at, id
+                    """,
+                arguments: [kind.rawValue, status.rawValue]
+            ).map(Self.job(from:))
+        }
+    }
+
+    public func markRunningJobsFailed(kind: JobKind, error: String) throws {
+        try database.writer.write { db in
+            try db.execute(
+                sql: """
+                    UPDATE jobs
+                    SET status = ?, error = ?, updated_at = ?
+                    WHERE kind = ? AND status = ?
+                    """,
+                arguments: [
+                    JobStatus.failed.rawValue,
+                    error,
+                    ClockTimestamp.nowISO8601(),
+                    kind.rawValue,
+                    JobStatus.running.rawValue,
+                ]
+            )
+        }
+    }
+
     public func updateJobStatus(id: String, status: JobStatus, error: String?) throws {
         try database.writer.write { db in
             try db.execute(
@@ -418,6 +455,19 @@ public final class SQLiteItemRepository: ItemRepository, @unchecked Sendable {
                     ORDER BY created_at, id
                     """,
                 arguments: arguments
+            ).map(Self.asset(from:))
+        }
+    }
+
+    public func allAssets() throws -> [AssetRecord] {
+        try database.writer.read { db in
+            try Row.fetchAll(
+                db,
+                sql: """
+                    SELECT *
+                    FROM assets
+                    ORDER BY created_at, id
+                    """
             ).map(Self.asset(from:))
         }
     }

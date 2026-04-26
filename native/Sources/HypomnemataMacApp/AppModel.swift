@@ -5,6 +5,7 @@ import HypomnemataCore
 import HypomnemataData
 import HypomnemataIngestion
 import HypomnemataMedia
+import os
 import UniformTypeIdentifiers
 
 enum LibraryViewMode: String, CaseIterable, Identifiable {
@@ -121,6 +122,7 @@ final class AppModel: ObservableObject, @unchecked Sendable {
     private var servicesProvider: CaptureServicesProvider?
     private var detailVideoStartTimes: [String: Double] = [:]
     private let autoLockInterval: TimeInterval = 15 * 60
+    private let optimizationLogger = Logger(subsystem: "Hypomnemata", category: "optimizeVideo")
 
     var isUnlocked: Bool {
         if case .unlocked = state {
@@ -177,11 +179,13 @@ final class AppModel: ObservableObject, @unchecked Sendable {
                 throw error
             }
 
+            let repo = SQLiteItemRepository(database: db)
             database = db
-            repository = SQLiteItemRepository(database: db)
+            repository = repo
             llmSettingsStore = LLMSettingsStore(database: db)
             appPaths = paths
             assetStore = store
+            runStartupRecovery(repository: repo, assetStore: store)
             state = .unlocked
             resetAutoLockTimer()
             refreshLibrary()
@@ -575,6 +579,12 @@ final class AppModel: ObservableObject, @unchecked Sendable {
             guard let record = try repository.assets(forItemID: item.id).first(where: { $0.id == assetID }) else {
                 return "Asset de vídeo não encontrado para otimização."
             }
+            if let dependencyMessage = videoOptimizationDependencyMessage() {
+                return dependencyMessage
+            }
+            if let spaceMessage = insufficientDiskSpaceMessage(for: record) {
+                return spaceMessage
+            }
             guard record.optimizedAt == nil else {
                 return "Este vídeo já foi otimizado."
             }
@@ -590,6 +600,17 @@ final class AppModel: ObservableObject, @unchecked Sendable {
         } catch {
             return error.localizedDescription
         }
+    }
+
+    func videoOptimizationDependencyMessage() -> String? {
+        let doctor = DependencyDoctor()
+        let missing = ["ffmpeg", "ffprobe"].filter { executable in
+            doctor.status(for: executable)?.isInstalled != true
+        }
+        guard !missing.isEmpty else {
+            return nil
+        }
+        return "Instale ffmpeg via Homebrew para usar esta funcionalidade."
     }
 
     func cancelVideoOptimization(for itemID: String) {
@@ -1056,14 +1077,17 @@ final class AppModel: ObservableObject, @unchecked Sendable {
             do {
                 try repository.updateJobStatus(id: jobID, status: .running, error: nil)
                 let service = VideoOptimizationService(repository: repository, assetStore: assetStore)
+                let startedAt = Date()
                 let outcome = try await service.optimizeVideoAsset(
                     record: record,
                     optimizer: FFmpegVideoOptimizer(),
                     progress: updateProgress,
                     isCancelled: { token.isCancelled }
                 )
+                let ffmpegSeconds = Date().timeIntervalSince(startedAt)
                 try repository.updateJobStatus(id: jobID, status: .done, error: nil)
                 await MainActor.run {
+                    self?.logOptimizationOutcome(outcome, itemID: itemID, ffmpegSeconds: ffmpegSeconds)
                     self?.applyOptimizationOutcome(outcome, itemID: itemID, jobID: jobID)
                 }
             } catch VideoOptimizationError.cancelled {
@@ -1897,6 +1921,80 @@ final class AppModel: ObservableObject, @unchecked Sendable {
             return .video
         }
         return .file
+    }
+
+    private func runStartupRecovery(repository: SQLiteItemRepository, assetStore: EncryptedAssetStore) {
+        cleanupOrphanOptimizationTempFiles()
+        recoverInterruptedOptimizationJobs(repository: repository)
+        cleanupOrphanEncryptedBlobs(repository: repository, assetStore: assetStore)
+    }
+
+    private func cleanupOrphanOptimizationTempFiles(fileManager: FileManager = .default) {
+        let tempDirectory = fileManager.temporaryDirectory
+        guard let filenames = try? fileManager.contentsOfDirectory(atPath: tempDirectory.path) else {
+            return
+        }
+        for filename in filenames where filename.hasPrefix("hypomnemata-optimize-") {
+            try? fileManager.removeItem(at: tempDirectory.appendingPathComponent(filename))
+        }
+    }
+
+    private func recoverInterruptedOptimizationJobs(repository: SQLiteItemRepository) {
+        try? repository.markRunningJobsFailed(
+            kind: .optimizeVideo,
+            error: "App reiniciado durante a otimização."
+        )
+    }
+
+    private func cleanupOrphanEncryptedBlobs(repository: SQLiteItemRepository, assetStore: EncryptedAssetStore) {
+        do {
+            let referencedPaths = Set(try repository.allAssets().map(\.encryptedPath))
+            let cutoff = Date().addingTimeInterval(-60 * 60)
+            let orphans = try assetStore.findOrphanEncryptedBlobs(
+                referencedPaths: referencedPaths,
+                olderThan: cutoff
+            )
+            for orphan in orphans {
+                try? assetStore.removeEncryptedBlob(at: orphan)
+            }
+        } catch {
+            optimizationLogger.error("optimizeVideo janitor failed: \(error.localizedDescription, privacy: .public)")
+        }
+    }
+
+    private func insufficientDiskSpaceMessage(for record: AssetRecord) -> String? {
+        guard let appPaths else {
+            return nil
+        }
+        let requiredBytes = record.byteCount * 2
+        guard let availableBytes = availableDiskSpace(at: appPaths.rootDirectory), availableBytes < requiredBytes else {
+            return nil
+        }
+        return "Espaço insuficiente para otimizar este vídeo. Libere pelo menos \(ByteCountFormatter.string(fromByteCount: requiredBytes, countStyle: .file))."
+    }
+
+    private func availableDiskSpace(at url: URL) -> Int64? {
+        let keys: Set<URLResourceKey> = [.volumeAvailableCapacityForImportantUsageKey, .volumeAvailableCapacityKey]
+        guard let values = try? url.resourceValues(forKeys: keys) else {
+            return nil
+        }
+        if let important = values.volumeAvailableCapacityForImportantUsage {
+            return important
+        }
+        if let capacity = values.volumeAvailableCapacity {
+            return Int64(capacity)
+        }
+        return nil
+    }
+
+    private func logOptimizationOutcome(_ outcome: OptimizeOutcome, itemID: String, ffmpegSeconds: Double) {
+        switch outcome {
+        case let .optimized(originalBytes, newBytes, asset):
+            let ratio = originalBytes > 0 ? Double(newBytes) / Double(originalBytes) : 0
+            optimizationLogger.info("optimizeVideo item_id=\(itemID, privacy: .public) original_bytes=\(originalBytes) new_bytes=\(newBytes) duration_seconds=\(asset.durationSeconds ?? 0, privacy: .public) ffmpeg_seconds=\(ffmpegSeconds, privacy: .public) ratio=\(ratio, privacy: .public)")
+        case let .alreadyOptimized(originalBytes, asset):
+            optimizationLogger.info("optimizeVideo item_id=\(itemID, privacy: .public) original_bytes=\(originalBytes) new_bytes=\(asset.byteCount) duration_seconds=\(asset.durationSeconds ?? 0, privacy: .public) ffmpeg_seconds=\(ffmpegSeconds, privacy: .public) ratio=1 already_optimized=true")
+        }
     }
 
     private func readCaptureFile(_ fileURL: URL) throws -> CaptureFilePayload {
