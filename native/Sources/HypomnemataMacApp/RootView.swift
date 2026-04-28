@@ -75,6 +75,7 @@ struct LibraryShellView: View {
     var body: some View {
         NavigationSplitView {
             SidebarView()
+                .navigationSplitViewColumnWidth(240)
         } detail: {
             VStack(spacing: 0) {
                 SearchHeaderView()
@@ -88,6 +89,7 @@ struct LibraryShellView: View {
                 }
             }
         }
+        .navigationSplitViewStyle(.balanced)
     }
 }
 
@@ -716,17 +718,18 @@ struct ItemGridView: View {
     var items: [Item]
 
     private let columns = [
-        GridItem(.adaptive(minimum: 220, maximum: 340), spacing: 12, alignment: .top),
+        GridItem(.adaptive(minimum: 260, maximum: 320), spacing: 16, alignment: .top),
     ]
 
     var body: some View {
         ScrollView {
-            LazyVGrid(columns: columns, alignment: .leading, spacing: 12) {
+            LazyVGrid(columns: columns, alignment: .leading, spacing: 16) {
                 ForEach(items) { item in
                     ItemGridCardView(item: item)
                 }
             }
-            .padding(14)
+            .padding(.horizontal, 20)
+            .padding(.vertical, 16)
         }
     }
 }
@@ -842,10 +845,19 @@ struct ItemGridCardView: View {
                     .clipShape(RoundedRectangle(cornerRadius: 6))
             } else if model.thumbnailURL(for: item) != nil {
                 ThumbnailOrKindView(item: item, size: CGSize(width: 0, height: 160))
+            } else {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 6)
+                        .fill(Color.secondary.opacity(0.08))
+                    KindIcon(kind: item.kind)
+                        .font(.largeTitle)
+                        .foregroundStyle(.secondary)
+                }
+                .frame(height: 160)
             }
 
             VStack(alignment: .leading, spacing: 10) {
-                HStack {
+                HStack(spacing: 8) {
                     if model.selectionMode {
                         SelectionIndicator(isSelected: model.isSelected(item))
                     }
@@ -854,12 +866,15 @@ struct ItemGridCardView: View {
                     Text(item.kind.rawValue)
                         .font(.caption)
                         .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .fixedSize(horizontal: true, vertical: false)
                     if item.kind == .video || item.kind == .audio {
                         Button {
                             toggleInlinePlayback()
                         } label: {
                             Image(systemName: player == nil ? "play.circle.fill" : "stop.circle")
-                                .font(.title3)
+                                .font(.title2)
+                                .frame(width: 28, height: 28)
                         }
                         .buttonStyle(.borderless)
                         .help(player == nil ? "Reproduzir mídia" : "Parar mídia")
@@ -896,9 +911,9 @@ struct ItemGridCardView: View {
                         .lineLimit(2)
                 }
             }
-            .padding(12)
+            .padding(14)
         }
-        .frame(minHeight: 170, alignment: .topLeading)
+        .frame(height: 320, alignment: .topLeading)
         .background(.background, in: RoundedRectangle(cornerRadius: 8))
         .overlay {
             RoundedRectangle(cornerRadius: 8)
