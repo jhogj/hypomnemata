@@ -24,10 +24,10 @@
 ### Comando de referência (usuário)
 
 ```bash
-ffmpeg -i input.mp4 -vcodec libx264 -crf 28 -preset slow -c:a aac -b:a 128k output.mp4
+ffmpeg -i input.mp4 -nostdin -vf "scale='min(1280,iw)':'-2':flags=lanczos,fps=fps='min(30,source_fps)'" -c:v hevc_videotoolbox -tag:v hvc1 -q:v 50 -c:a aac -b:a 96k -ac 2 -movflags +faststart -progress pipe:1 -nostats -y output.mp4
 ```
 
-Esse é o comando-base. Vamos parametrizar `crf=28`, `preset=slow`, `audio_bitrate=128k` como constantes do código (não exposto ao usuário no MVP).
+Esse é o comando-base. Vamos parametrizar `max_width=1280`, `max_fps=30`, `video_quality=50`, `audio_bitrate=96k` e `fallback_crf=28` como constantes do código (não exposto ao usuário no MVP). Se o `ffmpeg` não tiver `hevc_videotoolbox`, o fallback usa `libx265` com `-crf 28 -preset medium`, mantendo `hvc1`, downscale, cap de FPS, áudio e flags de progresso.
 
 ---
 
@@ -197,3 +197,4 @@ Nenhuma no momento. Se surgir durante a implementação (especialmente sobre o c
 - **2026-04-26**: Sprint 2 entregue. `AssetRecord.optimizedAt`, migration `v2_asset_optimized_at`, persistência no `SQLiteItemRepository` e `VideoOptimizationService` headless implementados. Serviço faz decrypt temporário, otimização, D4 quando output não reduz, re-encrypt com mesmo `AssetRecord.id`, update da row, remoção do blob antigo e cleanup de temp. Checks cobrem sucesso real, D4 e falha sem alteração do asset.
 - **2026-04-26**: Sprint 3 entregue. `JobKind.optimizeVideo` adicionado; job é manual e não entra no runner automático pós-captura. A decisão preliminar do broadcaster foi substituída por `AppModel.optimizationState`, que publica progresso/cancelamento por item e mantém estado ao fechar/reabrir a sheet na sessão. Detail mostra botão, progresso real, cancelar, sucesso com comparação, D4 e erro com retry. Checks/build passaram.
 - **2026-04-26**: Sprint 4 entregue. Startup limpa temps `hypomnemata-optimize-*`, marca jobs `optimizeVideo/running` como failed, remove blobs órfãos antigos (>1h), valida `ffmpeg`/`ffprobe` e espaço livre antes de iniciar, desabilita botão sem dependências e registra log estruturado de otimização. Checks cobrem recovery de job running, listagem de assets e janitor de blobs órfãos antigos.
+- **2026-04-27**: pipeline de otimização trocada para HEVC via VideoToolbox, com downscale para largura máxima 1280, cap de 30fps, áudio AAC 96k e fallback para `libx265` quando VideoToolbox estiver indisponível.

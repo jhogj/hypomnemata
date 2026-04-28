@@ -89,18 +89,30 @@ public extension VideoOptimizer {
 }
 
 public struct FFmpegVideoOptimizer: VideoOptimizer {
+    private static let maxWidth = 1280
+    private static let maxFps = 30
+    private static let videoQuality = 50
+    private static let audioBitrate = "96k"
+    private static let fallbackCRF = "28"
+
     private let ffmpegPath: String
     private let ffprobePath: String
     private let environment: [String: String]
+    private let hasVideoToolboxHEVC: Bool
 
     public init(
         ffmpegPath: String = "ffmpeg",
         ffprobePath: String = "ffprobe",
-        environment: [String: String] = ProcessInfo.processInfo.environment
+        environment: [String: String] = ProcessInfo.processInfo.environment,
+        hasVideoToolboxHEVC: Bool? = nil
     ) {
         self.ffmpegPath = ffmpegPath
         self.ffprobePath = ffprobePath
         self.environment = environment
+        self.hasVideoToolboxHEVC = hasVideoToolboxHEVC ?? Self.detectVideoToolboxHEVC(
+            ffmpegPath: ffmpegPath,
+            environment: environment
+        )
     }
 
     public func optimize(
@@ -199,25 +211,35 @@ public struct FFmpegVideoOptimizer: VideoOptimizer {
         }
         let resolvedFFprobe = try? runner.resolve(executable: ffprobePath)
 
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: resolvedFFmpeg)
-        process.arguments = [
-            "-i", input.path,
-            "-nostdin",
-            "-vcodec", "libx264",
-            "-crf", "28",
-            "-preset", "slow",
-            "-c:a", "aac",
-            "-b:a", "128k",
-            "-progress", "pipe:1",
-            "-nostats",
-            "-y",
-            output.path,
-        ]
-        process.environment = processEnvironment(
+        let processEnvironment = processEnvironment(
             resolvedFFmpeg: resolvedFFmpeg,
             resolvedFFprobe: resolvedFFprobe
         )
+
+        try runFFmpegProcess(
+            resolvedFFmpeg: resolvedFFmpeg,
+            arguments: Self.ffmpegArguments(input: input, output: output, useVideoToolbox: hasVideoToolboxHEVC),
+            environment: processEnvironment,
+            output: output,
+            durationSeconds: durationSeconds,
+            progress: progress,
+            isCancelled: isCancelled
+        )
+    }
+
+    private func runFFmpegProcess(
+        resolvedFFmpeg: String,
+        arguments: [String],
+        environment: [String: String],
+        output: URL,
+        durationSeconds: Double,
+        progress: @Sendable @escaping (VideoOptimizationProgress) -> Void,
+        isCancelled: @Sendable @escaping () -> Bool
+    ) throws {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: resolvedFFmpeg)
+        process.arguments = arguments
+        process.environment = environment
 
         let stdoutPipe = Pipe()
         let stderrPipe = Pipe()
@@ -285,6 +307,48 @@ public struct FFmpegVideoOptimizer: VideoOptimizer {
             exitCode: process.terminationStatus,
             stderr: Self.trimmedText(stderrBox.data())
         )
+    }
+
+    private static func ffmpegArguments(input: URL, output: URL, useVideoToolbox: Bool) -> [String] {
+        let videoFilter = "scale='min(\(maxWidth),iw)':'-2':flags=lanczos,fps=fps='min(\(maxFps),source_fps)'"
+        var arguments = [
+            "-i", input.path,
+            "-nostdin",
+            "-vf", videoFilter,
+            "-c:v", useVideoToolbox ? "hevc_videotoolbox" : "libx265",
+            "-tag:v", "hvc1",
+        ]
+        if useVideoToolbox {
+            arguments.append(contentsOf: ["-q:v", String(videoQuality)])
+        } else {
+            arguments.append(contentsOf: ["-crf", fallbackCRF, "-preset", "medium"])
+        }
+        arguments.append(contentsOf: [
+            "-c:a", "aac",
+            "-b:a", audioBitrate,
+            "-ac", "2",
+            "-movflags", "+faststart",
+            "-progress", "pipe:1",
+            "-nostats",
+            "-y",
+            output.path,
+        ])
+        return arguments
+    }
+
+    private static func detectVideoToolboxHEVC(ffmpegPath: String, environment: [String: String]) -> Bool {
+        let runner = SubprocessRunner(environment: environment)
+        guard let result = try? runner.run(
+            executable: ffmpegPath,
+            arguments: ["-hide_banner", "-encoders"]
+        ), result.exitCode == 0 else {
+            return false
+        }
+        let output = [
+            String(data: result.stdout, encoding: .utf8),
+            String(data: result.stderr, encoding: .utf8),
+        ].compactMap { $0 }.joined(separator: "\n")
+        return output.contains("hevc_videotoolbox")
     }
 
     private func processEnvironment(resolvedFFmpeg: String, resolvedFFprobe: String?) -> [String: String] {

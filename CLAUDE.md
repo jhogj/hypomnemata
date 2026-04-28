@@ -270,7 +270,7 @@ Formato quando aparecerem mais:
 ### 2026-04-26 — Decisões posteriores: otimização de vídeo sob demanda
 - Plano vivo: `PLANO_OTIMIZACAO_VIDEO.md`.
 - No app nativo, `JobKind.optimizeVideo` é manual: o botão no detalhe cria job, roda `VideoOptimizationService` em background, mostra progresso/cancelamento na sessão e registra comparação antes/depois.
-- Pipeline seguro: decrypt temporário → `ffprobe` para duração → `ffmpeg` H.264/AAC (`crf=28`, `preset=slow`, `128k`) → re-encrypt em novo blob mantendo o mesmo `AssetRecord.id` → UPDATE da row → remoção do blob antigo.
+- Pipeline seguro: decrypt temporário → `ffprobe` para duração → `ffmpeg` HEVC/AAC via VideoToolbox (`hvc1`, largura máxima 1280, 30fps, `q:v=50`, áudio 96k; fallback `libx265 -crf 28 -preset medium`) → re-encrypt em novo blob mantendo o mesmo `AssetRecord.id` → UPDATE da row → remoção do blob antigo.
 - Re-otimização é bloqueada por `AssetRecord.optimizedAt`. Se o output não reduz tamanho, o output é descartado, o original é mantido e o asset também é marcado como otimizado.
 - Recovery no unlock: remove temps `hypomnemata-optimize-*`, marca jobs `optimizeVideo/running` como failed e remove blobs `.hasset` órfãos com mais de 1h.
 - Validação defensiva: exige `ffmpeg`/`ffprobe` e espaço livre >= 2x o tamanho do vídeo antes de iniciar.

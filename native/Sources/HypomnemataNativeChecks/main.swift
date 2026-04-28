@@ -154,9 +154,9 @@ struct HypomnemataNativeChecks {
 
         let input = root.appendingPathComponent("input.mp4")
         let output = root.appendingPathComponent("output.mp4")
-        try makeTestVideo(at: input, durationSeconds: 2, size: "320x180", crf: "12")
+        try makeTestVideo(at: input, durationSeconds: 2, size: "1920x1080", crf: "12", rate: 60)
 
-        let optimizer = FFmpegVideoOptimizer()
+        let optimizer = FFmpegVideoOptimizer(hasVideoToolboxHEVC: false)
         let progressBox = TestProgressSamples()
         let result = try await optimizer.optimize(
             input: input,
@@ -170,8 +170,19 @@ struct HypomnemataNativeChecks {
         precondition(result.durationSeconds > 1.5 && result.durationSeconds < 2.5)
         let optimizedDuration = try probeVideoDuration(output)
         precondition(abs(optimizedDuration - result.durationSeconds) < 0.5)
+        let optimizedStream = try probeVideoStream(output)
+        precondition(["hevc", "h265"].contains(optimizedStream.codecName))
+        precondition(optimizedStream.width <= 1280)
+        precondition(optimizedStream.framesPerSecond <= 30)
         let samples = progressBox.values()
         precondition(samples.contains(where: { $0 > 0 && $0 <= 1 }))
+
+        let fallbackOutput = root.appendingPathComponent("fallback-output.mp4")
+        _ = try await optimizer.optimize(input: input, output: fallbackOutput)
+        let fallbackStream = try probeVideoStream(fallbackOutput)
+        precondition(["hevc", "h265"].contains(fallbackStream.codecName))
+        precondition(fallbackStream.width <= 1280)
+        precondition(fallbackStream.framesPerSecond <= 30)
 
         let cancelInput = root.appendingPathComponent("cancel-input.mp4")
         let cancelOutput = root.appendingPathComponent("cancel-output.mp4")
@@ -237,7 +248,7 @@ struct HypomnemataNativeChecks {
 
         let outcome = try await service.optimizeVideoAsset(
             record: stored.record,
-            optimizer: FFmpegVideoOptimizer()
+            optimizer: FFmpegVideoOptimizer(hasVideoToolboxHEVC: false)
         )
         guard case let .optimized(originalBytes, newBytes, optimizedAsset) = outcome else {
             preconditionFailure("Vídeo compressível deveria retornar .optimized.")
@@ -1617,12 +1628,18 @@ struct HypomnemataNativeChecks {
         return data
     }
 
-    private static func makeTestVideo(at url: URL, durationSeconds: Int, size: String, crf: String) throws {
+    private static func makeTestVideo(
+        at url: URL,
+        durationSeconds: Int,
+        size: String,
+        crf: String,
+        rate: Int = 24
+    ) throws {
         let result = try SubprocessRunner().run(
             executable: "ffmpeg",
             arguments: [
                 "-f", "lavfi",
-                "-i", "testsrc2=duration=\(durationSeconds):size=\(size):rate=24",
+                "-i", "testsrc2=duration=\(durationSeconds):size=\(size):rate=\(rate)",
                 "-pix_fmt", "yuv420p",
                 "-c:v", "libx264",
                 "-crf", crf,
@@ -1657,6 +1674,52 @@ struct HypomnemataNativeChecks {
             preconditionFailure("ffprobe returned invalid duration: \(text)")
         }
         return duration
+    }
+
+    private static func probeVideoStream(_ url: URL) throws -> VideoStreamProbe {
+        let result = try SubprocessRunner().run(
+            executable: "ffprobe",
+            arguments: [
+                "-v", "error",
+                "-select_streams", "v:0",
+                "-show_entries", "stream=codec_name,width,avg_frame_rate,r_frame_rate",
+                "-of", "json",
+                url.path,
+            ]
+        )
+        precondition(
+            result.exitCode == 0,
+            "ffprobe stream validation failed: \(String(data: result.stderr, encoding: .utf8) ?? "")"
+        )
+        guard
+            let object = try JSONSerialization.jsonObject(with: result.stdout) as? [String: Any],
+            let streams = object["streams"] as? [[String: Any]],
+            let stream = streams.first,
+            let codecName = stream["codec_name"] as? String,
+            let width = stream["width"] as? Int
+        else {
+            preconditionFailure("ffprobe returned invalid stream metadata")
+        }
+        let avgFrameRate = stream["avg_frame_rate"] as? String
+        let rFrameRate = stream["r_frame_rate"] as? String
+        guard let framesPerSecond = parseFrameRate(avgFrameRate) ?? parseFrameRate(rFrameRate) else {
+            preconditionFailure("ffprobe returned invalid frame rate")
+        }
+        return VideoStreamProbe(codecName: codecName, width: width, framesPerSecond: framesPerSecond)
+    }
+
+    private static func parseFrameRate(_ value: String?) -> Double? {
+        guard let value, !value.isEmpty, value != "0/0" else {
+            return nil
+        }
+        let parts = value.split(separator: "/", maxSplits: 1)
+        if parts.count == 2,
+           let numerator = Double(parts[0]),
+           let denominator = Double(parts[1]),
+           denominator != 0 {
+            return numerator / denominator
+        }
+        return Double(value)
     }
 
     private static func metadataDictionary(_ json: String?) -> [String: Any] {
@@ -1883,6 +1946,12 @@ private struct FailingVideoOptimizer: VideoOptimizer {
         try Data("partial".utf8).write(to: output)
         throw Failure.expected
     }
+}
+
+private struct VideoStreamProbe {
+    var codecName: String
+    var width: Int
+    var framesPerSecond: Double
 }
 
 private final class TestProgressSamples: @unchecked Sendable {
