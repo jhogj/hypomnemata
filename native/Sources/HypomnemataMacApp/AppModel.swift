@@ -533,7 +533,8 @@ final class AppModel: ObservableObject, @unchecked Sendable {
         }
         do {
             let records = try repository.assets(forItemID: item.id)
-            let previews = try records.filter { $0.role != .thumbnail }.map { record in
+            let previewRoles: Set<AssetRole> = [.original, .heroImage]
+            let previews = try records.filter { previewRoles.contains($0.role) }.map { record in
                 let url = try assetStore.decryptToTemporaryFile(record: record)
                 return AssetPreview(
                     record: record,

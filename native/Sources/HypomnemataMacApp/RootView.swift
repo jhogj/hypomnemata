@@ -1627,6 +1627,20 @@ private func isYouTubeVideo(_ item: Item) -> Bool {
     return lowercased.contains("youtube.com") || lowercased.contains("youtu.be")
 }
 
+extension JobKind {
+    var displayName: String {
+        switch self {
+        case .scrapeArticle: "Extrair artigo"
+        case .downloadMedia: "Baixar mídia"
+        case .generateThumbnail: "Gerar miniatura"
+        case .optimizeVideo: "Otimizar vídeo"
+        case .runOCR: "Extrair texto (OCR)"
+        case .summarize: "Gerar resumo (IA)"
+        case .autotag: "Sugerir etiquetas (IA)"
+        }
+    }
+}
+
 struct GenericDetailScroll: View {
     var item: Item
     @Binding var title: String
@@ -2019,40 +2033,186 @@ struct DetailRelationshipsSection: View {
     var onRetryJob: (Job) -> Void
 
     var body: some View {
-        HStack {
-            DetailFieldLabel("Pastas")
-            Spacer()
-            Button {
-                onShowFolderPicker()
-            } label: {
-                Label("Adicionar", systemImage: "folder.badge.plus")
-            }
-            .buttonStyle(.borderless)
-        }
-        FolderChipLine(folders: folders, onRemove: onRemoveFolder)
-
-        DetailFieldLabel("Links")
-        RelatedItemLine(
-            emptyText: "Nenhum link saindo deste item",
-            items: linkedItems,
-            onOpen: onOpenRelated
-        )
-
-        DetailFieldLabel("Backlinks")
-        RelatedItemLine(
-            emptyText: "Nenhum item aponta para este",
-            items: backlinks,
-            onOpen: onOpenRelated
-        )
-
-        if !jobs.isEmpty {
-            DetailFieldLabel("Tarefas")
-            JobStatusList(
-                jobs: jobs,
-                runningJobIDs: runningJobIDs,
-                onRetry: onRetryJob
+        VStack(alignment: .leading, spacing: 8) {
+            FailedJobsBanner(jobs: jobs.filter { $0.status == .failed }, onRetryJob: onRetryJob)
+            RelationsBar(
+                folders: folders,
+                linkedItems: linkedItems,
+                backlinks: backlinks,
+                onShowFolderPicker: onShowFolderPicker,
+                onRemoveFolder: onRemoveFolder,
+                onOpenRelated: onOpenRelated
             )
         }
+    }
+}
+
+struct FailedJobsBanner: View {
+    var jobs: [Job]
+    var onRetryJob: (Job) -> Void
+
+    @State private var expanded = false
+
+    var body: some View {
+        if !jobs.isEmpty {
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(spacing: 8) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .foregroundStyle(.orange)
+                    Text(failureText)
+                        .font(.callout.weight(.medium))
+                    Spacer()
+                    Button("Tentar todas") {
+                        jobs.forEach(onRetryJob)
+                    }
+                    .buttonStyle(.borderless)
+                    Button {
+                        expanded.toggle()
+                    } label: {
+                        Image(systemName: expanded ? "chevron.up" : "chevron.down")
+                    }
+                    .buttonStyle(.borderless)
+                }
+
+                if expanded {
+                    VStack(alignment: .leading, spacing: 6) {
+                        ForEach(jobs) { job in
+                            HStack(alignment: .top, spacing: 8) {
+                                Circle()
+                                    .fill(Color.orange)
+                                    .frame(width: 5, height: 5)
+                                    .padding(.top, 6)
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text("\(job.kind.displayName) — \(job.error ?? "Erro sem detalhes")")
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                        .fixedSize(horizontal: false, vertical: true)
+                                }
+                                Spacer()
+                                Button("Tentar") {
+                                    onRetryJob(job)
+                                }
+                                .buttonStyle(.borderless)
+                                .controlSize(.small)
+                            }
+                        }
+                    }
+                    .padding(.top, 2)
+                }
+            }
+            .padding(10)
+            .background(Color.orange.opacity(0.1), in: RoundedRectangle(cornerRadius: 8))
+            .animation(.easeInOut(duration: 0.2), value: expanded)
+        }
+    }
+
+    private var failureText: String {
+        jobs.count == 1 ? "1 tarefa falhou" : "\(jobs.count) tarefas falharam"
+    }
+}
+
+struct RelationsBar: View {
+    var folders: [Folder]
+    var linkedItems: [ItemSummary]
+    var backlinks: [ItemSummary]
+    var onShowFolderPicker: () -> Void
+    var onRemoveFolder: (Folder) -> Void
+    var onOpenRelated: (ItemSummary) -> Void
+
+    @State private var foldersExpanded = false
+    @State private var linksExpanded = false
+    @State private var backlinksExpanded = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 16) {
+                relationButton(
+                    systemImage: "folder",
+                    count: folders.count,
+                    expanded: foldersExpanded,
+                    disabled: false
+                ) {
+                    if folders.isEmpty {
+                        onShowFolderPicker()
+                    } else {
+                        foldersExpanded.toggle()
+                    }
+                }
+                relationButton(
+                    systemImage: "link",
+                    count: linkedItems.count,
+                    expanded: linksExpanded,
+                    disabled: linkedItems.isEmpty
+                ) {
+                    linksExpanded.toggle()
+                }
+                relationButton(
+                    systemImage: "arrow.uturn.left",
+                    count: backlinks.count,
+                    expanded: backlinksExpanded,
+                    disabled: backlinks.isEmpty
+                ) {
+                    backlinksExpanded.toggle()
+                }
+            }
+            .padding(.vertical, 8)
+
+            if foldersExpanded {
+                HStack(alignment: .top, spacing: 8) {
+                    FolderChipLine(folders: folders, onRemove: onRemoveFolder)
+                    Button {
+                        onShowFolderPicker()
+                    } label: {
+                        Image(systemName: "plus.circle")
+                    }
+                    .buttonStyle(.borderless)
+                }
+                .padding(.top, 6)
+            }
+            if linksExpanded {
+                RelatedItemLine(
+                    emptyText: "",
+                    items: linkedItems,
+                    onOpen: onOpenRelated
+                )
+                .padding(.top, 6)
+            }
+            if backlinksExpanded {
+                RelatedItemLine(
+                    emptyText: "",
+                    items: backlinks,
+                    onOpen: onOpenRelated
+                )
+                .padding(.top, 6)
+            }
+        }
+        .animation(.easeInOut(duration: 0.2), value: foldersExpanded)
+        .animation(.easeInOut(duration: 0.2), value: linksExpanded)
+        .animation(.easeInOut(duration: 0.2), value: backlinksExpanded)
+    }
+
+    private func relationButton(
+        systemImage: String,
+        count: Int,
+        expanded: Bool,
+        disabled: Bool,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            HStack(spacing: 5) {
+                Image(systemName: systemImage)
+                Text("\(count)")
+                    .foregroundStyle(.secondary)
+                if count > 0 {
+                    Image(systemName: expanded ? "chevron.up" : "chevron.down")
+                        .font(.caption2)
+                }
+            }
+            .font(.callout)
+            .foregroundStyle(disabled ? .tertiary : .primary)
+        }
+        .buttonStyle(.borderless)
+        .disabled(disabled)
     }
 }
 
@@ -2322,7 +2482,7 @@ struct JobStatusRow: View {
                 .frame(width: 16, alignment: .center)
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 6) {
-                    Text(displayName(for: job.kind))
+                    Text(job.kind.displayName)
                         .font(.callout.weight(.medium))
                     Text("•")
                         .foregroundStyle(.tertiary)
@@ -2397,18 +2557,6 @@ struct JobStatusRow: View {
         }
     }
 
-    private func displayName(for kind: JobKind) -> String {
-        switch kind {
-        case .scrapeArticle: "Extrair artigo"
-        case .downloadMedia: "Baixar mídia"
-        case .generateThumbnail: "Gerar miniatura"
-        case .optimizeVideo: "Otimizar vídeo"
-        case .runOCR: "Extrair texto (OCR)"
-        case .summarize: "Gerar resumo (IA)"
-        case .autotag: "Sugerir etiquetas (IA)"
-        }
-    }
-
     private func displayStatus(for status: JobStatus) -> String {
         switch status {
         case .pending: "pendente"
@@ -2432,20 +2580,6 @@ struct AssetPreviewPanel: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            DetailFieldLabel("Preview")
-
-            if previews.count > 1 {
-                Picker("Asset", selection: Binding(
-                    get: { selectedPreview?.id ?? previews[0].id },
-                    set: { selectedID = $0 }
-                )) {
-                    ForEach(previews) { preview in
-                        Text(preview.displayName).tag(preview.id)
-                    }
-                }
-                .pickerStyle(.menu)
-            }
-
             if let selectedPreview {
                 AssetPreviewView(
                     item: item,
@@ -2455,6 +2589,25 @@ struct AssetPreviewPanel: View {
                 )
                     .id(selectedPreview.id)
                     .frame(maxWidth: .infinity)
+            }
+
+            if previews.count > 1 {
+                HStack(spacing: 8) {
+                    ForEach(previews) { preview in
+                        Button {
+                            selectedID = preview.id
+                        } label: {
+                            Circle()
+                                .fill(preview.id == selectedPreview?.id ? Color.accentColor : Color.secondary.opacity(0.4))
+                                .frame(
+                                    width: preview.id == selectedPreview?.id ? 8 : 6,
+                                    height: preview.id == selectedPreview?.id ? 8 : 6
+                                )
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+                .frame(maxWidth: .infinity)
             }
         }
     }
