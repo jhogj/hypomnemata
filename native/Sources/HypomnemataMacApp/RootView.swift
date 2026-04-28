@@ -2134,7 +2134,19 @@ struct VideoAssetPreview: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .clipped()
                     .opacity(isPlaying ? 0 : 1)
+                    .animation(.easeInOut(duration: 0.2), value: isPlaying)
                     .allowsHitTesting(false)
+                Button {
+                    player.play()
+                } label: {
+                    Image(systemName: "play.circle.fill")
+                        .font(.system(size: 64, weight: .regular))
+                        .foregroundStyle(.white)
+                        .shadow(color: .black.opacity(0.4), radius: 8, x: 0, y: 2)
+                }
+                .buttonStyle(.plain)
+                .opacity(isPlaying ? 0 : 1)
+                .animation(.easeInOut(duration: 0.2), value: isPlaying)
             }
         }
             .frame(height: 320)
