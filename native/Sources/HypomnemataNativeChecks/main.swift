@@ -624,7 +624,12 @@ struct HypomnemataNativeChecks {
             // Expected.
         }
 
-        let renderedHTML = "<html><body>" + String(repeating: "<p>SPA payload</p>", count: 30) + "</body></html>"
+        let renderedHTML = """
+        <html>
+        <head><meta content="https://cdn.example.com/rendered.jpg" property="og:image"></head>
+        <body>\(String(repeating: "<p>SPA payload</p>", count: 30))</body>
+        </html>
+        """
         actor StdinCapture {
             var seen: Data = Data()
             func record(_ data: Data?) { if let data { seen = data } }
@@ -648,6 +653,7 @@ struct HypomnemataNativeChecks {
         let fallbackResult = try await scrapeFallback.scrape(url: "https://spa.example.com")
         precondition(fallbackResult.title == "final")
         precondition((fallbackResult.bodyText ?? "").count >= 200)
+        precondition(fallbackResult.heroImageURL == "https://cdn.example.com/rendered.jpg")
         let capturedStdin = await stdinCapture.snapshot()
         precondition(String(data: capturedStdin, encoding: .utf8)?.contains("SPA payload") == true)
 

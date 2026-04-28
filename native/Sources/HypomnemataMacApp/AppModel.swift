@@ -136,6 +136,7 @@ final class AppModel: ObservableObject, @unchecked Sendable {
     private var autoLockTimer: Timer?
     private var servicesProvider: CaptureServicesProvider?
     private var detailVideoStartTimes: [String: Double] = [:]
+    private var videoPosterURLs: [String: URL] = [:]
     private let autoLockInterval: TimeInterval = 15 * 60
     private let optimizationLogger = Logger(subsystem: "Hypomnemata", category: "optimizeVideo")
 
@@ -261,6 +262,7 @@ final class AppModel: ObservableObject, @unchecked Sendable {
         runningJobIDs = []
         optimizationState = [:]
         detailVideoStartTimes = [:]
+        videoPosterURLs = [:]
         showCapture = false
         showChangePassword = false
         capturePrefill = nil
@@ -531,7 +533,7 @@ final class AppModel: ObservableObject, @unchecked Sendable {
         }
         do {
             let records = try repository.assets(forItemID: item.id)
-            let previews = try records.map { record in
+            let previews = try records.filter { $0.role != .thumbnail }.map { record in
                 let url = try assetStore.decryptToTemporaryFile(record: record)
                 return AssetPreview(
                     record: record,
@@ -548,6 +550,28 @@ final class AppModel: ObservableObject, @unchecked Sendable {
 
     func thumbnailURL(for item: Item) -> URL? {
         itemThumbnailURLs[item.id]
+    }
+
+    func videoPosterURL(for item: Item) -> URL? {
+        if let cached = videoPosterURLs[item.id] {
+            return cached
+        }
+        guard let repository, let assetStore else {
+            return nil
+        }
+        do {
+            let records = try repository.assets(forItemID: item.id)
+            guard let record = records.first(where: { $0.role == .thumbnail })
+                ?? records.first(where: { $0.role == .heroImage })
+            else {
+                return nil
+            }
+            let url = try assetStore.decryptToTemporaryFile(record: record)
+            videoPosterURLs[item.id] = url
+            return url
+        } catch {
+            return nil
+        }
     }
 
     func playableVideoURL(for item: Item) -> (URL?, String?) {
@@ -1219,12 +1243,15 @@ final class AppModel: ObservableObject, @unchecked Sendable {
         guard let repository, let assetStore else {
             return
         }
+        let mimeType = heroImage.mimeType?.lowercased().hasPrefix("image/") == true
+            ? heroImage.mimeType
+            : "image/jpeg"
         let stored = try assetStore.write(
             data: heroImage.data,
             itemID: itemID,
             role: .heroImage,
             originalFilename: heroImage.originalFilename ?? "hero-image",
-            mimeType: heroImage.mimeType
+            mimeType: mimeType
         )
         do {
             try repository.insertAsset(stored.record)
@@ -1901,7 +1928,8 @@ final class AppModel: ObservableObject, @unchecked Sendable {
 
     private func preferredThumbnailAsset(in records: [AssetRecord]) -> AssetRecord? {
         records.first { $0.role == .thumbnail }
-            ?? records.first { isImageAsset($0) }
+            ?? records.first { $0.role == .heroImage }
+            ?? records.first { isImageAsset($0) && $0.role == .original }
     }
 
     private func isPlayableMediaAsset(_ record: AssetRecord) -> Bool {

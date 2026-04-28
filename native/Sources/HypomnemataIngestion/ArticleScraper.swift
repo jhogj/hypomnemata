@@ -1,5 +1,6 @@
 import Foundation
 import HypomnemataCore
+import os
 
 public struct ArticleHeroImage: Sendable, Equatable {
     public var data: Data
@@ -77,6 +78,7 @@ public protocol JSPageRenderer: Sendable {
 
 public struct TrafilaturaArticleScraper: ArticleScraper {
     public static let renderFallbackThreshold = 200
+    private static let logger = Logger(subsystem: "hypomnemata", category: "article-scraper")
 
     private let trafilaturaPath: String
     private let renderer: JSPageRenderer?
@@ -102,11 +104,13 @@ public struct TrafilaturaArticleScraper: ArticleScraper {
         }
 
         var result = try runTrafilatura(arguments: ["--json", "--URL", trimmed])
+        var renderedFallbackHTML: String?
 
         if needsFallback(for: result), let renderer {
             do {
                 let html = try await renderer.renderHTML(url: trimmed)
                 if !html.isEmpty {
+                    renderedFallbackHTML = html
                     let rendered = try runTrafilatura(
                         arguments: ["--json"],
                         stdin: Data(html.utf8)
@@ -124,6 +128,14 @@ public struct TrafilaturaArticleScraper: ArticleScraper {
             throw ArticleScrapeError.emptyContent
         }
 
+        if result.heroImageURL == nil {
+            if let renderedFallbackHTML {
+                result.heroImageURL = Self.extractHeroImageURL(fromHTML: renderedFallbackHTML)
+            } else if let html = try? await Self.fetchRawHTML(url: trimmed) {
+                result.heroImageURL = Self.extractHeroImageURL(fromHTML: html)
+            }
+        }
+
         if let heroURL = result.heroImageURL,
            result.heroImage == nil,
            let absoluteURL = absoluteHeroURL(heroURL, base: trimmed) {
@@ -138,7 +150,7 @@ public struct TrafilaturaArticleScraper: ArticleScraper {
                     )
                 }
             } catch {
-                // Hero opcional. Texto/metadados continuam válidos sem ela.
+                Self.logger.warning("Falha ao baixar hero image: \(String(describing: error), privacy: .public)")
             }
         }
 
@@ -216,6 +228,75 @@ public struct TrafilaturaArticleScraper: ArticleScraper {
         return trimmed.isEmpty ? nil : trimmed
     }
 
+    private static func extractHeroImageURL(fromHTML html: String) -> String? {
+        let metaTags = tags(named: "meta", in: html)
+        let linkTags = tags(named: "link", in: html)
+        let candidates: [(String, String, String)] = [
+            ("property", "og:image", "content"),
+            ("name", "twitter:image", "content"),
+            ("name", "twitter:image:src", "content"),
+        ]
+        for (key, expectedValue, outputKey) in candidates {
+            for tag in metaTags {
+                let attributes = attributes(in: tag)
+                if attributes[key]?.caseInsensitiveCompare(expectedValue) == .orderedSame,
+                   let value = trimmedNonEmpty(attributes[outputKey]) {
+                    return value
+                }
+            }
+        }
+        for tag in linkTags {
+            let attributes = attributes(in: tag)
+            if attributes["rel"]?.caseInsensitiveCompare("image_src") == .orderedSame,
+               let value = trimmedNonEmpty(attributes["href"]) {
+                return value
+            }
+        }
+        return nil
+    }
+
+    private static func tags(named name: String, in html: String) -> [String] {
+        let pattern = "<\(name)\\b[^>]*>"
+        guard let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]) else {
+            return []
+        }
+        let range = NSRange(html.startIndex..<html.endIndex, in: html)
+        return regex.matches(in: html, options: [], range: range).compactMap { match in
+            Range(match.range, in: html).map { String(html[$0]) }
+        }
+    }
+
+    private static func attributes(in tag: String) -> [String: String] {
+        let pattern = #"([A-Za-z_:][-A-Za-z0-9_:.]*)\s*=\s*(['"])(.*?)\2"#
+        guard let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]) else {
+            return [:]
+        }
+        let range = NSRange(tag.startIndex..<tag.endIndex, in: tag)
+        var values: [String: String] = [:]
+        for match in regex.matches(in: tag, options: [], range: range) {
+            guard
+                match.numberOfRanges == 4,
+                let keyRange = Range(match.range(at: 1), in: tag),
+                let valueRange = Range(match.range(at: 3), in: tag)
+            else {
+                continue
+            }
+            values[String(tag[keyRange]).lowercased()] = String(tag[valueRange])
+        }
+        return values
+    }
+
+    private static func fetchRawHTML(url: String) async throws -> String? {
+        guard let target = URL(string: url) else {
+            throw ArticleScrapeError.fetchFailed("URL inválida: \(url)")
+        }
+        let (data, response) = try await URLSession.shared.data(from: target)
+        if let http = response as? HTTPURLResponse, !(200..<300).contains(http.statusCode) {
+            throw ArticleScrapeError.fetchFailed("HTTP \(http.statusCode)")
+        }
+        return String(data: data, encoding: .utf8)
+    }
+
     @Sendable
     private static func defaultImageDownloader(url: String) async throws -> (Data, String?) {
         guard let target = URL(string: url) else {
@@ -227,12 +308,46 @@ public struct TrafilaturaArticleScraper: ArticleScraper {
                 throw ArticleScrapeError.fetchFailed("HTTP \(http.statusCode)")
             }
             let mime = (response as? HTTPURLResponse)?.value(forHTTPHeaderField: "Content-Type")
-            return (data, mime)
+            return (data, resolvedImageMimeType(responseMimeType: mime, data: data))
         } catch let error as ArticleScrapeError {
             throw error
         } catch {
             throw ArticleScrapeError.fetchFailed(error.localizedDescription)
         }
+    }
+
+    private static func resolvedImageMimeType(responseMimeType: String?, data: Data) -> String? {
+        let normalized = responseMimeType?
+            .split(separator: ";", maxSplits: 1)
+            .first?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        if normalized?.hasPrefix("image/") == true {
+            return normalized
+        }
+        return sniffImageMimeType(data)
+    }
+
+    private static func sniffImageMimeType(_ data: Data) -> String? {
+        let bytes = [UInt8](data.prefix(12))
+        if bytes.count >= 3, bytes[0] == 0xFF, bytes[1] == 0xD8, bytes[2] == 0xFF {
+            return "image/jpeg"
+        }
+        if bytes.count >= 8,
+           bytes[0] == 0x89, bytes[1] == 0x50, bytes[2] == 0x4E, bytes[3] == 0x47,
+           bytes[4] == 0x0D, bytes[5] == 0x0A, bytes[6] == 0x1A, bytes[7] == 0x0A {
+            return "image/png"
+        }
+        if bytes.count >= 4,
+           bytes[0] == 0x47, bytes[1] == 0x49, bytes[2] == 0x46, bytes[3] == 0x38 {
+            return "image/gif"
+        }
+        if bytes.count >= 12,
+           bytes[0] == 0x52, bytes[1] == 0x49, bytes[2] == 0x46, bytes[3] == 0x46,
+           bytes[8] == 0x57, bytes[9] == 0x45, bytes[10] == 0x42, bytes[11] == 0x50 {
+            return "image/webp"
+        }
+        return nil
     }
 
     @Sendable

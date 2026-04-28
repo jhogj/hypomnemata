@@ -1294,6 +1294,7 @@ struct ItemDetailSheet: View {
                 VStack(alignment: .leading, spacing: 14) {
                     if !assetPreviews.isEmpty {
                         AssetPreviewPanel(
+                            item: item,
                             previews: assetPreviews,
                             selectedID: $selectedAssetPreviewID,
                             videoStartTime: detailVideoStartTime
@@ -2041,6 +2042,7 @@ struct JobStatusRow: View {
 }
 
 struct AssetPreviewPanel: View {
+    var item: Item
     var previews: [AssetPreview]
     @Binding var selectedID: String?
     var videoStartTime: Double?
@@ -2066,7 +2068,7 @@ struct AssetPreviewPanel: View {
             }
 
             if let selectedPreview {
-                AssetPreviewView(preview: selectedPreview, videoStartTime: videoStartTime)
+                AssetPreviewView(item: item, preview: selectedPreview, videoStartTime: videoStartTime)
                     .id(selectedPreview.id)
                     .frame(maxWidth: .infinity)
             }
@@ -2075,6 +2077,9 @@ struct AssetPreviewPanel: View {
 }
 
 struct AssetPreviewView: View {
+    @EnvironmentObject private var model: AppModel
+
+    var item: Item
     var preview: AssetPreview
     var videoStartTime: Double?
 
@@ -2091,7 +2096,11 @@ struct AssetPreviewView: View {
                         .stroke(.quaternary)
                 }
         case .video:
-            VideoAssetPreview(url: preview.temporaryURL, startTime: videoStartTime)
+            VideoAssetPreview(
+                url: preview.temporaryURL,
+                posterURL: model.videoPosterURL(for: item),
+                startTime: videoStartTime
+            )
         case .file:
             FilePreview(preview: preview)
         }
@@ -2100,19 +2109,34 @@ struct AssetPreviewView: View {
 
 struct VideoAssetPreview: View {
     var url: URL
+    var posterURL: URL?
     var startTime: Double?
 
     @State private var player: AVPlayer
     @State private var didApplyStartTime = false
+    @State private var isPlaying = false
+    @State private var posterImage: NSImage?
 
-    init(url: URL, startTime: Double?) {
+    init(url: URL, posterURL: URL?, startTime: Double?) {
         self.url = url
+        self.posterURL = posterURL
         self.startTime = startTime
         _player = State(initialValue: AVPlayer(url: url))
     }
 
     var body: some View {
-        AppKitVideoPlayer(player: player)
+        ZStack {
+            AppKitVideoPlayer(player: player)
+            if let posterImage {
+                Image(nsImage: posterImage)
+                    .resizable()
+                    .scaledToFill()
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .clipped()
+                    .opacity(isPlaying ? 0 : 1)
+                    .allowsHitTesting(false)
+            }
+        }
             .frame(height: 320)
             .clipShape(RoundedRectangle(cornerRadius: 8))
             .overlay {
@@ -2120,12 +2144,18 @@ struct VideoAssetPreview: View {
                     .stroke(.quaternary)
             }
             .onAppear {
+                if posterImage == nil, let posterURL {
+                    posterImage = NSImage(contentsOf: posterURL)
+                }
                 guard !didApplyStartTime, let startTime, startTime > 0 else {
                     return
                 }
                 didApplyStartTime = true
                 player.seek(to: CMTime(seconds: startTime, preferredTimescale: 600))
                 player.play()
+            }
+            .onReceive(player.publisher(for: \.timeControlStatus)) { status in
+                isPlaying = status == .playing
             }
     }
 }
