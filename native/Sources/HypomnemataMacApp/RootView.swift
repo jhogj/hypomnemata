@@ -1291,144 +1291,82 @@ struct ItemDetailSheet: View {
 
     private var detailScrollView: some View {
         ScrollView {
-                VStack(alignment: .leading, spacing: 14) {
-                    if !assetPreviews.isEmpty {
-                        AssetPreviewPanel(
-                            item: item,
-                            previews: assetPreviews,
-                            selectedID: $selectedAssetPreviewID,
-                            videoStartTime: detailVideoStartTime
-                        )
-                    }
-
-                    if let optimizationAsset = optimizableVideoAsset ?? statefulOptimizationAsset {
-                        VideoOptimizationControl(
-                            state: model.optimizationState[item.id],
-                            originalBytes: optimizationAsset.byteCount,
-                            heartbeatNow: optimizationHeartbeatNow,
-                            disabledReason: model.videoOptimizationDependencyMessage(),
-                            onStart: { startVideoOptimization(assetID: optimizationAsset.id) },
-                            onCancel: { model.cancelVideoOptimization(for: item.id) }
-                        )
-                    }
-
-                    DetailFieldLabel("Título")
-                    TextField("Sem título", text: $title)
-                        .textFieldStyle(.roundedBorder)
-
-                    if let sourceURL = item.nonEmptySourceURL {
-                        DetailFieldLabel("Fonte")
-                        Text(sourceURL)
-                            .font(.callout)
-                            .foregroundStyle(.secondary)
-                            .textSelection(.enabled)
-                    }
-
-                    HStack {
-                        DetailFieldLabel("Resumo")
-                        Spacer()
-                        if aiBusy {
-                            ProgressView()
-                                .controlSize(.small)
-                        }
-                        Button {
-                            generateSummary()
-                        } label: {
-                            Label("Gerar resumo", systemImage: "sparkles")
-                        }
-                        .buttonStyle(.borderless)
-                        .disabled(aiBusy)
-                    }
-                    TextEditor(text: $summary)
-                        .frame(minHeight: 90)
-                        .overlay {
-                            RoundedRectangle(cornerRadius: 6).stroke(.quaternary)
-                        }
-
-                    HStack {
-                        DetailFieldLabel("Pastas")
-                        Spacer()
-                        Button {
-                            showFolderPicker = true
-                        } label: {
-                            Label("Adicionar", systemImage: "folder.badge.plus")
-                        }
-                        .buttonStyle(.borderless)
-                    }
-                    FolderChipLine(folders: itemFolders) { folder in
+            if isYouTubeVideo(item) {
+                YouTubeVideoDetailScroll(
+                    item: item,
+                    title: $title,
+                    summary: $summary,
+                    note: $note,
+                    assetPreviews: assetPreviews,
+                    selectedAssetPreviewID: $selectedAssetPreviewID,
+                    detailVideoStartTime: detailVideoStartTime,
+                    optimizationAsset: optimizableVideoAsset ?? statefulOptimizationAsset,
+                    optimizationState: model.optimizationState[item.id],
+                    originalBytes: (optimizableVideoAsset ?? statefulOptimizationAsset)?.byteCount,
+                    optimizationHeartbeatNow: optimizationHeartbeatNow,
+                    optimizationDisabledReason: model.videoOptimizationDependencyMessage(),
+                    folders: itemFolders,
+                    linkedItems: linkedItems,
+                    backlinks: backlinks,
+                    jobs: itemJobs,
+                    runningJobIDs: model.runningJobIDs,
+                    errorMessage: errorMessage,
+                    aiBusy: aiBusy,
+                    onGenerateSummary: generateSummary,
+                    onShowFolderPicker: { showFolderPicker = true },
+                    onRemoveFolder: { folder in
                         if let message = model.removeItem(item, from: folder) {
                             errorMessage = message
                         } else {
                             loadFolders()
                         }
-                    }
-
-                    DetailFieldLabel("Links")
-                    RelatedItemLine(
-                        emptyText: "Nenhum link saindo deste item",
-                        items: linkedItems
-                    ) { summary in
-                        openRelated(summary)
-                    }
-
-                    DetailFieldLabel("Backlinks")
-                    RelatedItemLine(
-                        emptyText: "Nenhum item aponta para este",
-                        items: backlinks
-                    ) { summary in
-                        openRelated(summary)
-                    }
-
-                    if !itemJobs.isEmpty {
-                        DetailFieldLabel("Tarefas")
-                        JobStatusList(
-                            jobs: itemJobs,
-                            runningJobIDs: model.runningJobIDs
-                        ) { job in
-                            retryJob(job)
+                    },
+                    onOpenRelated: openRelated,
+                    onRetryJob: retryJob,
+                    onStartOptimization: startVideoOptimization,
+                    onCancelOptimization: { model.cancelVideoOptimization(for: item.id) },
+                    onInsertNoteLink: { linkPickerTarget = .note }
+                )
+            } else {
+                GenericDetailScroll(
+                    item: item,
+                    title: $title,
+                    summary: $summary,
+                    note: $note,
+                    bodyText: $bodyText,
+                    assetPreviews: assetPreviews,
+                    selectedAssetPreviewID: $selectedAssetPreviewID,
+                    detailVideoStartTime: detailVideoStartTime,
+                    optimizationAsset: optimizableVideoAsset ?? statefulOptimizationAsset,
+                    optimizationState: model.optimizationState[item.id],
+                    originalBytes: (optimizableVideoAsset ?? statefulOptimizationAsset)?.byteCount,
+                    optimizationHeartbeatNow: optimizationHeartbeatNow,
+                    optimizationDisabledReason: model.videoOptimizationDependencyMessage(),
+                    folders: itemFolders,
+                    linkedItems: linkedItems,
+                    backlinks: backlinks,
+                    jobs: itemJobs,
+                    runningJobIDs: model.runningJobIDs,
+                    errorMessage: errorMessage,
+                    aiBusy: aiBusy,
+                    onGenerateSummary: generateSummary,
+                    onShowFolderPicker: { showFolderPicker = true },
+                    onRemoveFolder: { folder in
+                        if let message = model.removeItem(item, from: folder) {
+                            errorMessage = message
+                        } else {
+                            loadFolders()
                         }
-                    }
-
-                    HStack {
-                        DetailFieldLabel("Nota")
-                        Spacer()
-                        Button {
-                            linkPickerTarget = .note
-                        } label: {
-                            Label("Inserir link", systemImage: "link.badge.plus")
-                        }
-                        .buttonStyle(.borderless)
-                    }
-                    TextEditor(text: $note)
-                        .frame(minHeight: 110)
-                        .overlay {
-                            RoundedRectangle(cornerRadius: 6).stroke(.quaternary)
-                        }
-
-                    HStack {
-                        DetailFieldLabel("Texto")
-                        Spacer()
-                        Button {
-                            linkPickerTarget = .bodyText
-                        } label: {
-                            Label("Inserir link", systemImage: "link.badge.plus")
-                        }
-                        .buttonStyle(.borderless)
-                    }
-                    TextEditor(text: $bodyText)
-                        .frame(minHeight: 170)
-                        .overlay {
-                            RoundedRectangle(cornerRadius: 6).stroke(.quaternary)
-                        }
-
-                    if let errorMessage {
-                        Text(errorMessage)
-                            .font(.callout)
-                            .foregroundStyle(.red)
-                    }
-                }
-                .padding(22)
+                    },
+                    onOpenRelated: openRelated,
+                    onRetryJob: retryJob,
+                    onStartOptimization: startVideoOptimization,
+                    onCancelOptimization: { model.cancelVideoOptimization(for: item.id) },
+                    onInsertNoteLink: { linkPickerTarget = .note },
+                    onInsertBodyLink: { linkPickerTarget = .bodyText }
+                )
             }
+        }
     }
 
     private func save() {
@@ -1674,6 +1612,446 @@ struct ItemDetailSheet: View {
     private func openRelated(_ summary: ItemSummary) {
         if let message = model.openItem(id: summary.id) {
             errorMessage = message
+        }
+    }
+}
+
+private func isYouTubeVideo(_ item: Item) -> Bool {
+    guard item.kind == .video,
+          let sourceURL = item.sourceURL?.trimmingCharacters(in: .whitespacesAndNewlines),
+          !sourceURL.isEmpty
+    else {
+        return false
+    }
+    let lowercased = sourceURL.lowercased()
+    return lowercased.contains("youtube.com") || lowercased.contains("youtu.be")
+}
+
+struct GenericDetailScroll: View {
+    var item: Item
+    @Binding var title: String
+    @Binding var summary: String
+    @Binding var note: String
+    @Binding var bodyText: String
+    var assetPreviews: [AssetPreview]
+    @Binding var selectedAssetPreviewID: String?
+    var detailVideoStartTime: Double?
+    var optimizationAsset: AssetRecord?
+    var optimizationState: OptimizationState?
+    var originalBytes: Int64?
+    var optimizationHeartbeatNow: Date
+    var optimizationDisabledReason: String?
+    var folders: [Folder]
+    var linkedItems: [ItemSummary]
+    var backlinks: [ItemSummary]
+    var jobs: [Job]
+    var runningJobIDs: Set<String>
+    var errorMessage: String?
+    var aiBusy: Bool
+    var onGenerateSummary: () -> Void
+    var onShowFolderPicker: () -> Void
+    var onRemoveFolder: (Folder) -> Void
+    var onOpenRelated: (ItemSummary) -> Void
+    var onRetryJob: (Job) -> Void
+    var onStartOptimization: (String) -> Void
+    var onCancelOptimization: () -> Void
+    var onInsertNoteLink: () -> Void
+    var onInsertBodyLink: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            if !assetPreviews.isEmpty {
+                AssetPreviewPanel(
+                    item: item,
+                    previews: assetPreviews,
+                    selectedID: $selectedAssetPreviewID,
+                    videoStartTime: detailVideoStartTime,
+                    aspectRatio: nil
+                )
+            }
+
+            if let optimizationAsset, let originalBytes {
+                VideoOptimizationControl(
+                    state: optimizationState,
+                    originalBytes: originalBytes,
+                    heartbeatNow: optimizationHeartbeatNow,
+                    disabledReason: optimizationDisabledReason,
+                    onStart: { onStartOptimization(optimizationAsset.id) },
+                    onCancel: onCancelOptimization
+                )
+            }
+
+            DetailFieldLabel("Título")
+            TextField("Sem título", text: $title)
+                .textFieldStyle(.roundedBorder)
+
+            if let sourceURL = item.nonEmptySourceURL {
+                DetailFieldLabel("Fonte")
+                Text(sourceURL)
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .textSelection(.enabled)
+            }
+
+            HStack {
+                DetailFieldLabel("Resumo")
+                Spacer()
+                if aiBusy {
+                    ProgressView()
+                        .controlSize(.small)
+                }
+                Button(action: onGenerateSummary) {
+                    Label("Gerar resumo", systemImage: "sparkles")
+                }
+                .buttonStyle(.borderless)
+                .disabled(aiBusy)
+            }
+            TextEditor(text: $summary)
+                .frame(minHeight: 90)
+                .overlay {
+                    RoundedRectangle(cornerRadius: 6).stroke(.quaternary)
+                }
+
+            DetailRelationshipsSection(
+                folders: folders,
+                linkedItems: linkedItems,
+                backlinks: backlinks,
+                jobs: jobs,
+                runningJobIDs: runningJobIDs,
+                onShowFolderPicker: onShowFolderPicker,
+                onRemoveFolder: onRemoveFolder,
+                onOpenRelated: onOpenRelated,
+                onRetryJob: onRetryJob
+            )
+
+            HStack {
+                DetailFieldLabel("Nota")
+                Spacer()
+                Button(action: onInsertNoteLink) {
+                    Label("Inserir link", systemImage: "link.badge.plus")
+                }
+                .buttonStyle(.borderless)
+            }
+            TextEditor(text: $note)
+                .frame(minHeight: 110)
+                .overlay {
+                    RoundedRectangle(cornerRadius: 6).stroke(.quaternary)
+                }
+
+            HStack {
+                DetailFieldLabel("Texto")
+                Spacer()
+                Button(action: onInsertBodyLink) {
+                    Label("Inserir link", systemImage: "link.badge.plus")
+                }
+                .buttonStyle(.borderless)
+            }
+            TextEditor(text: $bodyText)
+                .frame(minHeight: 170)
+                .overlay {
+                    RoundedRectangle(cornerRadius: 6).stroke(.quaternary)
+                }
+
+            if let errorMessage {
+                Text(errorMessage)
+                    .font(.callout)
+                    .foregroundStyle(.red)
+            }
+        }
+        .padding(22)
+    }
+}
+
+struct YouTubeVideoDetailScroll: View {
+    var item: Item
+    @Binding var title: String
+    @Binding var summary: String
+    @Binding var note: String
+    var assetPreviews: [AssetPreview]
+    @Binding var selectedAssetPreviewID: String?
+    var detailVideoStartTime: Double?
+    var optimizationAsset: AssetRecord?
+    var optimizationState: OptimizationState?
+    var originalBytes: Int64?
+    var optimizationHeartbeatNow: Date
+    var optimizationDisabledReason: String?
+    var folders: [Folder]
+    var linkedItems: [ItemSummary]
+    var backlinks: [ItemSummary]
+    var jobs: [Job]
+    var runningJobIDs: Set<String>
+    var errorMessage: String?
+    var aiBusy: Bool
+    var onGenerateSummary: () -> Void
+    var onShowFolderPicker: () -> Void
+    var onRemoveFolder: (Folder) -> Void
+    var onOpenRelated: (ItemSummary) -> Void
+    var onRetryJob: (Job) -> Void
+    var onStartOptimization: (String) -> Void
+    var onCancelOptimization: () -> Void
+    var onInsertNoteLink: () -> Void
+
+    @State private var isEditingTitle = false
+    @State private var isHoveringTitle = false
+    @State private var summaryExpanded = false
+    @FocusState private var titleFieldFocused: Bool
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            if !assetPreviews.isEmpty {
+                AssetPreviewPanel(
+                    item: item,
+                    previews: assetPreviews,
+                    selectedID: $selectedAssetPreviewID,
+                    videoStartTime: detailVideoStartTime,
+                    aspectRatio: 16 / 9
+                )
+            }
+
+            titleSection
+            subtitleSection
+            summarySection
+
+            if let optimizationAsset, let originalBytes {
+                VideoOptimizationControl(
+                    state: optimizationState,
+                    originalBytes: originalBytes,
+                    heartbeatNow: optimizationHeartbeatNow,
+                    disabledReason: optimizationDisabledReason,
+                    onStart: { onStartOptimization(optimizationAsset.id) },
+                    onCancel: onCancelOptimization
+                )
+            }
+
+            notesCard
+
+            DetailRelationshipsSection(
+                folders: folders,
+                linkedItems: linkedItems,
+                backlinks: backlinks,
+                jobs: jobs,
+                runningJobIDs: runningJobIDs,
+                onShowFolderPicker: onShowFolderPicker,
+                onRemoveFolder: onRemoveFolder,
+                onOpenRelated: onOpenRelated,
+                onRetryJob: onRetryJob
+            )
+
+            if let errorMessage {
+                Text(errorMessage)
+                    .font(.callout)
+                    .foregroundStyle(.red)
+            }
+        }
+        .padding(22)
+    }
+
+    private var titleSection: some View {
+        Group {
+            if isEditingTitle {
+                TextField("Sem título", text: $title)
+                    .font(.title2.bold())
+                    .textFieldStyle(.plain)
+                    .focused($titleFieldFocused)
+                    .onSubmit {
+                        isEditingTitle = false
+                    }
+                    .onChange(of: titleFieldFocused) { _, focused in
+                        if !focused {
+                            isEditingTitle = false
+                        }
+                    }
+                    .onAppear {
+                        titleFieldFocused = true
+                    }
+            } else {
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    Text(title.isEmpty ? "Sem título" : title)
+                        .font(.title2.bold())
+                        .lineLimit(3)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    Button {
+                        isEditingTitle = true
+                    } label: {
+                        Image(systemName: "pencil")
+                    }
+                    .buttonStyle(.borderless)
+                    .foregroundStyle(.tertiary)
+                    .opacity(isHoveringTitle ? 1 : 0)
+                }
+                .onHover { isHoveringTitle = $0 }
+                .animation(.easeInOut(duration: 0.15), value: isHoveringTitle)
+            }
+        }
+    }
+
+    private var subtitleSection: some View {
+        let metadata = youtubeMetadata(from: item)
+        let sourceURL = item.nonEmptySourceURL
+        return HStack(spacing: 8) {
+            Text(metadata.uploader ?? "YouTube")
+            Text("·")
+            Text(publicationDateText(uploadDate: metadata.uploadDate, capturedAt: item.capturedAt))
+            if let sourceURL, let url = URL(string: sourceURL) {
+                Text("·")
+                Button {
+                    NSWorkspace.shared.open(url)
+                } label: {
+                    Label("Abrir no YouTube", systemImage: "arrow.up.right.square")
+                }
+                .buttonStyle(.borderless)
+                .controlSize(.small)
+            }
+        }
+        .font(.caption)
+        .foregroundStyle(.secondary)
+    }
+
+    private var summarySection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Button {
+                    summaryExpanded.toggle()
+                } label: {
+                    HStack(spacing: 6) {
+                        Image(systemName: summaryExpanded ? "chevron.down" : "chevron.right")
+                        Text("Resumo")
+                    }
+                }
+                .buttonStyle(.plain)
+                Spacer()
+                if aiBusy {
+                    ProgressView()
+                        .controlSize(.small)
+                }
+                Button(action: onGenerateSummary) {
+                    Label("Gerar resumo", systemImage: "sparkles")
+                }
+                .buttonStyle(.borderless)
+                .disabled(aiBusy)
+            }
+
+            if summaryExpanded {
+                TextEditor(text: $summary)
+                    .frame(minHeight: 90)
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 6).stroke(.quaternary)
+                    }
+            }
+        }
+    }
+
+    private var notesCard: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 8) {
+                Image(systemName: "person.crop.circle.fill")
+                    .font(.title3)
+                    .foregroundStyle(.secondary)
+                Text("Suas anotações")
+                    .font(.callout.bold())
+                Spacer()
+                Button(action: onInsertNoteLink) {
+                    Label("Inserir link", systemImage: "link.badge.plus")
+                }
+                .buttonStyle(.borderless)
+            }
+            TextEditor(text: $note)
+                .frame(minHeight: 110)
+                .scrollContentBackground(.hidden)
+        }
+        .padding(14)
+        .background(Color.secondary.opacity(0.05), in: RoundedRectangle(cornerRadius: 10))
+    }
+
+    private func youtubeMetadata(from item: Item) -> (uploader: String?, uploadDate: String?) {
+        guard
+            let json = item.metadataJSON,
+            let data = json.data(using: .utf8),
+            let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+        else {
+            return (nil, nil)
+        }
+        return (
+            trimmedNonEmpty(object["uploader"] as? String),
+            trimmedNonEmpty(object["upload_date"] as? String)
+        )
+    }
+
+    private func publicationDateText(uploadDate: String?, capturedAt: String) -> String {
+        if let uploadDate, let date = Self.uploadDateParser.date(from: uploadDate) {
+            return Self.displayDateFormatter.string(from: date)
+        }
+        if let date = ISO8601DateFormatter().date(from: capturedAt) {
+            return "Capturado em \(Self.displayDateFormatter.string(from: date))"
+        }
+        return "Capturado em \(capturedAt)"
+    }
+
+    private func trimmedNonEmpty(_ value: String?) -> String? {
+        let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return trimmed.isEmpty ? nil : trimmed
+    }
+
+    private static let uploadDateParser: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "yyyyMMdd"
+        return formatter
+    }()
+
+    private static let displayDateFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "pt_BR")
+        formatter.dateFormat = "d MMM yyyy"
+        return formatter
+    }()
+}
+
+struct DetailRelationshipsSection: View {
+    var folders: [Folder]
+    var linkedItems: [ItemSummary]
+    var backlinks: [ItemSummary]
+    var jobs: [Job]
+    var runningJobIDs: Set<String>
+    var onShowFolderPicker: () -> Void
+    var onRemoveFolder: (Folder) -> Void
+    var onOpenRelated: (ItemSummary) -> Void
+    var onRetryJob: (Job) -> Void
+
+    var body: some View {
+        HStack {
+            DetailFieldLabel("Pastas")
+            Spacer()
+            Button {
+                onShowFolderPicker()
+            } label: {
+                Label("Adicionar", systemImage: "folder.badge.plus")
+            }
+            .buttonStyle(.borderless)
+        }
+        FolderChipLine(folders: folders, onRemove: onRemoveFolder)
+
+        DetailFieldLabel("Links")
+        RelatedItemLine(
+            emptyText: "Nenhum link saindo deste item",
+            items: linkedItems,
+            onOpen: onOpenRelated
+        )
+
+        DetailFieldLabel("Backlinks")
+        RelatedItemLine(
+            emptyText: "Nenhum item aponta para este",
+            items: backlinks,
+            onOpen: onOpenRelated
+        )
+
+        if !jobs.isEmpty {
+            DetailFieldLabel("Tarefas")
+            JobStatusList(
+                jobs: jobs,
+                runningJobIDs: runningJobIDs,
+                onRetry: onRetryJob
+            )
         }
     }
 }
@@ -2046,6 +2424,7 @@ struct AssetPreviewPanel: View {
     var previews: [AssetPreview]
     @Binding var selectedID: String?
     var videoStartTime: Double?
+    var aspectRatio: CGFloat?
 
     private var selectedPreview: AssetPreview? {
         previews.first { $0.id == selectedID } ?? previews.first
@@ -2068,7 +2447,12 @@ struct AssetPreviewPanel: View {
             }
 
             if let selectedPreview {
-                AssetPreviewView(item: item, preview: selectedPreview, videoStartTime: videoStartTime)
+                AssetPreviewView(
+                    item: item,
+                    preview: selectedPreview,
+                    videoStartTime: videoStartTime,
+                    aspectRatio: aspectRatio
+                )
                     .id(selectedPreview.id)
                     .frame(maxWidth: .infinity)
             }
@@ -2082,6 +2466,7 @@ struct AssetPreviewView: View {
     var item: Item
     var preview: AssetPreview
     var videoStartTime: Double?
+    var aspectRatio: CGFloat?
 
     var body: some View {
         switch preview.kind {
@@ -2099,7 +2484,8 @@ struct AssetPreviewView: View {
             VideoAssetPreview(
                 url: preview.temporaryURL,
                 posterURL: model.videoPosterURL(for: item),
-                startTime: videoStartTime
+                startTime: videoStartTime,
+                aspectRatio: aspectRatio
             )
         case .file:
             FilePreview(preview: preview)
@@ -2111,16 +2497,18 @@ struct VideoAssetPreview: View {
     var url: URL
     var posterURL: URL?
     var startTime: Double?
+    var aspectRatio: CGFloat?
 
     @State private var player: AVPlayer
     @State private var didApplyStartTime = false
     @State private var isPlaying = false
     @State private var posterImage: NSImage?
 
-    init(url: URL, posterURL: URL?, startTime: Double?) {
+    init(url: URL, posterURL: URL?, startTime: Double?, aspectRatio: CGFloat? = nil) {
         self.url = url
         self.posterURL = posterURL
         self.startTime = startTime
+        self.aspectRatio = aspectRatio
         _player = State(initialValue: AVPlayer(url: url))
     }
 
@@ -2149,7 +2537,7 @@ struct VideoAssetPreview: View {
                 .animation(.easeInOut(duration: 0.2), value: isPlaying)
             }
         }
-            .frame(height: 320)
+            .modifier(VideoPreviewSizing(aspectRatio: aspectRatio))
             .clipShape(RoundedRectangle(cornerRadius: 8))
             .overlay {
                 RoundedRectangle(cornerRadius: 8)
@@ -2169,6 +2557,18 @@ struct VideoAssetPreview: View {
             .onReceive(player.publisher(for: \.timeControlStatus)) { status in
                 isPlaying = status == .playing
             }
+    }
+}
+
+private struct VideoPreviewSizing: ViewModifier {
+    var aspectRatio: CGFloat?
+
+    func body(content: Content) -> some View {
+        if let aspectRatio {
+            content.aspectRatio(aspectRatio, contentMode: .fit)
+        } else {
+            content.frame(height: 320)
+        }
     }
 }
 

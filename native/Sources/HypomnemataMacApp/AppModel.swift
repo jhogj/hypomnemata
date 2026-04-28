@@ -1345,6 +1345,12 @@ final class AppModel: ObservableObject, @unchecked Sendable {
         if let durationSeconds = result.durationSeconds {
             metadata["duration_seconds"] = String(durationSeconds)
         }
+        if let uploader = result.uploader {
+            metadata["uploader"] = uploader
+        }
+        if let uploadDate = result.uploadDate {
+            metadata["upload_date"] = uploadDate
+        }
         if let thumbnailURL = result.thumbnail?.sourceURL {
             metadata["thumbnail_source_url"] = thumbnailURL
         }

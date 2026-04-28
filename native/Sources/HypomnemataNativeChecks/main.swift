@@ -755,7 +755,7 @@ struct HypomnemataNativeChecks {
             ytDLPPath: "/usr/bin/false",
             runProcess: { _, args, workingDirectory in
                 if args.contains("--dump-json") {
-                    let json = #"{"title":"Stub Video","duration":12.5,"webpage_url":"https://example.com/watch","thumbnail":"https://img.example.com/stub.jpg"}"#
+                    let json = #"{"title":"Stub Video","duration":12.5,"webpage_url":"https://example.com/watch","uploader":"Canal Tal","upload_date":"20260427","thumbnail":"https://img.example.com/stub.jpg"}"#
                     return SubprocessResult(exitCode: 0, stdout: Data(json.utf8), stderr: Data())
                 }
                 if args.contains("--skip-download") {
@@ -781,6 +781,8 @@ struct HypomnemataNativeChecks {
         precondition(downloadedResult.title == "Stub Video")
         precondition(downloadedResult.durationSeconds == 12.5)
         precondition(downloadedResult.webpageURL == "https://example.com/watch")
+        precondition(downloadedResult.uploader == "Canal Tal")
+        precondition(downloadedResult.uploadDate == "20260427")
         precondition(downloadedResult.mimeType == "video/mp4")
         precondition(downloadedResult.originalFilename == "Stub Video [abc].mp4")
         precondition(downloadedResult.subtitles.count == 1)

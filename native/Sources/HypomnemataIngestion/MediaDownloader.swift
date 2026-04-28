@@ -39,6 +39,8 @@ public struct MediaDownloadResult: Sendable, Equatable {
     public var title: String?
     public var durationSeconds: Double?
     public var webpageURL: String?
+    public var uploader: String?
+    public var uploadDate: String?
     public var subtitles: [DownloadedSubtitle]
     public var thumbnail: DownloadedMediaThumbnail?
 
@@ -50,6 +52,8 @@ public struct MediaDownloadResult: Sendable, Equatable {
         title: String? = nil,
         durationSeconds: Double? = nil,
         webpageURL: String? = nil,
+        uploader: String? = nil,
+        uploadDate: String? = nil,
         subtitles: [DownloadedSubtitle] = [],
         thumbnail: DownloadedMediaThumbnail? = nil
     ) {
@@ -60,6 +64,8 @@ public struct MediaDownloadResult: Sendable, Equatable {
         self.title = title
         self.durationSeconds = durationSeconds
         self.webpageURL = webpageURL
+        self.uploader = uploader
+        self.uploadDate = uploadDate
         self.subtitles = subtitles
         self.thumbnail = thumbnail
     }
@@ -171,6 +177,8 @@ public struct YTDLPMediaDownloader: MediaDownloader {
                 title: trimmedNonEmpty(dict["title"] as? String),
                 durationSeconds: doubleValue(dict["duration"]),
                 webpageURL: trimmedNonEmpty(dict["webpage_url"] as? String),
+                uploader: trimmedNonEmpty(dict["uploader"] as? String),
+                uploadDate: trimmedNonEmpty(dict["upload_date"] as? String),
                 thumbnailURL: thumbnailURL(from: dict)
             )
         } catch let error as MediaDownloadError {
@@ -274,6 +282,8 @@ public struct YTDLPMediaDownloader: MediaDownloader {
             title: metadata.title,
             durationSeconds: metadata.durationSeconds,
             webpageURL: metadata.webpageURL ?? sourceURL,
+            uploader: metadata.uploader,
+            uploadDate: metadata.uploadDate,
             subtitles: mode == .video ? subtitles : [],
             thumbnail: thumbnail
         )
@@ -384,6 +394,8 @@ private struct Metadata {
     var title: String?
     var durationSeconds: Double?
     var webpageURL: String?
+    var uploader: String?
+    var uploadDate: String?
     var thumbnailURL: String?
 }
 
