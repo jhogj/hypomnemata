@@ -2654,7 +2654,7 @@ struct VideoAssetPreview: View {
 
     @State private var player: AVPlayer
     @State private var didApplyStartTime = false
-    @State private var isPlaying = false
+    @State private var hasStartedPlayback = false
     @State private var posterImage: NSImage?
 
     init(url: URL, posterURL: URL?, startTime: Double?, aspectRatio: CGFloat? = nil) {
@@ -2674,10 +2674,11 @@ struct VideoAssetPreview: View {
                     .scaledToFill()
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .clipped()
-                    .opacity(isPlaying ? 0 : 1)
-                    .animation(.easeInOut(duration: 0.2), value: isPlaying)
+                    .opacity(hasStartedPlayback ? 0 : 1)
+                    .animation(.easeInOut(duration: 0.2), value: hasStartedPlayback)
                     .allowsHitTesting(false)
                 Button {
+                    hasStartedPlayback = true
                     player.play()
                 } label: {
                     Image(systemName: "play.circle.fill")
@@ -2686,8 +2687,8 @@ struct VideoAssetPreview: View {
                         .shadow(color: .black.opacity(0.4), radius: 8, x: 0, y: 2)
                 }
                 .buttonStyle(.plain)
-                .opacity(isPlaying ? 0 : 1)
-                .animation(.easeInOut(duration: 0.2), value: isPlaying)
+                .opacity(hasStartedPlayback ? 0 : 1)
+                .animation(.easeInOut(duration: 0.2), value: hasStartedPlayback)
             }
         }
             .modifier(VideoPreviewSizing(aspectRatio: aspectRatio))
@@ -2704,11 +2705,14 @@ struct VideoAssetPreview: View {
                     return
                 }
                 didApplyStartTime = true
+                hasStartedPlayback = true
                 player.seek(to: CMTime(seconds: startTime, preferredTimescale: 600))
                 player.play()
             }
             .onReceive(player.publisher(for: \.timeControlStatus)) { status in
-                isPlaying = status == .playing
+                if status == .playing {
+                    hasStartedPlayback = true
+                }
             }
     }
 }
