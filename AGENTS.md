@@ -212,6 +212,11 @@ CLANG_MODULE_CACHE_PATH=/tmp/hypo-clang-cache SWIFTPM_HOME=/tmp/hypo-swiftpm-cac
 - **UI/observabilidade**: `OptimizationState.running` guarda `startedAt`; o detalhe mostra frames/fps/speed quando disponíveis ou tempo em curso com heartbeat de 1s. `AppModel` loga progresso com throttle de 5s para diagnosticar parser vs ffmpeg sem poluir o Console.
 - **Validação**: `swift build --product HypomnemataMacApp` e `swift run HypomnemataNativeChecks` passaram em 2026-04-26.
 
+### 2026-04-26 — ffmpeg suspenso por stdin herdado
+- **Bug**: rodando o app via terminal/Xcode, o `ffmpeg` da otimização podia herdar o TTY do processo pai, tentar ler stdin e receber `SIGTTIN`, ficando em estado `T` sem CPU nem progresso.
+- **Correção**: `FFmpegVideoOptimizer` passa `-nostdin` ao ffmpeg e define `process.standardInput = FileHandle.nullDevice`. `SubprocessRunner` também usa `/dev/null` quando `standardInput` é `nil`, evitando o mesmo problema em `yt-dlp`, `gallery-dl`, `trafilatura`, `ffprobe` e outros subprocessos.
+- **Validação**: `HypomnemataNativeChecks` cobre que subprocesso sem input recebe EOF em stdin. `swift build --product HypomnemataMacApp` e `swift run HypomnemataNativeChecks` passaram em 2026-04-26.
+
 ### 2026-04-25 — Resumo em streaming na sheet de detalhe (Sprint 7.3)
 - **Decisão**: `ItemAIService` ganha `streamSummary(context:)` que retorna `AsyncThrowingStream<String, Error>` reaproveitando exatamente os mesmos `summaryMessages(for:)` do `summarize` síncrono — só muda o transporte (`streamChat` no lugar de `complete`). Isso garante que o resumo gerado pelo botão e o resumo gerado pelos jobs de background convergem para o mesmo prompt.
 - **Camada de app**: `AppModel.streamSummary(title:note:bodyText:onChunk:)` segue o mesmo desenho de `sendChatMessage` — recupera serviço, faz `for try await chunk in stream`, acumula localmente e devolve a string final consolidada (também trim/empty-check). Erros viram mensagem via `LLMRecoverableErrorMapper`. `JobAutomation` continua usando `summarize` síncrono — sem mudança de comportamento em jobs.

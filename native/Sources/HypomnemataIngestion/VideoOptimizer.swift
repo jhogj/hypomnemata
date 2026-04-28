@@ -203,6 +203,7 @@ public struct FFmpegVideoOptimizer: VideoOptimizer {
         process.executableURL = URL(fileURLWithPath: resolvedFFmpeg)
         process.arguments = [
             "-i", input.path,
+            "-nostdin",
             "-vcodec", "libx264",
             "-crf", "28",
             "-preset", "slow",
@@ -220,6 +221,7 @@ public struct FFmpegVideoOptimizer: VideoOptimizer {
 
         let stdoutPipe = Pipe()
         let stderrPipe = Pipe()
+        process.standardInput = FileHandle.nullDevice
         process.standardOutput = stdoutPipe
         process.standardError = stderrPipe
 

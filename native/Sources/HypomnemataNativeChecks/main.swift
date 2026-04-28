@@ -120,6 +120,13 @@ struct HypomnemataNativeChecks {
         precondition(String(data: subprocessResult.stdout, encoding: .utf8) == "stdout")
         precondition(String(data: subprocessResult.stderr, encoding: .utf8) == "stderr")
 
+        let stdinResult = try subprocess.run(
+            executable: "sh",
+            arguments: ["-c", "if read line; then exit 2; else printf eof; fi"]
+        )
+        precondition(stdinResult.exitCode == 0)
+        precondition(String(data: stdinResult.stdout, encoding: .utf8) == "eof")
+
         do {
             _ = try SubprocessRunner(environment: ["PATH": "/tmp/hypomnemata-no-tools"])
                 .resolve(executable: "definitely-not-installed")

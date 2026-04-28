@@ -55,6 +55,7 @@ public struct SubprocessRunner: Sendable {
             process.standardInput = pipe
             inputPipe = pipe
         } else {
+            process.standardInput = FileHandle.nullDevice
             inputPipe = nil
         }
 
